@@ -13,7 +13,7 @@ export default async function Home() {
           Elite v2
         </h1>
         <p className="mt-3 text-lg text-white/80">
-          Signed in as {session.email}
+          Signed in as <span data-pii>{session.email}</span>
           {session.role === "admin" && " (admin)"}.
         </p>
       </div>

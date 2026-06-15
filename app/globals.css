@@ -35,3 +35,21 @@
     transform: scale(1) translateY(0);
   }
 }
+
+/* Privacy / screenshot blur — toggled by body classes set by PrivacyControls.tsx */
+
+body.privacy-blur-media img:not([data-no-blur]):not([data-screenshot-keep]),
+body.privacy-blur-media video:not([data-no-blur]):not([data-screenshot-keep]) {
+  filter: blur(14px);
+  transition: filter 0.15s ease;
+}
+
+body.privacy-blur-pii [data-pii] {
+  filter: blur(8px);
+  user-select: none;
+}
+
+[data-manual-blur] {
+  filter: blur(10px) !important;
+  user-select: none;
+}
