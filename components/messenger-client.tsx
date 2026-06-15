@@ -265,7 +265,7 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
             <Avatar email={u.email} online={onlineIds.has(u.id)} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium">
+                <span data-pii className="truncate text-sm font-medium">
                   {u.email.split("@")[0]}
                 </span>
                 {u.unread > 0 && (
@@ -316,7 +316,7 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
             <div className="flex items-center gap-3">
               <Avatar email={selectedUser.email} online={selectedOnline} />
               <div className="min-w-0">
-                <div className="truncate font-medium">{selectedUser.email}</div>
+                <div data-pii className="truncate font-medium">{selectedUser.email}</div>
                 <div className="text-xs">
                   {typingFrom === selectedId ? (
                     <span className="text-green-400">typing…</span>

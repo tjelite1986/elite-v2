@@ -54,7 +54,7 @@ export default function AccountMenu({
           <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-[10px] font-semibold">
             {getInitials(email)}
           </div>
-          <span className="hidden sm:inline max-w-[8rem] truncate">{email.split("@")[0]}</span>
+          <span data-pii className="hidden sm:inline max-w-[8rem] truncate">{email.split("@")[0]}</span>
           <ChevronDown className="w-3.5 h-3.5 opacity-70" />
         </Menu.Trigger>
       ) : (
@@ -62,7 +62,7 @@ export default function AccountMenu({
           <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-semibold">
             {getInitials(email)}
           </div>
-          <span className="max-w-[10rem] truncate">{email.split("@")[0]}</span>
+          <span data-pii className="max-w-[10rem] truncate">{email.split("@")[0]}</span>
           <ChevronDown className="w-4 h-4 opacity-70" />
         </Menu.Trigger>
       )}
@@ -70,7 +70,7 @@ export default function AccountMenu({
         <Menu.Positioner>
           <Menu.Content className="z-[70] bg-[rgba(28,28,30,0.92)] border border-white/12 rounded-xl shadow-2xl backdrop-blur-md p-1 min-w-56 focus-visible:outline-none">
             <div className="px-3 py-2 border-b border-white/10">
-              <div className="text-sm font-medium text-gray-100 truncate">
+              <div data-pii className="text-sm font-medium text-gray-100 truncate">
                 {email}
               </div>
               <div className="text-xs text-gray-400">

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import TopNav from "@/components/top-nav";
 import WebSocketProvider from "@/components/ws-provider";
+import PrivacyControls from "@/components/PrivacyControls";
 
 // Shared layout for all authenticated pages: renders the macOS menu bar on top
 // and provides the common dark background. Middleware already gates access, but
@@ -25,6 +26,7 @@ export default async function AuthedLayout({
       >
         <TopNav email={session.email} role={session.role} />
         <div className="pt-14">{children}</div>
+        <PrivacyControls />
       </div>
     </WebSocketProvider>
   );
