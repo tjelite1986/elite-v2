@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Typecheck & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+  audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Gate the build only on critical vulnerabilities. High/moderate are
+      # reported below but do not fail CI (the known Next.js DoS advisories
+      # have no fix on the 14.x line and require a major upgrade).
+      - name: Audit production dependencies (fail on critical)
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Report high/moderate vulnerabilities (non-blocking)
+        if: always()
+        run: npm audit --omit=dev || true
