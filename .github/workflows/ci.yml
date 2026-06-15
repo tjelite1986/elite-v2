@@ -22,6 +22,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # The lockfile is generated on arm64 (Raspberry Pi), so npm ci does not
+      # fetch sharp's linux-x64 binary that the CI runner needs.
+      - name: Install sharp binary for runner platform
+        run: npm install --no-save --cpu=x64 --os=linux sharp@0.35.1
+
       - name: Typecheck
         run: npx tsc --noEmit
 
