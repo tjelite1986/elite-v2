@@ -4,7 +4,7 @@ A private, invite-only personal hub: a shared photo/video gallery, real-time
 messaging, and account management behind a glassmorphic, macOS menu-bar style
 interface.
 
-![Elite v2](docs/Screenshot_20260615_200056_Chrome.jpg)
+![Elite v2 gallery](screenshots/Screenshot_20260615_203535_Chrome.jpg)
 
 ## Features
 
@@ -76,6 +76,12 @@ docker compose up -d
 
 The SQLite database and uploaded media live in a persistent volume mounted at
 `DATA_DIR`.
+
+## Screenshots
+
+| Messaging | Navigation | Account menu |
+| --------- | ---------- | ------------ |
+| ![Messaging](screenshots/Screenshot_20260615_203506_Chrome.jpg) | ![Navigation menu](screenshots/Screenshot_20260615_203435_Chrome.jpg) | ![Account menu](screenshots/Screenshot_20260615_203604_Chrome.jpg) |
 
 ## CI
 
