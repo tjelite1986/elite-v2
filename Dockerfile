@@ -15,6 +15,14 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
+# Production-only dependencies, with native modules recompiled for this image.
+# Keeps typescript/tailwind/@types/postcss out of the runtime image.
+FROM node:20-slim AS prod-deps
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev
+
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -34,7 +42,7 @@ RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs \
   && mkdir -p /app/data && chown -R nextjs:nodejs /app
 
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=prod-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --chown=nextjs:nodejs package.json next.config.mjs server.mjs ./
