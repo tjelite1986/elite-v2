@@ -1,0 +1,31 @@
+# Build artifacts and deps are produced inside the image — never copy the host's.
+# Copying host node_modules would clobber the container-compiled native modules
+# (better-sqlite3, sharp) and risk an ABI mismatch.
+node_modules
+.next
+out
+
+# VCS and local tooling
+.git
+.gitignore
+.github
+
+# Runtime/user data must not be baked into the image
+data
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets and local env
+.env
+.env.*
+
+# Logs and misc
+*.log
+npm-debug.log*
+.DS_Store
+
+# Don't need these in the build context
+Dockerfile
+.dockerignore
+README.md
