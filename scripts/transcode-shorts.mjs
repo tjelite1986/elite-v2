@@ -105,7 +105,7 @@ function fullTranscode(src, dst) {
 }
 
 function makePoster(videoPath, posterPath) {
-  let seek = "0.5";
+  let pct = "0.5";
   try {
     const out = execFileSync(
       "ffprobe",
@@ -113,17 +113,26 @@ function makePoster(videoPath, posterPath) {
       { encoding: "utf8" }
     );
     const dur = parseFloat(out.trim());
-    if (dur > 0) seek = (dur * 0.25).toFixed(2);
+    if (dur > 0) pct = (dur * 0.25).toFixed(2);
   } catch {
     /* keep default seek */
   }
-  execFileSync(
-    "ffmpeg",
-    ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
-     "-ss", seek, "-i", videoPath, "-vframes", "1",
-     "-vf", "scale='min(720,iw)':-2", "-q:v", "5", posterPath],
-    { stdio: "ignore" }
-  );
+  // Some files yield no frame when seeking deep in (broken index / sparse
+  // keyframes), so fall back to early seeks and finally the first frame.
+  for (const seek of [pct, "1", "0"]) {
+    try {
+      execFileSync(
+        "ffmpeg",
+        ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+         "-ss", seek, "-i", videoPath, "-vframes", "1",
+         "-vf", "scale='min(720,iw)':-2", "-q:v", "5", posterPath],
+        { stdio: "ignore" }
+      );
+    } catch {
+      /* try the next seek */
+    }
+    if (fs.existsSync(posterPath) && fs.statSync(posterPath).size > 0) return;
+  }
 }
 
 function videoDimensions(filePath) {
@@ -234,7 +243,41 @@ for (const row of rows) {
   }
 }
 
-if (processed > 0 || failed > 0) {
-  log(`run complete: ${processed} processed, ${failed} failed`);
+// --- Poster backfill -------------------------------------------------------
+// Clips already stored as .web.mp4 (e.g. imports / legacy clips) are skipped by
+// the transcode loop above, so any of them without a poster never got a
+// thumbnail. Generate one from the existing video, no re-encode.
+let postersMade = 0;
+const noPoster = db
+  .prepare(
+    `SELECT id, channel, storage_key, poster_key
+       FROM shorts
+      WHERE is_deleted = 0
+        AND status = 'ready'
+        AND (poster_key IS NULL OR poster_key = '')`
+  )
+  .all();
+
+for (const row of noPoster) {
+  const dir = channelDir(row.channel);
+  const src = path.join(dir, row.storage_key);
+  if (!fs.existsSync(src)) continue;
+  const base = row.storage_key.replace(/\.[^.]+$/, "");
+  const pk = `${base}.jpg`;
+  try {
+    makePoster(src, path.join(dir, pk));
+    if (fs.existsSync(path.join(dir, pk))) {
+      db.prepare("UPDATE shorts SET poster_key = ? WHERE id = ?").run(pk, row.id);
+      postersMade++;
+    }
+  } catch {
+    /* poster is best-effort */
+  }
+}
+
+if (processed > 0 || failed > 0 || postersMade > 0) {
+  log(
+    `run complete: ${processed} processed, ${failed} failed, ${postersMade} posters backfilled`
+  );
 }
 db.close();
