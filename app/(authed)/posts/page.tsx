@@ -4,6 +4,7 @@ import { Compass } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import PostFeed from "@/components/post-feed";
+import StoryRail from "@/components/story-rail";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +12,11 @@ export const dynamic = "force-dynamic";
 export default async function PostsHomePage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  ensureUserProfile(Number(session.sub), session.email);
+  const profile = ensureUserProfile(Number(session.sub), session.email);
 
   return (
-    <div className="mx-auto max-w-md px-1 pb-24 pt-28 text-white">
+    <div className="mx-auto max-w-md px-1 pb-24 pt-24 text-white">
+      <StoryRail myUsername={profile.username} />
       <PostFeed
         query={{ scope: "home" }}
         empty="Your feed is empty — follow people on Explore to see their posts here."

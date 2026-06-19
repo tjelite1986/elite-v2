@@ -65,10 +65,11 @@ export default function NotificationBell() {
     return () => clearInterval(t);
   }, [load]);
 
-  // Refresh immediately when a new message arrives over the socket.
+  // Refresh immediately when a new message or notification arrives over the
+  // socket (likes/comments/follows push `type: "notification"`).
   React.useEffect(() => {
     return subscribe((event) => {
-      if (event.type === "message") load();
+      if (event.type === "message" || event.type === "notification") load();
     });
   }, [subscribe, load]);
 
