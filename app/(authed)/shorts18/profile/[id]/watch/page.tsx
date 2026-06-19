@@ -27,6 +27,7 @@ export default async function Profile18WatchPage({
       basePath="/shorts18"
       profileId={profile.id}
       focusId={focus && !isNaN(focus) ? focus : undefined}
+      isAdmin={session.role === "admin"}
     />
   );
 }

@@ -126,6 +126,7 @@ export default function ShortsFeed({
             muted={muted}
             onToggleMuted={() => setMuted((m) => !m)}
             categoryEditable={isAdmin && channel === "18plus"}
+            isAdmin={isAdmin}
           />
         </div>
       ))}

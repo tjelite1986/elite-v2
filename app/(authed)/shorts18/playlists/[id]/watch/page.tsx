@@ -28,6 +28,7 @@ export default async function Playlist18WatchPage({
       basePath="/shorts18"
       playlistId={pl.id}
       focusId={focus && !isNaN(focus) ? focus : undefined}
+      isAdmin={session.role === "admin"}
     />
   );
 }
