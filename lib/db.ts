@@ -244,6 +244,125 @@ function migrate(db: Database.Database) {
       total INTEGER NOT NULL DEFAULT 0,
       message TEXT
     );
+
+    -- Instagram-style social photo feed ("posts"). Shares the one users table;
+    -- a post is authored either by a real user OR a mirrored creator, never both.
+
+    -- Shared public profile layer (1:1 with users). Other modules can attribute
+    -- by a real handle/avatar instead of splitting the email.
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      username TEXT NOT NULL UNIQUE,
+      display_name TEXT,
+      avatar_key TEXT,
+      bio TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Mirrored creators imported from the on-disk instagram library. NOT user
+    -- accounts (same distinction as short_profiles).
+    CREATE TABLE IF NOT EXISTS post_creators (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      display_name TEXT,
+      avatar_key TEXT,
+      bio TEXT,
+      source TEXT NOT NULL DEFAULT 'import',
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      author_user_id INTEGER REFERENCES users(id),
+      author_creator_id INTEGER REFERENCES post_creators(id),
+      caption TEXT,
+      is_adult INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      is_deleted INTEGER NOT NULL DEFAULT 0,
+      CHECK ((author_user_id IS NULL) <> (author_creator_id IS NULL))
+    );
+    CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(is_deleted, created_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_author_user ON posts(author_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_author_creator ON posts(author_creator_id, created_at);
+
+    -- Carousel images for a post, ordered by position. media_version busts the
+    -- by-id media URL cache after a re-crop (the gallery ?v= pattern).
+    CREATE TABLE IF NOT EXISTS post_media (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      storage_key TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      position INTEGER NOT NULL DEFAULT 0,
+      media_version INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
+
+    CREATE TABLE IF NOT EXISTS post_likes (
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (post_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS post_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments(post_id, created_at);
+
+    -- Polymorphic social graph: a user follows either another user or a creator.
+    CREATE TABLE IF NOT EXISTS follows (
+      follower_id INTEGER NOT NULL REFERENCES users(id),
+      target_type TEXT NOT NULL CHECK (target_type IN ('user','creator')),
+      target_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (follower_id, target_type, target_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_follows_target ON follows(target_type, target_id);
+
+    -- Ephemeral 24h stories (users only in v1).
+    CREATE TABLE IF NOT EXISTS stories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      author_user_id INTEGER NOT NULL REFERENCES users(id),
+      storage_key TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      media_version INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_stories_expires ON stories(expires_at);
+
+    CREATE TABLE IF NOT EXISTS story_views (
+      story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (story_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),       -- recipient
+      type TEXT NOT NULL,                                  -- like|comment|follow|mention
+      actor_user_id INTEGER NOT NULL REFERENCES users(id),
+      post_id INTEGER,
+      comment_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      read_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at, created_at);
+
+    CREATE TABLE IF NOT EXISTS post_hashtags (
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      tag TEXT NOT NULL,
+      PRIMARY KEY (post_id, tag)
+    );
+    CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
   `);
 
   // Backfill last_seen for databases created before this column existed.
@@ -317,6 +436,58 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE gallery_items ADD COLUMN camera TEXT");
     if (!galleryColumns.includes("description"))
       db.exec("ALTER TABLE gallery_items ADD COLUMN description TEXT");
+  }
+
+  // Give every existing user a public profile (username/avatar/bio) so the posts
+  // module and attribution work. Username = slugified email local-part, with a
+  // numeric suffix on collision; the user can change it later in settings.
+  const usersNeedingProfile = db
+    .prepare(
+      `SELECT u.id, u.email FROM users u
+        LEFT JOIN user_profiles p ON p.user_id = u.id
+       WHERE p.user_id IS NULL`
+    )
+    .all() as { id: number; email: string }[];
+  if (usersNeedingProfile.length > 0) {
+    const exists = db.prepare(
+      "SELECT 1 FROM user_profiles WHERE username = ? LIMIT 1"
+    );
+    const insertProfile = db.prepare(
+      "INSERT INTO user_profiles (user_id, username) VALUES (?, ?)"
+    );
+    for (const u of usersNeedingProfile) {
+      const base =
+        (u.email.split("@")[0] || `user${u.id}`)
+          .toLowerCase()
+          .replace(/[^a-z0-9._]+/g, "")
+          .replace(/^[._]+|[._]+$/g, "")
+          .slice(0, 30) || `user${u.id}`;
+      let username = base;
+      let n = 1;
+      while (exists.get(username)) username = `${base}${n++}`;
+      insertProfile.run(u.id, username);
+    }
+  }
+
+  // Full-text search over post captions (FTS5). Guarded: if the SQLite build
+  // lacks FTS5 the posts search falls back to LIKE, so this must not throw.
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts
+        USING fts5(caption, content='posts', content_rowid='id');
+      CREATE TRIGGER IF NOT EXISTS posts_ai AFTER INSERT ON posts BEGIN
+        INSERT INTO posts_fts(rowid, caption) VALUES (new.id, new.caption);
+      END;
+      CREATE TRIGGER IF NOT EXISTS posts_ad AFTER DELETE ON posts BEGIN
+        INSERT INTO posts_fts(posts_fts, rowid, caption) VALUES('delete', old.id, old.caption);
+      END;
+      CREATE TRIGGER IF NOT EXISTS posts_au AFTER UPDATE ON posts BEGIN
+        INSERT INTO posts_fts(posts_fts, rowid, caption) VALUES('delete', old.id, old.caption);
+        INSERT INTO posts_fts(rowid, caption) VALUES (new.id, new.caption);
+      END;
+    `);
+  } catch {
+    /* FTS5 unavailable — search uses a LIKE fallback */
   }
 }
 
@@ -497,4 +668,87 @@ export interface ShortProfileRow {
   skipped_ids: string;
   last_polled_at: string | null;
   created_at: string;
+}
+
+// --- Posts module (Instagram-style social photo feed) ---
+
+export interface UserProfileRow {
+  user_id: number;
+  username: string;
+  display_name: string | null;
+  avatar_key: string | null;
+  bio: string | null;
+  created_at: string;
+}
+
+export interface PostCreatorRow {
+  id: number;
+  username: string;
+  display_name: string | null;
+  avatar_key: string | null;
+  bio: string | null;
+  source: string;
+  is_adult: number;
+  created_at: string;
+}
+
+export interface PostRow {
+  id: number;
+  author_user_id: number | null;
+  author_creator_id: number | null;
+  caption: string | null;
+  is_adult: number;
+  created_at: string;
+  is_deleted: number;
+}
+
+export interface PostMediaRow {
+  id: number;
+  post_id: number;
+  storage_key: string;
+  mime_type: string;
+  width: number | null;
+  height: number | null;
+  position: number;
+  media_version: number;
+}
+
+export interface PostCommentRow {
+  id: number;
+  post_id: number;
+  user_id: number;
+  body: string;
+  created_at: string;
+}
+
+export type FollowTargetType = "user" | "creator";
+
+export interface FollowRow {
+  follower_id: number;
+  target_type: FollowTargetType;
+  target_id: number;
+  created_at: string;
+}
+
+export interface StoryRow {
+  id: number;
+  author_user_id: number;
+  storage_key: string;
+  mime_type: string;
+  media_version: number;
+  created_at: string;
+  expires_at: string;
+}
+
+export type NotificationType = "like" | "comment" | "follow" | "mention";
+
+export interface NotificationRow {
+  id: number;
+  user_id: number;
+  type: NotificationType;
+  actor_user_id: number;
+  post_id: number | null;
+  comment_id: number | null;
+  created_at: string;
+  read_at: string | null;
 }

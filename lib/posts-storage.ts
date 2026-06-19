@@ -1,0 +1,156 @@
+import fs from "node:fs";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import sharp from "sharp";
+import {
+  isSupportedImage,
+  isHeic,
+  heicToJpeg,
+  getExt,
+} from "./gallery-storage";
+
+// Storage for the posts module. Standalone from the gallery/shorts: defaults
+// under the data volume but in production it's a bind-mounted host folder
+// (POSTS_ROOT) at /mnt/4tb/elitev2/posts. Layout:
+//   <author-slug>/<uuid>.jpg      display image (auto-oriented, capped)
+//   <author-slug>/<uuid>_t.jpg    square thumbnail for grids
+//   avatars/<uuid>.jpg            user/creator avatars
+//   _import/                      drop folder for the creator importer
+const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
+export const POSTS_ROOT =
+  process.env.POSTS_ROOT || path.join(DATA_DIR, "posts");
+
+export const AVATARS_SUBDIR = "avatars";
+export const IMPORT_SUBDIR = "_import";
+
+const DISPLAY_MAX = 1440;
+const THUMB_SIZE = 600;
+const AVATAR_SIZE = 320;
+
+// Filesystem-safe folder name for an author (user or creator), matching the
+// username slug rules so an author maps to one folder. Kept identical to the
+// importer's slug so re-runs are stable.
+export function authorSlug(name: string | null | undefined): string {
+  const slug = (name || "unknown")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "_")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 64);
+  return slug || "unknown";
+}
+
+function ensureDir(dir: string) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+// Absolute path for a media key (relative to POSTS_ROOT, includes the subfolder).
+export function mediaPathFor(storageKey: string): string {
+  return path.join(POSTS_ROOT, storageKey);
+}
+
+// The grid thumbnail lives next to the display image as <uuid>_t.jpg.
+export function thumbKeyFor(storageKey: string): string {
+  return storageKey.replace(/\.jpg$/i, "_t.jpg");
+}
+
+export function avatarPathFor(avatarKey: string): string {
+  return path.join(POSTS_ROOT, avatarKey);
+}
+
+export interface StoredPostImage {
+  storageKey: string;
+  mimeType: string; // always image/jpeg (we transcode)
+  width: number | null;
+  height: number | null;
+}
+
+// Persist one post image: convert HEIC if needed, auto-orient, write a capped
+// display JPEG + a square thumbnail under the author's folder. Throws if the
+// file isn't a supported image so the caller can reject the upload.
+export async function storePostImage(
+  slug: string,
+  filename: string,
+  mime: string,
+  buffer: Buffer
+): Promise<StoredPostImage> {
+  if (!isSupportedImage(filename, mime)) {
+    throw new Error("Unsupported file type — images only");
+  }
+
+  const dir = path.join(POSTS_ROOT, slug);
+  ensureDir(dir);
+
+  const source = isHeic(filename, mime) ? heicToJpeg(buffer) : buffer;
+  const uuid = randomUUID();
+  const storageKey = `${slug}/${uuid}.jpg`;
+  const displayPath = path.join(dir, `${uuid}.jpg`);
+  const thumbPath = path.join(dir, `${uuid}_t.jpg`);
+
+  // Auto-orient (strip EXIF rotation) and cap the long edge for the feed.
+  const upright = await sharp(source).rotate().toBuffer();
+  const meta = await sharp(upright).metadata();
+
+  await sharp(upright)
+    .resize(DISPLAY_MAX, DISPLAY_MAX, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 82 })
+    .toFile(displayPath);
+
+  await sharp(upright)
+    .resize(THUMB_SIZE, THUMB_SIZE, { fit: "cover" })
+    .jpeg({ quality: 75 })
+    .toFile(thumbPath);
+
+  return {
+    storageKey,
+    mimeType: "image/jpeg",
+    width: meta.width ?? null,
+    height: meta.height ?? null,
+  };
+}
+
+// Persist an avatar (square crop). Returns the avatar_key.
+export async function storeAvatar(
+  filename: string,
+  mime: string,
+  buffer: Buffer
+): Promise<string> {
+  if (!isSupportedImage(filename, mime)) {
+    throw new Error("Unsupported file type — images only");
+  }
+  const dir = path.join(POSTS_ROOT, AVATARS_SUBDIR);
+  ensureDir(dir);
+  const source = isHeic(filename, mime) ? heicToJpeg(buffer) : buffer;
+  const uuid = randomUUID();
+  const key = `${AVATARS_SUBDIR}/${uuid}.jpg`;
+  await sharp(source)
+    .rotate()
+    .resize(AVATAR_SIZE, AVATAR_SIZE, { fit: "cover" })
+    .jpeg({ quality: 82 })
+    .toFile(path.join(dir, `${uuid}.jpg`));
+  return key;
+}
+
+// Remove a post image's display + thumbnail (best effort).
+export function deletePostImageFiles(storageKey: string) {
+  for (const p of [mediaPathFor(storageKey), mediaPathFor(thumbKeyFor(storageKey))]) {
+    try {
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
+// We only ever write .jpg, but keep the route's Content-Type honest from the
+// on-disk extension (never echo a client-supplied mime).
+const IMAGE_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+};
+
+export function imageMimeFor(filename: string): string {
+  return IMAGE_MIME[getExt(filename)] || "image/jpeg";
+}
