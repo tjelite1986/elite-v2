@@ -1,0 +1,14 @@
+[Unit]
+Description=Transcode elite-v2 shorts to web-optimized .web.mp4
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=thomas
+Group=thomas
+# Runs inside the container so it shares its ffmpeg, better-sqlite3 and the
+# /shorts-store mount. The script is idempotent and locks against overlap.
+ExecStart=/usr/bin/docker exec elitev2 node scripts/transcode-shorts.mjs
+Nice=15
+IOSchedulingClass=idle

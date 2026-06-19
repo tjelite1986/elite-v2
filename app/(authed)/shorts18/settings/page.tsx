@@ -1,0 +1,45 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Upload } from "lucide-react";
+import { getSession } from "@/lib/auth";
+import ShortsAdmin from "@/components/shorts-admin";
+import ShortsImportButton from "@/components/shorts-import-button";
+
+export const dynamic = "force-dynamic";
+
+// 18+ settings: upload to the adult channel (everyone) + import folder + manual /
+// auto-poll profile management locked to the 18+ channel (admins).
+export default async function Shorts18SettingsPage() {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  const isAdmin = session.role === "admin";
+
+  return (
+    <div className="mx-auto max-w-2xl px-4 pb-24 pt-16 text-white">
+      <section className="mb-8">
+        <h1 className="mb-3 text-lg font-semibold">Upload</h1>
+        <Link
+          href="/shorts18/upload"
+          className="flex w-fit items-center gap-2 rounded-full bg-rose-500 px-5 py-2.5 text-sm font-semibold transition active:scale-95"
+        >
+          <Upload size={16} /> Upload to 18+
+        </Link>
+      </section>
+
+      {isAdmin && (
+        <section className="mb-8">
+          <h2 className="mb-1 text-lg font-semibold">Import folder</h2>
+          <p className="mb-3 text-sm text-white/50">
+            Drop files named <code className="text-white/70">profile_-_title.mp4</code>{" "}
+            into the import folder, then sort them in. Everything before{" "}
+            <code className="text-white/70">_-_</code> becomes the profile name;
+            clips land as Uncategorized for you to sort per category.
+          </p>
+          <ShortsImportButton />
+        </section>
+      )}
+
+      {isAdmin && <ShortsAdmin channel="18plus" basePath="/shorts18" />}
+    </div>
+  );
+}

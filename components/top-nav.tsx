@@ -18,6 +18,8 @@ export default function TopNav({ email, role }: TopNavProps) {
     { label: "Dashboard", action: "dashboard" },
     { label: "Messages", action: "messages" },
     { label: "Gallery", action: "gallery" },
+    { label: "Shorts", action: "shorts" },
+    { label: "Shorts 18+", action: "shorts18" },
   ];
 
   const activeAction =
@@ -27,7 +29,11 @@ export default function TopNav({ email, role }: TopNavProps) {
         ? "messages"
         : pathname.startsWith("/gallery")
           ? "gallery"
-          : "";
+          : pathname.startsWith("/shorts18")
+            ? "shorts18"
+            : pathname.startsWith("/shorts")
+              ? "shorts"
+              : "";
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -40,6 +46,8 @@ export default function TopNav({ email, role }: TopNavProps) {
     if (action === "dashboard") router.push("/");
     if (action === "messages") router.push("/messages");
     if (action === "gallery") router.push("/gallery");
+    if (action === "shorts") router.push("/shorts");
+    if (action === "shorts18") router.push("/shorts18");
   };
 
   return (

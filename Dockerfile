@@ -46,6 +46,9 @@ COPY --from=prod-deps --chown=nextjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --chown=nextjs:nodejs package.json next.config.mjs server.mjs ./
+# Maintenance scripts (e.g. the shorts transcoder run via `docker exec` on a
+# host systemd timer). Plain .mjs, executed with the runtime node_modules.
+COPY --chown=nextjs:nodejs scripts ./scripts
 
 USER nextjs
 EXPOSE 3000

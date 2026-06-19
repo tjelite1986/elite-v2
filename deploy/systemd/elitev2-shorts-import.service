@@ -1,0 +1,15 @@
+[Unit]
+Description=Sort dropped files in the elite-v2 18+ shorts import folder
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=thomas
+Group=thomas
+# Runs inside the container (shares the /shorts-store mount + better-sqlite3).
+# Files in 18plus/_import are moved into profile folders as 'uncategorized'
+# shorts; plain originals come in 'pending' for the transcoder.
+ExecStart=/usr/bin/docker exec elitev2 node scripts/import-shorts.mjs
+Nice=18
+IOSchedulingClass=idle
