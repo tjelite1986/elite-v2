@@ -13,12 +13,16 @@ import {
   Send,
   Bookmark,
   Plus,
+  Tag,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
 
 export interface FeedShort {
   id: number;
   channel: string;
+  category: string;
   caption: string | null;
   uploader_id: number | null;
   uploader_email: string | null;
@@ -65,11 +69,14 @@ export default function ShortCard({
   active,
   muted,
   onToggleMuted,
+  categoryEditable = false,
 }: {
   short: FeedShort;
   active: boolean;
   muted: boolean;
   onToggleMuted: () => void;
+  // Admins in the 18+ section get a category button to sort the clip in place.
+  categoryEditable?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -84,6 +91,8 @@ export default function ShortCard({
   const [showSave, setShowSave] = useState(false);
   const [saved, setSaved] = useState(short.viewer_saved);
   const [commentCount, setCommentCount] = useState(short.comment_count);
+  const [showCategory, setShowCategory] = useState(false);
+  const [category, setCategory] = useState(short.category);
 
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -229,6 +238,13 @@ export default function ShortCard({
           label="Share"
           onClick={() => setShowShare(true)}
         />
+        {categoryEditable && (
+          <RailButton
+            icon={<Tag size={28} />}
+            label={CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? "Category"}
+            onClick={() => setShowCategory(true)}
+          />
+        )}
         <RailButton
           icon={muted ? <VolumeX size={28} /> : <Volume2 size={28} />}
           label={muted ? "Muted" : "Sound"}
@@ -272,7 +288,77 @@ export default function ShortCard({
           onSavedChange={setSaved}
         />
       )}
+      {showCategory && (
+        <CategorySheet
+          shortId={short.id}
+          current={category}
+          onClose={() => setShowCategory(false)}
+          onChange={setCategory}
+        />
+      )}
     </section>
+  );
+}
+
+// Admin category picker for the 18+ feed: tap a bucket to sort the clip in place.
+function CategorySheet({
+  shortId,
+  current,
+  onClose,
+  onChange,
+}: {
+  shortId: number;
+  current: string;
+  onClose: () => void;
+  onChange: (category: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const set = async (category: string) => {
+    if (busy || category === current) {
+      onClose();
+      return;
+    }
+    setBusy(true);
+    const prev = current;
+    onChange(category); // optimistic
+    const res = await fetch(`/api/shorts/${shortId}/category`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category }),
+    });
+    if (!res.ok) onChange(prev);
+    setBusy(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
+      <div
+        className="flex flex-col rounded-t-2xl bg-neutral-900 text-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <span className="font-semibold">Category</span>
+          <button onClick={onClose}>
+            <X size={20} />
+          </button>
+        </div>
+        <div className="px-2 py-2">
+          {SHORT_CATEGORIES.map((c) => (
+            <button
+              key={c}
+              onClick={() => set(c)}
+              disabled={busy}
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left hover:bg-white/5 disabled:opacity-50"
+            >
+              <span className="text-sm font-medium">{CATEGORY_LABELS[c]}</span>
+              {current === c && <Check size={18} className="text-rose-500" />}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
