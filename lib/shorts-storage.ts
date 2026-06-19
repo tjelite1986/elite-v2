@@ -151,6 +151,64 @@ function durationFromProbe(filePath: string): number | null {
   }
 }
 
+// Capture a poster from a specific point in the video (the admin "set cover"
+// action while watching), since auto-extracted frames aren't always flattering.
+// Writes a new poster file in the same folder as the video, deletes the old
+// one, and returns the new poster storageKey. Throws if no frame is produced.
+export async function setCustomPoster(
+  channel: ShortChannel,
+  storageKey: string,
+  oldPosterKey: string | null,
+  timeSeconds: number
+): Promise<string> {
+  const videoPath = videoPathFor(channel, storageKey);
+  if (!fs.existsSync(videoPath)) throw new Error("Video file missing");
+
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { execFileSync } = require("node:child_process");
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const os = require("node:os");
+
+  const tmpOut = path.join(os.tmpdir(), `${randomUUID()}.jpg`);
+  const seek = Math.max(0, Number(timeSeconds) || 0).toFixed(2);
+  try {
+    execFileSync(
+      "ffmpeg",
+      ["-y", "-ss", seek, "-i", videoPath, "-frames:v", "1", "-q:v", "3", tmpOut],
+      { stdio: "ignore" }
+    );
+    if (!fs.existsSync(tmpOut) || fs.statSync(tmpOut).size === 0) {
+      throw new Error("ffmpeg produced no frame at that time");
+    }
+
+    const dir = path.dirname(storageKey); // same folder as the video
+    const newKey =
+      dir === "." ? `${randomUUID()}.jpg` : `${dir}/${randomUUID()}.jpg`;
+    const newPath = posterPathFor(channel, newKey);
+    ensureDir(path.dirname(newPath));
+    await sharp(tmpOut)
+      .resize(POSTER_MAX, POSTER_MAX, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toFile(newPath);
+
+    if (oldPosterKey && oldPosterKey !== newKey) {
+      const oldPath = posterPathFor(channel, oldPosterKey);
+      try {
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      } catch {
+        /* best effort */
+      }
+    }
+    return newKey;
+  } finally {
+    try {
+      if (fs.existsSync(tmpOut)) fs.unlinkSync(tmpOut);
+    } catch {
+      /* best effort */
+    }
+  }
+}
+
 export function deleteShortFiles(
   channel: ShortChannel,
   storageKey: string,

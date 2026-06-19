@@ -29,6 +29,7 @@ export default async function ProfileWatchPage({
       channel={profile.channel}
       profileId={profile.id}
       focusId={focus && !isNaN(focus) ? focus : undefined}
+      isAdmin={session.role === "admin"}
     />
   );
 }

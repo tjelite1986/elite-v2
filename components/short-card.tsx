@@ -15,6 +15,7 @@ import {
   Plus,
   Tag,
   Check,
+  Image as ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
@@ -70,6 +71,7 @@ export default function ShortCard({
   muted,
   onToggleMuted,
   categoryEditable = false,
+  isAdmin = false,
 }: {
   short: FeedShort;
   active: boolean;
@@ -77,6 +79,8 @@ export default function ShortCard({
   onToggleMuted: () => void;
   // Admins in the 18+ section get a category button to sort the clip in place.
   categoryEditable?: boolean;
+  // Admins get a "Cover" button to set the thumbnail from the current frame.
+  isAdmin?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -93,8 +97,38 @@ export default function ShortCard({
   const [commentCount, setCommentCount] = useState(short.comment_count);
   const [showCategory, setShowCategory] = useState(false);
   const [category, setCategory] = useState(short.category);
+  const [coverMsg, setCoverMsg] = useState<string | null>(null);
 
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Admin "set cover": grab the frame the admin paused on and make it the
+  // poster. Server re-extracts it from the file at that timestamp.
+  const setCover = async () => {
+    const v = videoRef.current;
+    if (!v) return;
+    const time = v.currentTime || 0;
+    v.pause();
+    setCoverMsg("Saving cover…");
+    try {
+      const res = await fetch(`/api/shorts/${short.id}/poster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ time }),
+      });
+      if (res.ok) {
+        // The poster URL is keyed by id, so bust the cache to show the new one.
+        if (videoRef.current) {
+          videoRef.current.poster = `/api/shorts/${short.id}/poster?v=${Date.now()}`;
+        }
+        setCoverMsg("Cover set");
+      } else {
+        setCoverMsg("Failed");
+      }
+    } catch {
+      setCoverMsg("Failed");
+    }
+    setTimeout(() => setCoverMsg(null), 2000);
+  };
 
   // Drive playback from the active flag: the in-view card plays, all others
   // pause and rewind so they restart cleanly when scrolled back to.
@@ -179,6 +213,13 @@ export default function ShortCard({
         }}
       />
 
+      {/* Cover-set feedback */}
+      {coverMsg && (
+        <div className="pointer-events-none absolute left-1/2 top-20 z-10 -translate-x-1/2 rounded-full bg-black/75 px-4 py-1.5 text-sm font-medium text-white">
+          {coverMsg}
+        </div>
+      )}
+
       {/* Double-tap like burst */}
       {burst && (
         <Heart
@@ -243,6 +284,13 @@ export default function ShortCard({
             icon={<Tag size={28} />}
             label={CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? "Category"}
             onClick={() => setShowCategory(true)}
+          />
+        )}
+        {isAdmin && (
+          <RailButton
+            icon={<ImageIcon size={28} />}
+            label="Cover"
+            onClick={setCover}
           />
         )}
         <RailButton

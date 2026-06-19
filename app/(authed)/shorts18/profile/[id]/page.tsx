@@ -51,6 +51,7 @@ export default async function Shorts18ProfilePage({
         query={{ profile: String(profile.id) }}
         hrefPrefix={`/shorts18/profile/${profile.id}/watch?focus=`}
         empty="No clips for this profile yet."
+        adminActions={session.role === "admin"}
       />
     </div>
   );

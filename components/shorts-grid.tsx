@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Play, Heart } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Play, Heart, Pencil, Trash2 } from "lucide-react";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
 
 interface GridShort {
@@ -23,13 +24,17 @@ export default function ShortsGrid({
   hrefPrefix,
   empty = "No clips yet.",
   categoryEditable = false,
+  adminActions = false,
 }: {
   query: Record<string, string>;
   hrefPrefix: string;
   empty?: string;
   // Admins in the 18+ section get a per-tile category selector to sort clips.
   categoryEditable?: boolean;
+  // Admins get per-tile rename + delete buttons (used on profile pages).
+  adminActions?: boolean;
 }) {
+  const router = useRouter();
   const [items, setItems] = useState<GridShort[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
@@ -91,6 +96,32 @@ export default function ShortsGrid({
     if (!res.ok) setItems(prev);
   };
 
+  const renameClip = async (id: number, current: string | null) => {
+    const title = window.prompt("Title", current ?? "");
+    if (title === null) return; // cancelled
+    const res = await fetch(`/api/shorts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ caption: title }),
+    });
+    if (res.ok) {
+      const d = await res.json().catch(() => ({}));
+      setItems((list) =>
+        list.map((s) => (s.id === id ? { ...s, caption: d.caption ?? null } : s))
+      );
+    }
+  };
+
+  const deleteClip = async (id: number) => {
+    if (!window.confirm("Delete this clip? The video file will be removed."))
+      return;
+    const res = await fetch(`/api/shorts/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setItems((list) => list.filter((s) => s.id !== id));
+      router.refresh(); // update the server-rendered clip count
+    }
+  };
+
   if (loadedOnce && items.length === 0) {
     return <p className="px-4 py-16 text-center text-sm text-white/50">{empty}</p>;
   }
@@ -136,6 +167,34 @@ export default function ShortsGrid({
                   </option>
                 ))}
               </select>
+            )}
+            {adminActions && (
+              <div className="absolute right-1 top-1 flex gap-1">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    renameClip(s.id, s.caption);
+                  }}
+                  className="rounded bg-black/70 p-1 text-white ring-1 ring-white/20 transition active:scale-90"
+                  title="Rename"
+                  aria-label="Rename clip"
+                >
+                  <Pencil size={13} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    deleteClip(s.id);
+                  }}
+                  className="rounded bg-black/70 p-1 text-rose-300 ring-1 ring-white/20 transition active:scale-90 hover:text-rose-400"
+                  title="Delete"
+                  aria-label="Delete clip"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             )}
           </div>
         ))}
