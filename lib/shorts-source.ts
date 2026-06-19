@@ -32,14 +32,17 @@ export function buildClipUrl(
   if (!sourceRef) return null;
 
   // Parse the profile ref so the host check is anchored to the real hostname
-  // (not just "contains tiktok.com" somewhere in the path).
-  let host: string;
+  // (not just "contains tiktok.com" somewhere in the path), and drop any query
+  // string / hash — TikTok "share" links carry ?_r=1&_t=… tracking params that
+  // would otherwise land in the middle of the constructed /video/<id> URL.
+  let u: URL;
   try {
-    host = new URL(sourceRef).hostname.toLowerCase();
+    u = new URL(sourceRef);
   } catch {
     return null;
   }
-  const base = sourceRef.replace(/\/+$/, "");
+  const host = u.hostname.toLowerCase();
+  const base = `${u.origin}${u.pathname}`.replace(/\/+$/, "");
 
   // TikTok: numeric video id under the channel handle.
   if (
