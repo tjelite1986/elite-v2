@@ -26,17 +26,36 @@ export function buildClipUrl(
   sourceId: string | null | undefined
 ): string | null {
   if (!sourceId) return null;
-  // Some sources already store a full URL as the id.
+  // Some sources already store a full URL as the id. Only accept a real
+  // https(s) URL so it can never be mistaken for a yt-dlp flag.
   if (/^https?:\/\//i.test(sourceId)) return sourceId;
   if (!sourceRef) return null;
 
+  // Parse the profile ref so the host check is anchored to the real hostname
+  // (not just "contains tiktok.com" somewhere in the path).
+  let host: string;
+  try {
+    host = new URL(sourceRef).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
   const base = sourceRef.replace(/\/+$/, "");
+
   // TikTok: numeric video id under the channel handle.
-  if (/tiktok\.com\/@/i.test(base) && /^\d+$/.test(sourceId)) {
+  if (
+    (host === "tiktok.com" || host.endsWith(".tiktok.com")) &&
+    /\/@/.test(base) &&
+    /^\d+$/.test(sourceId)
+  ) {
     return `${base}/video/${sourceId}`;
   }
   // YouTube: 11-char video id.
-  if (/youtube\.com|youtu\.be/i.test(base) && /^[\w-]{11}$/.test(sourceId)) {
+  if (
+    (host === "youtube.com" ||
+      host.endsWith(".youtube.com") ||
+      host === "youtu.be") &&
+    /^[\w-]{11}$/.test(sourceId)
+  ) {
     return `https://www.youtube.com/watch?v=${sourceId}`;
   }
   return null;
@@ -54,7 +73,7 @@ export async function fetchOriginalTitle(
   try {
     const { stdout } = await execFileAsync(
       YT_DLP,
-      ["--no-warnings", "--skip-download", "--dump-single-json", url],
+      ["--no-warnings", "--skip-download", "--dump-single-json", "--", url],
       { maxBuffer: 32 * 1024 * 1024, timeout: 45_000 }
     );
     const j = JSON.parse(stdout);
@@ -77,6 +96,7 @@ async function deriveYtDlpName(ref: string): Promise<string | null> {
         "--playlist-end", "1",
         "--dump-single-json",
         "--no-warnings",
+        "--",
         ref,
       ],
       { maxBuffer: 32 * 1024 * 1024, timeout: 30_000 }

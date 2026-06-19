@@ -24,16 +24,31 @@ const DELAY_MS = 800; // be gentle with the source between requests
 const log = (m) => console.log(`[fetch-titles] ${m}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Mirror lib/shorts-source.ts buildClipUrl().
+// Mirror lib/shorts-source.ts buildClipUrl() (host-anchored, https-only).
 function buildClipUrl(sourceRef, sourceId) {
   if (!sourceId) return null;
   if (/^https?:\/\//i.test(sourceId)) return sourceId;
   if (!sourceRef) return null;
+  let host;
+  try {
+    host = new URL(sourceRef).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
   const base = sourceRef.replace(/\/+$/, "");
-  if (/tiktok\.com\/@/i.test(base) && /^\d+$/.test(sourceId)) {
+  if (
+    (host === "tiktok.com" || host.endsWith(".tiktok.com")) &&
+    /\/@/.test(base) &&
+    /^\d+$/.test(sourceId)
+  ) {
     return `${base}/video/${sourceId}`;
   }
-  if (/youtube\.com|youtu\.be/i.test(base) && /^[\w-]{11}$/.test(sourceId)) {
+  if (
+    (host === "youtube.com" ||
+      host.endsWith(".youtube.com") ||
+      host === "youtu.be") &&
+    /^[\w-]{11}$/.test(sourceId)
+  ) {
     return `https://www.youtube.com/watch?v=${sourceId}`;
   }
   return null;
@@ -43,7 +58,7 @@ function fetchTitle(url) {
   try {
     const out = execFileSync(
       YT_DLP,
-      ["--no-warnings", "--skip-download", "--dump-single-json", url],
+      ["--no-warnings", "--skip-download", "--dump-single-json", "--", url],
       { encoding: "utf8", timeout: 45_000, maxBuffer: 32 * 1024 * 1024 }
     );
     const j = JSON.parse(out);

@@ -310,11 +310,11 @@ export default function ShortCard({
 
       {/* Right rail */}
       {!chromeHidden && (
-      <div className="absolute bottom-24 right-3 flex flex-col items-center gap-5 text-white">
+      <div className="absolute bottom-16 right-2 flex flex-col items-center gap-3 text-white">
         <RailButton
           icon={
             <Heart
-              size={32}
+              size={22}
               className={cn(liked && "fill-rose-500 text-rose-500")}
             />
           }
@@ -322,14 +322,14 @@ export default function ShortCard({
           onClick={() => toggleLike()}
         />
         <RailButton
-          icon={<MessageCircle size={32} />}
+          icon={<MessageCircle size={22} />}
           label={String(commentCount)}
           onClick={() => setShowComments(true)}
         />
         <RailButton
           icon={
             <Bookmark
-              size={30}
+              size={22}
               className={cn(saved && "fill-yellow-400 text-yellow-400")}
             />
           }
@@ -337,39 +337,39 @@ export default function ShortCard({
           onClick={() => setShowSave(true)}
         />
         <RailButton
-          icon={<Share2 size={32} />}
+          icon={<Share2 size={22} />}
           label="Share"
           onClick={() => setShowShare(true)}
         />
         {categoryEditable && (
           <RailButton
-            icon={<Tag size={28} />}
+            icon={<Tag size={22} />}
             label={CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? "Category"}
             onClick={() => setShowCategory(true)}
           />
         )}
         {isAdmin && (
           <RailButton
-            icon={<ImageIcon size={28} />}
+            icon={<ImageIcon size={22} />}
             label="Cover"
             onClick={setCover}
           />
         )}
         {isAdmin && (
           <RailButton
-            icon={<Type size={28} />}
+            icon={<Type size={22} />}
             label="Title"
             onClick={fetchTitle}
           />
         )}
         <RailButton
-          icon={muted ? <VolumeX size={28} /> : <Volume2 size={28} />}
+          icon={muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
           label={muted ? "Muted" : "Sound"}
           onClick={onToggleMuted}
         />
         {onToggleChrome && (
           <RailButton
-            icon={<Minimize2 size={28} />}
+            icon={<Minimize2 size={22} />}
             label="Hide UI"
             onClick={onToggleChrome}
           />
@@ -501,10 +501,12 @@ function RailButton({
   return (
     <button
       onClick={onClick}
-      className="flex flex-col items-center gap-1 transition active:scale-90"
+      className="flex flex-col items-center gap-0.5 transition active:scale-90"
     >
       <span className="drop-shadow-lg">{icon}</span>
-      <span className="text-xs font-medium drop-shadow">{label}</span>
+      <span className="text-[10px] font-medium leading-tight drop-shadow">
+        {label}
+      </span>
     </button>
   );
 }
