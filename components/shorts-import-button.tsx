@@ -4,9 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FolderInput, Loader2 } from "lucide-react";
 
-// Admin trigger to scan the 18+ import folder on demand. The host systemd timer
-// runs the same scan automatically; this button is for immediate sorting.
-export default function ShortsImportButton() {
+// Admin trigger to scan a channel's import folder on demand. The host systemd
+// timers run the same scan automatically; this button is for immediate sorting.
+export default function ShortsImportButton({
+  channel = "18plus",
+}: {
+  channel?: "main" | "18plus";
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -15,7 +19,11 @@ export default function ShortsImportButton() {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch("/api/shorts/import", { method: "POST" });
+      const res = await fetch("/api/shorts/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel }),
+      });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
         setMsg(

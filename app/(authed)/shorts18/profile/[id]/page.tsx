@@ -52,6 +52,7 @@ export default async function Shorts18ProfilePage({
         hrefPrefix={`/shorts18/profile/${profile.id}/watch?focus=`}
         empty="No clips for this profile yet."
         adminActions={session.role === "admin"}
+        channel="18plus"
       />
     </div>
   );

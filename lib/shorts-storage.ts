@@ -209,6 +209,59 @@ export async function setCustomPoster(
   }
 }
 
+export interface MovedShortKeys {
+  storageKey: string;
+  posterKey: string | null;
+}
+
+// Reassign a clip to another profile by moving its files into that profile's
+// folder (clips live under <channel>/<slug>/). Keeps the basenames, only the
+// folder changes, so the video/poster routes resolve the new keys unchanged.
+// Returns the updated keys; the caller persists them with the new profile_id.
+// On a filename collision in the destination a short suffix is added so two
+// clips never clobber each other.
+export function moveShortToProfile(
+  channel: ShortChannel,
+  storageKey: string,
+  posterKey: string | null,
+  newProfileName: string
+): MovedShortKeys {
+  const slug = profileSlug(newProfileName);
+  const destDir = path.join(channelDir(channel), slug);
+  ensureDir(destDir);
+
+  const moveOne = (key: string): string => {
+    const src = path.join(channelDir(channel), key);
+    let base = path.basename(key);
+    let dest = path.join(destDir, base);
+    // Avoid overwriting an existing file from another clip in the same profile.
+    if (fs.existsSync(dest) && path.resolve(src) !== path.resolve(dest)) {
+      const ext = base.toLowerCase().endsWith(".web.mp4")
+        ? ".web.mp4"
+        : path.extname(base);
+      const stem = base.slice(0, base.length - ext.length);
+      base = `${stem}_${randomUUID().slice(0, 8)}${ext}`;
+      dest = path.join(destDir, base);
+    }
+    fs.renameSync(src, dest);
+    return `${slug}/${base}`;
+  };
+
+  const newStorageKey = moveOne(storageKey);
+  let newPosterKey: string | null = null;
+  if (posterKey) {
+    try {
+      newPosterKey = moveOne(posterKey);
+    } catch {
+      // Poster missing or unmovable: drop the reference rather than fail the
+      // whole reassign — the transcoder can backfill a poster later.
+      newPosterKey = null;
+    }
+  }
+
+  return { storageKey: newStorageKey, posterKey: newPosterKey };
+}
+
 export function deleteShortFiles(
   channel: ShortChannel,
   storageKey: string,

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Upload } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import ShortsAdmin from "@/components/shorts-admin";
+import ShortsImportButton from "@/components/shorts-import-button";
 import ShortsDuplicates from "@/components/shorts-duplicates";
 import ShortsTitleFetch from "@/components/shorts-title-fetch";
 
@@ -25,6 +26,21 @@ export default async function ShortsSettingsPage() {
           <Upload size={16} /> Upload a short
         </Link>
       </section>
+
+      {isAdmin && (
+        <section className="mb-8">
+          <h2 className="mb-1 text-lg font-semibold">Import folder</h2>
+          <p className="mb-3 text-sm text-white/50">
+            Drop files named{" "}
+            <code className="text-white/70">profile_-_title.mp4</code> into the
+            import folder, then sort them in. Everything before{" "}
+            <code className="text-white/70">_-_</code> becomes the profile name.
+            Unnamed files land under a fallback profile — open the profile and
+            use the move button on a clip to reassign it afterwards.
+          </p>
+          <ShortsImportButton channel="main" />
+        </section>
+      )}
 
       {isAdmin && <ShortsDuplicates channel="main" />}
 
