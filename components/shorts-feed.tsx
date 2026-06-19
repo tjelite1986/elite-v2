@@ -33,9 +33,29 @@ export default function ShortsFeed({
   const [loading, setLoading] = useState(false);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [muted, setMuted] = useState(true);
+  // Clean view: hide all overlay UI (rail, caption, progress) for a distraction-
+  // free fullscreen feel. Persisted, and toggled back by long-pressing a clip.
+  const [chromeHidden, setChromeHidden] = useState(false);
+  const [hint, setHint] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setChromeHidden(localStorage.getItem("shorts:chromeHidden") === "1");
+  }, []);
+
+  const toggleChrome = useCallback(() => {
+    setChromeHidden((prev) => {
+      const next = !prev;
+      localStorage.setItem("shorts:chromeHidden", next ? "1" : "0");
+      if (next) {
+        setHint(true);
+        setTimeout(() => setHint(false), 2500);
+      }
+      return next;
+    });
+  }, []);
 
   const load = useCallback(async () => {
     if (loading || !hasMore) return;
@@ -127,11 +147,19 @@ export default function ShortsFeed({
             onToggleMuted={() => setMuted((m) => !m)}
             categoryEditable={isAdmin && channel === "18plus"}
             isAdmin={isAdmin}
+            chromeHidden={chromeHidden}
+            onToggleChrome={toggleChrome}
           />
         </div>
       ))}
 
       <div ref={sentinelRef} className="h-1 w-full" />
+
+      {hint && (
+        <div className="pointer-events-none fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/75 px-4 py-2 text-sm font-medium text-white">
+          Long-press a clip to show the controls again
+        </div>
+      )}
 
       {!loading && items.length === 0 && (
         <div className="flex h-full flex-col items-center justify-center gap-3 text-white/60">

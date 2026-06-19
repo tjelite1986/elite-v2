@@ -231,6 +231,19 @@ function migrate(db: Database.Database) {
       sig TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- Single-row progress beacon for the bulk "fetch original titles" job, so
+    -- the admin UI can poll while scripts/fetch-shorts-titles.mjs runs detached.
+    CREATE TABLE IF NOT EXISTS short_title_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
+      started_at TEXT,
+      finished_at TEXT,
+      processed INTEGER NOT NULL DEFAULT 0,
+      updated INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      message TEXT
+    );
   `);
 
   // Backfill last_seen for databases created before this column existed.
@@ -457,6 +470,17 @@ export interface ShortDupeStateRow {
   finished_at: string | null;
   scanned: number;
   groups: number;
+  message: string | null;
+}
+
+export interface ShortTitleStateRow {
+  id: number;
+  status: "idle" | "running" | "done" | "error";
+  started_at: string | null;
+  finished_at: string | null;
+  processed: number;
+  updated: number;
+  total: number;
   message: string | null;
 }
 

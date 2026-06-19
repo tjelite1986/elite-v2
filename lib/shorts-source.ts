@@ -18,6 +18,56 @@ export async function deriveProfileName(
   return resolved || nameFromUrl(sourceRef);
 }
 
+// Reconstruct the source URL for a single clip from its profile's source_ref
+// (e.g. https://www.tiktok.com/@handle) and stored source_id. Returns null when
+// the clip can't be resolved (manual profiles, missing/odd ids).
+export function buildClipUrl(
+  sourceRef: string | null | undefined,
+  sourceId: string | null | undefined
+): string | null {
+  if (!sourceId) return null;
+  // Some sources already store a full URL as the id.
+  if (/^https?:\/\//i.test(sourceId)) return sourceId;
+  if (!sourceRef) return null;
+
+  const base = sourceRef.replace(/\/+$/, "");
+  // TikTok: numeric video id under the channel handle.
+  if (/tiktok\.com\/@/i.test(base) && /^\d+$/.test(sourceId)) {
+    return `${base}/video/${sourceId}`;
+  }
+  // YouTube: 11-char video id.
+  if (/youtube\.com|youtu\.be/i.test(base) && /^[\w-]{11}$/.test(sourceId)) {
+    return `https://www.youtube.com/watch?v=${sourceId}`;
+  }
+  return null;
+}
+
+// Fetch the original caption of a single clip via yt-dlp. Prefers the full
+// `description` (TikTok's `title` is truncated with "…"); falls back to title.
+// Returns the trimmed text, or null on any failure.
+export async function fetchOriginalTitle(
+  sourceRef: string | null | undefined,
+  sourceId: string | null | undefined
+): Promise<string | null> {
+  const url = buildClipUrl(sourceRef, sourceId);
+  if (!url) return null;
+  try {
+    const { stdout } = await execFileAsync(
+      YT_DLP,
+      ["--no-warnings", "--skip-download", "--dump-single-json", url],
+      { maxBuffer: 32 * 1024 * 1024, timeout: 45_000 }
+    );
+    const j = JSON.parse(stdout);
+    const text =
+      (typeof j.description === "string" && j.description.trim()) ||
+      (typeof j.title === "string" && j.title.trim()) ||
+      "";
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
 async function deriveYtDlpName(ref: string): Promise<string | null> {
   try {
     const { stdout } = await execFileAsync(

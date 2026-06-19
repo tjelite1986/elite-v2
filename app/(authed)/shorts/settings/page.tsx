@@ -4,6 +4,7 @@ import { Upload } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import ShortsAdmin from "@/components/shorts-admin";
 import ShortsDuplicates from "@/components/shorts-duplicates";
+import ShortsTitleFetch from "@/components/shorts-title-fetch";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,8 @@ export default async function ShortsSettingsPage() {
       </section>
 
       {isAdmin && <ShortsDuplicates channel="main" />}
+
+      {isAdmin && <ShortsTitleFetch channel="main" />}
 
       {isAdmin && <ShortsAdmin channel="main" basePath="/shorts" />}
     </div>

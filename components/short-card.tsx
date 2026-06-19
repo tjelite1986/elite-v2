@@ -16,6 +16,8 @@ import {
   Tag,
   Check,
   Image as ImageIcon,
+  Minimize2,
+  Type,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
@@ -72,6 +74,8 @@ export default function ShortCard({
   onToggleMuted,
   categoryEditable = false,
   isAdmin = false,
+  chromeHidden = false,
+  onToggleChrome,
 }: {
   short: FeedShort;
   active: boolean;
@@ -81,6 +85,9 @@ export default function ShortCard({
   categoryEditable?: boolean;
   // Admins get a "Cover" button to set the thumbnail from the current frame.
   isAdmin?: boolean;
+  // Clean view: hide all overlay UI. Long-press the clip to toggle it back.
+  chromeHidden?: boolean;
+  onToggleChrome?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -98,8 +105,28 @@ export default function ShortCard({
   const [showCategory, setShowCategory] = useState(false);
   const [category, setCategory] = useState(short.category);
   const [coverMsg, setCoverMsg] = useState<string | null>(null);
+  const [caption, setCaption] = useState(short.caption);
 
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+
+  // Long-press toggles the clean (chrome-hidden) view, the only way back once
+  // the rail is hidden. Any movement cancels it so it never fires while
+  // scrolling between clips.
+  const onPointerDown = () => {
+    longPressed.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      onToggleChrome?.();
+    }, 550);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
   // Admin "set cover": grab the frame the admin paused on and make it the
   // poster. Server re-extracts it from the file at that timestamp.
@@ -128,6 +155,28 @@ export default function ShortCard({
       setCoverMsg("Failed");
     }
     setTimeout(() => setCoverMsg(null), 2000);
+  };
+
+  // Admin "Title": fetch the original title from the source (e.g. the TikTok
+  // video) and use it as the caption. Useful for legacy imports whose titles
+  // were truncated or missing.
+  const fetchTitle = async () => {
+    setCoverMsg("Fetching title…");
+    try {
+      const res = await fetch(`/api/shorts/${short.id}/fetch-title`, {
+        method: "POST",
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setCaption(d.caption ?? null);
+        setCoverMsg("Title updated");
+      } else {
+        setCoverMsg(d.error || "No title found");
+      }
+    } catch {
+      setCoverMsg("Failed");
+    }
+    setTimeout(() => setCoverMsg(null), 2500);
   };
 
   // Drive playback from the active flag: the in-view card plays, all others
@@ -176,6 +225,11 @@ export default function ShortCard({
   };
 
   const onTap = () => {
+    // A long-press just toggled the chrome — swallow the trailing click.
+    if (longPressed.current) {
+      longPressed.current = false;
+      return;
+    }
     // Defer single-tap (play/pause) so a quick second tap becomes a like.
     if (tapTimer.current) {
       clearTimeout(tapTimer.current);
@@ -205,6 +259,11 @@ export default function ShortCard({
         playsInline
         preload="metadata"
         onClick={onTap}
+        onPointerDown={onPointerDown}
+        onPointerUp={cancelLongPress}
+        onPointerMove={cancelLongPress}
+        onPointerCancel={cancelLongPress}
+        onPointerLeave={cancelLongPress}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onTimeUpdate={(e) => {
@@ -240,14 +299,17 @@ export default function ShortCard({
       )}
 
       {/* Progress bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/15">
-        <div
-          className="h-full bg-white transition-[width] duration-150"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
+      {!chromeHidden && (
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/15">
+          <div
+            className="h-full bg-white transition-[width] duration-150"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      )}
 
       {/* Right rail */}
+      {!chromeHidden && (
       <div className="absolute bottom-24 right-3 flex flex-col items-center gap-5 text-white">
         <RailButton
           icon={
@@ -293,31 +355,48 @@ export default function ShortCard({
             onClick={setCover}
           />
         )}
+        {isAdmin && (
+          <RailButton
+            icon={<Type size={28} />}
+            label="Title"
+            onClick={fetchTitle}
+          />
+        )}
         <RailButton
           icon={muted ? <VolumeX size={28} /> : <Volume2 size={28} />}
           label={muted ? "Muted" : "Sound"}
           onClick={onToggleMuted}
         />
+        {onToggleChrome && (
+          <RailButton
+            icon={<Minimize2 size={28} />}
+            label="Hide UI"
+            onClick={onToggleChrome}
+          />
+        )}
       </div>
+      )}
 
       {/* Caption / uploader */}
-      <div className="absolute bottom-6 left-4 right-20 text-white">
-        {short.profile_id ? (
-          <Link
-            href={`/shorts/profile/${short.profile_id}`}
-            className="inline-block text-sm font-semibold drop-shadow transition active:scale-95"
-          >
-            @{authorLabel(short)}
-          </Link>
-        ) : (
-          <div className="text-sm font-semibold drop-shadow">
-            @{authorLabel(short)}
-          </div>
-        )}
-        {short.caption && (
-          <p className="mt-1 line-clamp-3 text-sm drop-shadow">{short.caption}</p>
-        )}
-      </div>
+      {!chromeHidden && (
+        <div className="absolute bottom-6 left-4 right-20 text-white">
+          {short.profile_id ? (
+            <Link
+              href={`/shorts/profile/${short.profile_id}`}
+              className="inline-block text-sm font-semibold drop-shadow transition active:scale-95"
+            >
+              @{authorLabel(short)}
+            </Link>
+          ) : (
+            <div className="text-sm font-semibold drop-shadow">
+              @{authorLabel(short)}
+            </div>
+          )}
+          {caption && (
+            <p className="mt-1 line-clamp-3 text-sm drop-shadow">{caption}</p>
+          )}
+        </div>
+      )}
 
       {showComments && (
         <CommentsSheet
