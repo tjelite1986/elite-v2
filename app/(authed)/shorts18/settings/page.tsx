@@ -37,7 +37,7 @@ export default async function Shorts18SettingsPage() {
             <code className="text-white/70">_-_</code> becomes the profile name;
             clips land as Uncategorized for you to sort per category.
           </p>
-          <ShortsImportButton />
+          <ShortsImportButton channel="18plus" />
         </section>
       )}
 
