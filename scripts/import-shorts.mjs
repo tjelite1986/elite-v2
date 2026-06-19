@@ -26,6 +26,7 @@
 // Output: human log lines + a final `RESULT {json}` line the API route parses.
 
 import Database from "better-sqlite3";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -93,6 +94,39 @@ function sanitizeStem(stem) {
     .replace(/_+/g, "_")
     .replace(/^[_ .]+|[_ .]+$/g, "");
   return cleaned || "clip";
+}
+
+// Extract a poster frame (~25% in) so imported clips get a thumbnail right away
+// instead of waiting for the transcoder's backfill. Best-effort.
+function makePoster(videoPath, posterPath) {
+  let pct = "0.5";
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", videoPath],
+      { encoding: "utf8" }
+    );
+    const dur = parseFloat(out.trim());
+    if (dur > 0) pct = (dur * 0.25).toFixed(2);
+  } catch {
+    /* keep default seek */
+  }
+  // Some files yield no frame when seeking deep in (broken index / sparse
+  // keyframes), so fall back to early seeks and finally the first frame.
+  for (const seek of [pct, "1", "0"]) {
+    try {
+      execFileSync(
+        "ffmpeg",
+        ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+         "-ss", seek, "-i", videoPath, "-vframes", "1",
+         "-vf", "scale='min(720,iw)':-2", "-q:v", "5", posterPath],
+        { stdio: "ignore" }
+      );
+    } catch {
+      /* try the next seek */
+    }
+    if (fs.existsSync(posterPath) && fs.statSync(posterPath).size > 0) return;
+  }
 }
 
 function mimeFor(ext) {
@@ -207,6 +241,17 @@ for (const entry of entries) {
       } catch {
         /* best effort */
       }
+    }
+  }
+
+  // No sidecar poster: generate one now so the thumbnail shows immediately.
+  if (!posterKey) {
+    const pk = `${safeStem}.jpg`;
+    try {
+      makePoster(destVideo, path.join(destDir, pk));
+      if (fs.existsSync(path.join(destDir, pk))) posterKey = `${slug}/${pk}`;
+    } catch {
+      /* best effort — transcoder will backfill */
     }
   }
 
