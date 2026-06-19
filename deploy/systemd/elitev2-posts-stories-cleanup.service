@@ -1,0 +1,12 @@
+[Unit]
+Description=Delete expired elite-v2 stories (rows + files)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=thomas
+Group=thomas
+ExecStart=/usr/bin/docker exec elitev2 node scripts/cleanup-stories.mjs
+Nice=18
+IOSchedulingClass=idle

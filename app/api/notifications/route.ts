@@ -69,6 +69,42 @@ export async function GET() {
     }
   }
 
+  // Unread posts-module notifications (likes/comments/follows).
+  const postNotifs = db
+    .prepare(
+      `SELECT n.id, n.type, n.post_id AS postId, n.created_at AS createdAt,
+              up.username AS actor
+         FROM notifications n
+         LEFT JOIN user_profiles up ON up.user_id = n.actor_user_id
+        WHERE n.user_id = ? AND n.read_at IS NULL
+        ORDER BY n.id DESC LIMIT 50`
+    )
+    .all(userId) as {
+    id: number;
+    type: string;
+    postId: number | null;
+    createdAt: string;
+    actor: string | null;
+  }[];
+
+  const POST_ACTION: Record<string, string> = {
+    like: "liked your post",
+    comment: "commented on your post",
+    follow: "started following you",
+    mention: "mentioned you",
+  };
+
+  for (const n of postNotifs) {
+    const actor = n.actor ?? "someone";
+    notifications.push({
+      id: `post-${n.id}`,
+      user: actor,
+      action: POST_ACTION[n.type] ?? "interacted with you",
+      timestamp: n.createdAt,
+      href: n.type === "follow" ? `/posts/u/${actor}` : `/posts/p/${n.postId ?? ""}`,
+    });
+  }
+
   // Newest first.
   notifications.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
 
@@ -85,9 +121,13 @@ export async function POST() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const userId = Number(session.sub);
   db.prepare(
     "UPDATE messages SET read_at = datetime('now') WHERE recipient_id = ? AND read_at IS NULL"
-  ).run(Number(session.sub));
+  ).run(userId);
+  db.prepare(
+    "UPDATE notifications SET read_at = datetime('now') WHERE user_id = ? AND read_at IS NULL"
+  ).run(userId);
 
   return NextResponse.json({ ok: true });
 }
