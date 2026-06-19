@@ -1,0 +1,11 @@
+[Unit]
+Description=Run elitev2-shorts-dupescan daily
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=10min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

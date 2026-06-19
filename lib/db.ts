@@ -188,6 +188,49 @@ function migrate(db: Database.Database) {
       added_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (playlist_id, short_id)
     );
+
+    -- Duplicate-scan results. scripts/scan-shorts-duplicates.mjs groups clips
+    -- that are byte-identical (same sha256) or perceptually identical (matching
+    -- sampled-frame hashes + similar duration), then marks the highest-quality
+    -- member to keep. Reported for admin review — nothing is deleted
+    -- automatically. The whole table is rewritten on each scan; one row per
+    -- short that belongs to a group, tied together by group_key.
+    CREATE TABLE IF NOT EXISTS short_dupe_groups (
+      group_key TEXT NOT NULL,
+      short_id INTEGER NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+      channel TEXT NOT NULL,
+      match_type TEXT NOT NULL,            -- 'exact' | 'perceptual'
+      quality_score REAL NOT NULL DEFAULT 0,
+      is_best INTEGER NOT NULL DEFAULT 0,  -- the clip to keep; others are dupes
+      scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (group_key, short_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_short_dupe_short
+      ON short_dupe_groups(short_id);
+
+    -- Single-row progress beacon for the duplicate scan, so the admin UI can
+    -- poll while the detached scan runs.
+    CREATE TABLE IF NOT EXISTS short_dupe_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
+      started_at TEXT,
+      finished_at TEXT,
+      scanned INTEGER NOT NULL DEFAULT 0,
+      groups INTEGER NOT NULL DEFAULT 0,
+      message TEXT
+    );
+
+    -- Per-clip fingerprint cache (sha256 + JSON array of frame hashes) so repeat
+    -- scans skip hashing/decoding clips whose file size is unchanged. Written by
+    -- scripts/scan-shorts-duplicates.mjs.
+    CREATE TABLE IF NOT EXISTS short_media_fp (
+      short_id INTEGER PRIMARY KEY REFERENCES shorts(id) ON DELETE CASCADE,
+      size_bytes INTEGER NOT NULL,
+      sha TEXT,
+      sig TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Backfill last_seen for databases created before this column existed.
@@ -395,6 +438,26 @@ export interface ShortCommentRow {
   user_id: number;
   body: string;
   created_at: string;
+}
+
+export interface ShortDupeGroupRow {
+  group_key: string;
+  short_id: number;
+  channel: ShortChannel;
+  match_type: "exact" | "perceptual";
+  quality_score: number;
+  is_best: number;
+  scanned_at: string;
+}
+
+export interface ShortDupeStateRow {
+  id: number;
+  status: "idle" | "running" | "done" | "error";
+  started_at: string | null;
+  finished_at: string | null;
+  scanned: number;
+  groups: number;
+  message: string | null;
 }
 
 export interface ShortProfileRow {
