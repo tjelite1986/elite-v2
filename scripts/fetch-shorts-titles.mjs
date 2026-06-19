@@ -29,13 +29,16 @@ function buildClipUrl(sourceRef, sourceId) {
   if (!sourceId) return null;
   if (/^https?:\/\//i.test(sourceId)) return sourceId;
   if (!sourceRef) return null;
-  let host;
+  let u;
   try {
-    host = new URL(sourceRef).hostname.toLowerCase();
+    u = new URL(sourceRef);
   } catch {
     return null;
   }
-  const base = sourceRef.replace(/\/+$/, "");
+  const host = u.hostname.toLowerCase();
+  // Drop query/hash so TikTok share-link params (?_r=1&_t=…) don't break the
+  // constructed /video/<id> URL.
+  const base = `${u.origin}${u.pathname}`.replace(/\/+$/, "");
   if (
     (host === "tiktok.com" || host.endsWith(".tiktok.com")) &&
     /\/@/.test(base) &&
