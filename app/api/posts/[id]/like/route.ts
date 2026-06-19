@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { has18Access } from "@/lib/shorts-gate";
 import { getPostRow } from "@/lib/posts";
 import { notify } from "@/lib/notifications";
 
@@ -18,6 +19,9 @@ export async function POST(
 
   const post = getPostRow(Number(params.id));
   if (!post) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (post.is_adult && !(await has18Access())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const existing = db
     .prepare("SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?")

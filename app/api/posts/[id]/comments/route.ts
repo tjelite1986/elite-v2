@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { has18Access } from "@/lib/shorts-gate";
 import { getPostRow } from "@/lib/posts";
 import { notify } from "@/lib/notifications";
 
@@ -13,6 +14,14 @@ export async function GET(
 ) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Re-check the 18+ gate here too — every sibling interaction endpoint must
+  // gate independently, not just the post/media GET.
+  const post = getPostRow(Number(params.id));
+  if (!post) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (post.is_adult && !(await has18Access())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const comments = db
     .prepare(
@@ -38,6 +47,9 @@ export async function POST(
 
   const post = getPostRow(Number(params.id));
   if (!post) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (post.is_adult && !(await has18Access())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const body = await request.json().catch(() => ({}));
   const text = typeof body?.body === "string" ? body.body.trim() : "";
