@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { GATE_COOKIE, verifyGateToken } from "@/lib/shorts-gate";
 
 // Public paths that never require a session.
 const PUBLIC_PATHS = ["/login", "/register", "/request-invite"];
@@ -27,6 +28,16 @@ export async function middleware(request: NextRequest) {
   // Gate the admin area on role.
   if (pathname.startsWith("/admin") && session?.role !== "admin") {
     return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // Gate the separate 18+ shorts section behind a valid PIN-unlock cookie. The
+  // /shorts18 root is allowed through so its layout can render the PIN prompt;
+  // deeper paths (profiles, settings, watch views) require an unlocked gate.
+  if (pathname.startsWith("/shorts18/") || pathname === "/shorts18") {
+    const gateOk = await verifyGateToken(request.cookies.get(GATE_COOKIE)?.value);
+    if (!gateOk && pathname !== "/shorts18") {
+      return NextResponse.redirect(new URL("/shorts18", request.url));
+    }
   }
 
   return NextResponse.next();

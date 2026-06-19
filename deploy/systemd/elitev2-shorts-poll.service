@@ -1,0 +1,14 @@
+[Unit]
+Description=Poll elite-v2 shorts auto-poll profiles for new clips
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=thomas
+Group=thomas
+# Runs inside the container (shares yt-dlp mount, ffmpeg, better-sqlite3 and the
+# /shorts-store mount). Downloads land as 'pending' shorts for the transcoder.
+ExecStart=/usr/bin/docker exec elitev2 node scripts/poll-shorts.mjs
+Nice=18
+IOSchedulingClass=idle

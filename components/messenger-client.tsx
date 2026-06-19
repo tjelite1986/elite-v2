@@ -8,6 +8,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  Play,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWs } from "@/components/ws-provider";
@@ -38,11 +39,29 @@ interface Attachment {
   album_name?: string;
 }
 
+interface ShortAttachment {
+  id: number;
+  channel: string;
+  caption: string | null;
+  has_poster: boolean;
+}
+
 function parseAttachment(m: Message): Attachment | null {
   if (!m.attachment_type || !m.attachment_data) return null;
   try {
     const d = JSON.parse(m.attachment_data);
     if (Array.isArray(d.ids) && d.ids.length > 0) return d;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function parseShortAttachment(m: Message): ShortAttachment | null {
+  if (m.attachment_type !== "short" || !m.attachment_data) return null;
+  try {
+    const d = JSON.parse(m.attachment_data);
+    if (typeof d.id === "number") return d as ShortAttachment;
   } catch {
     /* ignore */
   }
@@ -350,6 +369,7 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
             messages.map((m) => {
               const mine = m.sender_id === meId;
               const att = parseAttachment(m);
+              const shortAtt = parseShortAttachment(m);
               return (
                 <div
                   key={m.id}
@@ -419,6 +439,35 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
                           </button>
                         ))}
                       </div>
+                    )}
+
+                    {shortAtt && (
+                      <a
+                        href={`/shorts${shortAtt.channel === "18plus" ? "/18" : ""}?focus=${shortAtt.id}`}
+                        className="mt-1 flex items-center gap-3 rounded-xl bg-black/20 p-2 text-left transition hover:bg-black/30"
+                      >
+                        <span className="relative size-14 shrink-0 overflow-hidden rounded-lg bg-white/10">
+                          {shortAtt.has_poster && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={`/api/shorts/${shortAtt.id}/poster`}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          )}
+                          <span className="absolute inset-0 flex items-center justify-center">
+                            <Play size={18} className="drop-shadow" />
+                          </span>
+                        </span>
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-1.5 font-medium">
+                            <Play size={14} /> Short
+                          </span>
+                          <span className="block max-w-[180px] truncate text-xs opacity-70">
+                            {shortAtt.caption || "Watch clip"}
+                          </span>
+                        </span>
+                      </a>
                     )}
 
                     <div

@@ -110,6 +110,84 @@ function migrate(db: Database.Database) {
       added_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (album_id, item_id)
     );
+
+    -- Short-video ("shorts") feed: a standalone TikTok-style module with its own
+    -- storage, separate from the gallery. channel splits the safe-for-work feed
+    -- ('main') from the PIN-gated adult feed ('18plus').
+    CREATE TABLE IF NOT EXISTS shorts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL DEFAULT 'main',
+      -- Adult-content sorting bucket (18+ channel): straight/gay/lesbian/trans,
+      -- or 'uncategorized' until an admin sorts it. The same profile can have
+      -- clips in different categories.
+      category TEXT NOT NULL DEFAULT 'uncategorized',
+      profile_id INTEGER REFERENCES short_profiles(id) ON DELETE SET NULL,
+      uploader_id INTEGER REFERENCES users(id),
+      caption TEXT,
+      storage_key TEXT NOT NULL,
+      poster_key TEXT,
+      mime_type TEXT NOT NULL DEFAULT 'video/mp4',
+      width INTEGER,
+      height INTEGER,
+      duration REAL,
+      size_bytes INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'upload',
+      source_id TEXT,
+      status TEXT NOT NULL DEFAULT 'ready',
+      is_deleted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shorts_channel_created
+      ON shorts(channel, is_deleted, created_at);
+
+    CREATE TABLE IF NOT EXISTS short_likes (
+      short_id INTEGER NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (short_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS short_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      short_id INTEGER NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_short_comments_short
+      ON short_comments(short_id, created_at);
+
+    -- Auto-poll source profiles. Created now, exercised in phase v1c. skipped_ids
+    -- holds a JSON array of source-specific ids the poller should keep skipping.
+    CREATE TABLE IF NOT EXISTS short_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      channel TEXT NOT NULL DEFAULT 'main',
+      source_type TEXT NOT NULL DEFAULT 'yt-dlp',
+      source_ref TEXT NOT NULL,
+      auto_poll INTEGER NOT NULL DEFAULT 0,
+      videos_limit INTEGER NOT NULL DEFAULT 20,
+      skipped_ids TEXT NOT NULL DEFAULT '[]',
+      last_polled_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- User-curated collections of shorts (TikTok calls these "Favorites").
+    CREATE TABLE IF NOT EXISTS short_playlists (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS short_playlist_items (
+      playlist_id INTEGER NOT NULL REFERENCES short_playlists(id) ON DELETE CASCADE,
+      short_id INTEGER NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (playlist_id, short_id)
+    );
   `);
 
   // Backfill last_seen for databases created before this column existed.
@@ -142,6 +220,27 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE messages ADD COLUMN attachment_type TEXT");
   if (!messageColumns.includes("attachment_data"))
     db.exec("ALTER TABLE messages ADD COLUMN attachment_data TEXT");
+
+  // Backfill source_id on shorts (external id from auto-poll, for dedup) for
+  // databases created before phase v1c.
+  const shortColumns = (
+    db.prepare("PRAGMA table_info(shorts)").all() as { name: string }[]
+  ).map((c) => c.name);
+  if (shortColumns.length > 0 && !shortColumns.includes("source_id")) {
+    db.exec("ALTER TABLE shorts ADD COLUMN source_id TEXT");
+  }
+  // Backfill the 18+ category bucket for databases created before it.
+  if (shortColumns.length > 0 && !shortColumns.includes("category")) {
+    db.exec(
+      "ALTER TABLE shorts ADD COLUMN category TEXT NOT NULL DEFAULT 'uncategorized'"
+    );
+  }
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_shorts_profile_source ON shorts(profile_id, source_id)"
+  );
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_shorts_channel_category ON shorts(channel, category, is_deleted, status)"
+  );
 
   // Backfill GPS columns on gallery_items for databases created before them.
   const galleryColumns = (
@@ -255,5 +354,60 @@ export interface GalleryAlbumRow {
   id: number;
   user_id: number;
   name: string;
+  created_at: string;
+}
+
+export type ShortChannel = "main" | "18plus";
+
+// Adult-content sorting buckets for the 18+ channel. 'uncategorized' is the
+// default until an admin sorts a clip.
+export type ShortCategory =
+  | "straight"
+  | "gay"
+  | "lesbian"
+  | "trans"
+  | "uncategorized";
+
+export interface ShortRow {
+  id: number;
+  channel: ShortChannel;
+  category: ShortCategory;
+  profile_id: number | null;
+  uploader_id: number | null;
+  caption: string | null;
+  storage_key: string;
+  poster_key: string | null;
+  mime_type: string;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  size_bytes: number;
+  source: "upload" | "poll" | "import";
+  source_id: string | null;
+  status: "ready" | "pending" | "failed";
+  is_deleted: number;
+  created_at: string;
+}
+
+export interface ShortCommentRow {
+  id: number;
+  short_id: number;
+  user_id: number;
+  body: string;
+  created_at: string;
+}
+
+export interface ShortProfileRow {
+  id: number;
+  name: string;
+  channel: ShortChannel;
+  // 'manual' profiles have no poll source (source_ref empty); clips are added by
+  // the import folder or upload instead of auto-polling.
+  source_type: "yt-dlp" | "rss" | "manual";
+  source_ref: string;
+  auto_poll: number;
+  videos_limit: number;
+  skipped_ids: string;
+  last_polled_at: string | null;
   created_at: string;
 }
