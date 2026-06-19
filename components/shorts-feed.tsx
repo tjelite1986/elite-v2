@@ -10,6 +10,7 @@ export default function ShortsFeed({
   profileId,
   playlistId,
   category,
+  isAdmin = false,
   basePath = "/shorts",
 }: {
   channel: "main" | "18plus";
@@ -124,6 +125,7 @@ export default function ShortsFeed({
             active={activeId === short.id}
             muted={muted}
             onToggleMuted={() => setMuted((m) => !m)}
+            categoryEditable={isAdmin && channel === "18plus"}
           />
         </div>
       ))}
