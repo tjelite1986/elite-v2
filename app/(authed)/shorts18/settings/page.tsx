@@ -4,6 +4,7 @@ import { Upload } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import ShortsAdmin from "@/components/shorts-admin";
 import ShortsImportButton from "@/components/shorts-import-button";
+import ShortsDuplicates from "@/components/shorts-duplicates";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +39,8 @@ export default async function Shorts18SettingsPage() {
           <ShortsImportButton />
         </section>
       )}
+
+      {isAdmin && <ShortsDuplicates channel="18plus" />}
 
       {isAdmin && <ShortsAdmin channel="18plus" basePath="/shorts18" />}
     </div>

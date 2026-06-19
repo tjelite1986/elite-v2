@@ -1,0 +1,17 @@
+[Unit]
+Description=Scan the elite-v2 shorts library for duplicate clips
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=thomas
+Group=thomas
+# Runs inside the container (shares the /shorts-store mount + better-sqlite3).
+# Groups byte-identical and perceptually identical clips into short_dupe_groups
+# for admin review under Settings -> Duplicates. Deletes nothing. The per-clip
+# fingerprint cache makes every run after the first cheap (only new/changed
+# clips are hashed + frame-decoded).
+ExecStart=/usr/bin/docker exec elitev2 node scripts/scan-shorts-duplicates.mjs
+Nice=18
+IOSchedulingClass=idle
