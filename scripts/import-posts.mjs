@@ -55,7 +55,11 @@ function creatorUsername(name) {
 }
 
 function parseCreator(stem) {
-  let m = stem.match(/^(.+)-\d{8}-\d+/); // <creator>-YYYYMMDD-NNNN
+  // <creator>_-_<title> / <creator> - <title> (the shorts naming convention) —
+  // checked first so an explicit handle always wins over the date/id heuristics.
+  let m = stem.match(/^(.+?)(?:_-_|\s-\s)/);
+  if (m && m[1].trim()) return m[1];
+  m = stem.match(/^(.+)-\d{8}-\d+/); // <creator>-YYYYMMDD-NNNN
   if (m) return m[1];
   m = stem.match(/^(.+)-\d{2}-\d{2}-\d{4}-\d+/); // <creator>-DD-MM-YYYY-NNNN
   if (m) return m[1];
