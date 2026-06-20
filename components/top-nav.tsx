@@ -17,6 +17,7 @@ export default function TopNav({ email, role }: TopNavProps) {
   const menus = [
     { label: "Dashboard", action: "dashboard" },
     { label: "Messages", action: "messages" },
+    { label: "People", action: "people" },
     { label: "Gallery", action: "gallery" },
     { label: "Photos", action: "posts" },
     { label: "Shorts", action: "shorts" },
@@ -28,15 +29,17 @@ export default function TopNav({ email, role }: TopNavProps) {
       ? "dashboard"
       : pathname.startsWith("/messages")
         ? "messages"
-        : pathname.startsWith("/gallery")
-          ? "gallery"
-          : pathname.startsWith("/posts")
-            ? "posts"
-            : pathname.startsWith("/shorts18")
-              ? "shorts18"
-              : pathname.startsWith("/shorts")
-                ? "shorts"
-                : "";
+        : pathname.startsWith("/people")
+          ? "people"
+          : pathname.startsWith("/gallery")
+            ? "gallery"
+            : pathname.startsWith("/posts")
+              ? "posts"
+              : pathname.startsWith("/shorts18")
+                ? "shorts18"
+                : pathname.startsWith("/shorts")
+                  ? "shorts"
+                  : "";
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -48,6 +51,7 @@ export default function TopNav({ email, role }: TopNavProps) {
     if (action === "admin-codes") router.push("/admin");
     if (action === "dashboard") router.push("/");
     if (action === "messages") router.push("/messages");
+    if (action === "people") router.push("/people");
     if (action === "gallery") router.push("/gallery");
     if (action === "posts") router.push("/posts");
     if (action === "shorts") router.push("/shorts");
