@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { handleOf } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
-// Search accounts (users + mirrored creators) and hashtags. Account search is a
-// prefix/substring LIKE over username + display_name; tags over post_hashtags.
+// Search accounts (users + mirrored photo AND video creators) and hashtags.
+// Account search is a substring LIKE over username/name + display_name; tags
+// over post_hashtags. Accounts are deduped by handle (a person with both photos
+// and shorts appears once).
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -32,6 +35,14 @@ export async function GET(request: Request) {
     )
     .all(like, like) as { username: string; display_name: string | null }[];
 
+  // Video creators (shorts) — name isn't normalized, so key by its handle.
+  const shortCreators = db
+    .prepare(
+      `SELECT DISTINCT name FROM short_profiles
+        WHERE LOWER(name) LIKE ? ORDER BY name LIMIT 20`
+    )
+    .all(like) as { name: string }[];
+
   const tags = db
     .prepare(
       `SELECT tag, COUNT(*) AS count FROM post_hashtags
@@ -40,10 +51,15 @@ export async function GET(request: Request) {
     )
     .all(like) as { tag: string; count: number }[];
 
-  const accounts = [
-    ...users.map((u) => ({ ...u, type: "user" as const })),
-    ...creators.map((c) => ({ ...c, type: "creator" as const })),
-  ];
+  // Dedupe by handle, preferring user > photo creator > video creator.
+  const byHandle = new Map<string, { username: string; display_name: string | null; type: "user" | "creator" }>();
+  const add = (username: string, display_name: string | null, type: "user" | "creator") => {
+    const h = handleOf(username);
+    if (h && !byHandle.has(h)) byHandle.set(h, { username, display_name, type });
+  };
+  for (const u of users) add(u.username, u.display_name, "user");
+  for (const c of creators) add(c.username, c.display_name, "creator");
+  for (const s of shortCreators) add(handleOf(s.name), s.name, "creator");
 
-  return NextResponse.json({ accounts, tags });
+  return NextResponse.json({ accounts: Array.from(byHandle.values()).slice(0, 20), tags });
 }
