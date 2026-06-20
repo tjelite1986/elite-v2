@@ -8,6 +8,11 @@ function initials(name: string | null): string {
   return (s.slice(0, 2) || "?").toUpperCase();
 }
 
+// A static query so the avatar URL differs from the pre-ETag-fix one that
+// browsers cached under a 24h max-age — they'd otherwise keep serving the stale
+// picture for up to a day. Bump if a similar mass cache-bust is ever needed.
+const CACHE_BUST = "2";
+
 // Round avatar for a user/creator handle. Loads /api/profiles/<username>/avatar
 // and falls back to initials when there's no avatar (404) or no username.
 export default function PostAvatar({
@@ -26,8 +31,8 @@ export default function PostAvatar({
   const [failed, setFailed] = useState(false);
   const showImg = username && !failed;
   const src =
-    `/api/profiles/${encodeURIComponent(username || "")}/avatar` +
-    (version ? `?v=${version}` : "");
+    `/api/profiles/${encodeURIComponent(username || "")}/avatar?c=${CACHE_BUST}` +
+    (version ? `&v=${version}` : "");
 
   return (
     <span
