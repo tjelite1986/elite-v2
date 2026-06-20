@@ -7,8 +7,12 @@ Requires=docker.service
 Type=oneshot
 User=thomas
 Group=thomas
+# Drops arrive via Samba/SFTP owned by thomas; the container runs as uid 1001
+# and can't unlink them. As thomas (who owns them) make the import tree
+# group/other-writable first so the container can consume the drops.
+ExecStartPre=-/bin/chmod -R a+rwX /mnt/4tb/elitev2/posts/_import
 # Runs inside the container (shares /posts-store + better-sqlite3 + sharp).
-# Files in posts/_import are transcoded into creator folders as imported posts.
+# Files/subfolders in posts/_import are transcoded into creator folders as posts.
 ExecStart=/usr/bin/docker exec elitev2 node scripts/import-posts.mjs
 Nice=18
 IOSchedulingClass=idle

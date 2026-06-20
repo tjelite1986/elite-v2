@@ -2,13 +2,17 @@
 // Import-folder sorter for the posts module. Runs INSIDE the elitev2 container
 // (admin "Import now" button or a host systemd timer via docker exec).
 //
-// Drop images into  <POSTS_ROOT>/_import/  named like:
-//     <creator>-YYYYMMDD-NNNN.jpg      (the instagram-library convention)
-//     <creator>_<instagram-media-id>.jpg
-// The creator name is everything before the date / id. For each image the
-// script: resolves the creator, finds-or-creates a post_creators row, transcodes
-// a display JPG + square thumbnail under <creator-slug>/, inserts a post
-// (author_creator_id) + post_media row, then deletes the original drop.
+// Two ways to drop into  <POSTS_ROOT>/_import/ :
+//   1. Top-level files whose name encodes the creator:
+//        <creator>_-_<title>.jpg          (the shorts convention)
+//        <creator>-YYYYMMDD-NNNN.jpg       (the instagram-library convention)
+//        <creator>_<instagram-media-id>.jpg
+//   2. A subfolder named after the creator — e.g. _import/emarusova/ — whose
+//      images go to that creator regardless of their filenames (one level deep).
+// For each image the script resolves the creator, finds-or-creates a
+// post_creators row, transcodes a display JPG + square thumbnail under
+// <creator-slug>/, and deletes the original drop. Each creator's images are then
+// grouped by date in the filename into carousel posts (undated => one per post).
 //
 // Output: human log lines + a final `RESULT {json}` line the API route parses.
 
@@ -127,24 +131,14 @@ function groupByDate(items) {
   return groups;
 }
 
-const entries = fs
-  .readdirSync(IMPORT_DIR, { withFileTypes: true })
-  .filter((e) => e.isFile());
-
 let imported = 0;
 let creatorsNew = 0;
 let skipped = 0;
 const creatorCache = new Map();
-// creatorId -> { username, items: [{ file, storageKey, width, height }] }
+// creatorId -> [{ file, storageKey, width, height }]
 const byCreator = new Map();
 
-for (const entry of entries) {
-  const ext = path.extname(entry.name).toLowerCase();
-  if (!IMG_EXTS.has(ext)) continue;
-
-  const username = creatorUsername(parseCreator(entry.name.slice(0, entry.name.length - ext.length)));
-  const folder = slug(username);
-
+function resolveCreatorId(username) {
   let creatorId = creatorCache.get(username);
   if (!creatorId) {
     const row = findCreator.get(username);
@@ -156,13 +150,23 @@ for (const entry of entries) {
     }
     creatorCache.set(username, creatorId);
   }
+  return creatorId;
+}
 
-  const srcPath = path.join(IMPORT_DIR, entry.name);
+// Transcode one image into the creator's folder and queue it for grouping.
+// originalName is used only for date-based carousel grouping; consumed on success.
+async function processImage(username, srcPath, originalName) {
+  const ext = path.extname(originalName).toLowerCase();
+  if (!IMG_EXTS.has(ext)) return;
+  const creatorId = resolveCreatorId(username);
+  const folder = slug(username);
   const destDir = path.join(POSTS_ROOT, folder);
   fs.mkdirSync(destDir, { recursive: true });
   const uuid = randomUUID();
   const storageKey = `${folder}/${uuid}.jpg`;
 
+  const displayPath = path.join(destDir, `${uuid}.jpg`);
+  const thumbPath = path.join(destDir, `${uuid}_t.jpg`);
   try {
     const source =
       ext === ".heic" || ext === ".heif"
@@ -173,25 +177,75 @@ for (const entry of entries) {
     await sharp(upright)
       .resize(DISPLAY_MAX, DISPLAY_MAX, { fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 82 })
-      .toFile(path.join(destDir, `${uuid}.jpg`));
+      .toFile(displayPath);
     await sharp(upright)
       .resize(THUMB_SIZE, THUMB_SIZE, { fit: "cover" })
       .jpeg({ quality: 75 })
-      .toFile(path.join(destDir, `${uuid}_t.jpg`));
+      .toFile(thumbPath);
+
+    // Consume the source FIRST. If we can't delete it (e.g. a host-owned drop
+    // the container can't unlink), back out the files we just wrote and skip —
+    // otherwise the leftover source re-imports as a duplicate on the next run.
+    try {
+      fs.unlinkSync(srcPath);
+    } catch (unlinkErr) {
+      try { fs.unlinkSync(displayPath); } catch {}
+      try { fs.unlinkSync(thumbPath); } catch {}
+      log(`skip ${originalName}: can't consume source (${unlinkErr.code || unlinkErr.message})`);
+      skipped++;
+      return;
+    }
 
     if (!byCreator.has(creatorId)) byCreator.set(creatorId, []);
     byCreator.get(creatorId).push({
-      file: entry.name,
+      file: originalName,
       storageKey,
       width: meta.width ?? null,
       height: meta.height ?? null,
     });
-
-    fs.unlinkSync(srcPath); // consume the drop
     imported++;
   } catch (err) {
-    log(`skip ${entry.name}: ${err.message}`);
+    try { fs.unlinkSync(displayPath); } catch {}
+    try { fs.unlinkSync(thumbPath); } catch {}
+    log(`skip ${originalName}: ${err.message}`);
     skipped++;
+  }
+}
+
+const entries = fs.readdirSync(IMPORT_DIR, { withFileTypes: true });
+
+for (const entry of entries) {
+  if (entry.name.startsWith(".")) continue;
+  if (entry.isFile()) {
+    // Top-level file: the creator is encoded in the filename.
+    const stem = entry.name.slice(0, entry.name.length - path.extname(entry.name).length);
+    await processImage(
+      creatorUsername(parseCreator(stem)),
+      path.join(IMPORT_DIR, entry.name),
+      entry.name
+    );
+  } else if (entry.isDirectory()) {
+    // Subfolder: the FOLDER NAME is the creator; every image inside goes to it
+    // (filenames don't matter). One level deep. A bad folder must not abort the
+    // whole run.
+    const username = creatorUsername(entry.name);
+    const dir = path.join(IMPORT_DIR, entry.name);
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        if (f.startsWith(".")) continue;
+        const fp = path.join(dir, f);
+        try {
+          if (fs.statSync(fp).isFile()) await processImage(username, fp, f);
+        } catch (err) {
+          log(`skip ${entry.name}/${f}: ${err.message}`);
+          skipped++;
+        }
+      }
+      // Remove the now-consumed folder (best effort).
+      if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+    } catch (err) {
+      log(`skip folder ${entry.name}: ${err.message}`);
+    }
   }
 }
 
