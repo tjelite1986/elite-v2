@@ -10,9 +10,13 @@ import type { FeedPost } from "@/lib/posts";
 export default function PostGrid({
   query,
   empty = "No posts yet.",
+  onSelect,
 }: {
   query: Record<string, string>;
   empty?: string;
+  // Selection mode: when set, a tile calls onSelect(firstMediaId) instead of
+  // linking to the post (used to pick a profile picture from the real feed).
+  onSelect?: (mediaId: number) => void;
 }) {
   const [items, setItems] = useState<FeedPost[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -68,34 +72,46 @@ export default function PostGrid({
   return (
     <>
       <div className="grid grid-cols-3 gap-1">
-        {items.map((p) => (
-          <Link
-            key={p.id}
-            href={`/posts/p/${p.id}`}
-            className="group relative aspect-square overflow-hidden bg-white/5"
-          >
-            {p.media[0] && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={`/api/posts/media/${p.media[0].id}?size=thumb`}
-                alt=""
-                loading="lazy"
-                className="h-full w-full object-cover transition group-hover:opacity-80"
-              />
-            )}
-            {p.media.length > 1 && (
-              <Copy size={15} className="absolute right-1.5 top-1.5 text-white drop-shadow" />
-            )}
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 bg-black/40 text-sm font-semibold text-white opacity-0 transition group-hover:opacity-100">
-              <span className="flex items-center gap-1">
-                <Heart size={16} className="fill-white" /> {p.like_count}
-              </span>
-              <span className="flex items-center gap-1">
-                <MessageCircle size={16} className="fill-white" /> {p.comment_count}
-              </span>
-            </div>
-          </Link>
-        ))}
+        {items.map((p) => {
+          const inner = (
+            <>
+              {p.media[0] && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/posts/media/${p.media[0].id}?size=thumb`}
+                  alt=""
+                  loading="lazy"
+                  className="h-full w-full object-cover transition group-hover:opacity-80"
+                />
+              )}
+              {p.media.length > 1 && (
+                <Copy size={15} className="absolute right-1.5 top-1.5 text-white drop-shadow" />
+              )}
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 bg-black/40 text-sm font-semibold text-white opacity-0 transition group-hover:opacity-100">
+                <span className="flex items-center gap-1">
+                  <Heart size={16} className="fill-white" /> {p.like_count}
+                </span>
+                <span className="flex items-center gap-1">
+                  <MessageCircle size={16} className="fill-white" /> {p.comment_count}
+                </span>
+              </div>
+            </>
+          );
+          const cls = "group relative aspect-square overflow-hidden bg-white/5";
+          return onSelect ? (
+            <button
+              key={p.id}
+              onClick={() => p.media[0] && onSelect(p.media[0].id)}
+              className={cls}
+            >
+              {inner}
+            </button>
+          ) : (
+            <Link key={p.id} href={`/posts/p/${p.id}`} className={cls}>
+              {inner}
+            </Link>
+          );
+        })}
       </div>
       <div ref={sentinel} className="h-1 w-full" />
       {loading && <p className="py-4 text-center text-sm text-white/40">Loading…</p>}

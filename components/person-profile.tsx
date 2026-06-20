@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, Pencil, X, Check } from "lucide-react";
+import { Camera, Pencil, X } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
 import FollowButton from "@/components/follow-button";
 import PostFeed from "@/components/post-feed";
@@ -31,6 +31,7 @@ export default function PersonProfile({
   person: ResolvedPerson;
   isAdmin: boolean;
 }) {
+  const router = useRouter();
   const canManage = person.isOwn || isAdmin;
   const personQuery: Record<string, string> = { scope: "person" };
   if (person.userId) personQuery.userId = String(person.userId);
@@ -44,8 +45,31 @@ export default function PersonProfile({
   ];
   const visible = tabs.filter((t) => t.show);
   const [tab, setTab] = useState<Tab>("all");
-  const [picker, setPicker] = useState(false);
+  const [selecting, setSelecting] = useState(false);
   const [avatarBust, setAvatarBust] = useState(0);
+  const [busy, setBusy] = useState(false);
+
+  // Set the avatar from a chosen post image or clip poster, then leave select
+  // mode and refresh so the new picture shows.
+  const setAvatar = async (endpoint: string, body: Record<string, number>) => {
+    if (busy) return;
+    setBusy(true);
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setBusy(false);
+    if (res.ok) {
+      setSelecting(false);
+      setAvatarBust(Date.now());
+      router.refresh();
+    }
+  };
+  const pickPhoto = (mediaId: number) =>
+    setAvatar("/api/profile/avatar/from-media", { mediaId });
+  const pickShort = (shortId: number) =>
+    setAvatar("/api/profile/avatar/from-short", { shortId });
 
   return (
     <div className="mx-auto max-w-2xl px-4 pb-24 pt-24 text-white">
@@ -85,9 +109,9 @@ export default function PersonProfile({
                 />
               )
             )}
-            {canManage && person.photos > 0 && (
+            {canManage && (person.photos > 0 || person.shortsMain > 0 || person.shorts18 > 0) && (
               <button
-                onClick={() => setPicker(true)}
+                onClick={() => setSelecting((v) => !v)}
                 className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold transition hover:bg-white/15"
               >
                 <Camera size={14} /> Profile photo
@@ -97,7 +121,7 @@ export default function PersonProfile({
         </div>
       </header>
 
-      {(person.displayName || person.bio) && (
+      {(person.displayName || person.bio) && !selecting && (
         <div className="mb-5">
           {person.displayName && person.displayName !== person.handle && (
             <div className="text-sm font-semibold">{person.displayName}</div>
@@ -108,81 +132,109 @@ export default function PersonProfile({
         </div>
       )}
 
-      {/* Tabs */}
-      {visible.length > 1 && (
-        <div className="mb-4 flex gap-1 border-b border-white/10">
-          {visible.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
-                tab === t.id
-                  ? "border-white text-white"
-                  : "border-transparent text-white/50 hover:text-white"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Content */}
-      {tab === "all" && (
+      {/* Select-a-profile-picture mode: scroll the real grids and tap any
+          photo or clip. */}
+      {selecting ? (
         <div className="space-y-6">
+          <div className="sticky top-16 z-30 flex items-center justify-between rounded-xl bg-rose-500/90 px-4 py-2.5 text-sm font-semibold backdrop-blur">
+            <span>{busy ? "Setting…" : "Tap a photo or clip to use as profile picture"}</span>
+            <button onClick={() => setSelecting(false)} aria-label="Cancel" className="ml-3">
+              <X size={18} />
+            </button>
+          </div>
           {person.photos > 0 && (
-            <Section label="Photos" onMore={() => setTab("photos")}>
-              <PostGrid query={personQuery} empty="No photos." />
+            <Section label="Photos">
+              <PostGrid query={personQuery} empty="No photos." onSelect={pickPhoto} />
             </Section>
           )}
           {person.shortsMain > 0 && person.shortsMainId && (
-            <Section label="Shorts" onMore={() => setTab("shorts")}>
+            <Section label="Shorts">
               <ShortsGrid
                 query={{ profile: String(person.shortsMainId) }}
-                hrefPrefix={`/shorts/profile/${person.shortsMainId}/watch?focus=`}
+                hrefPrefix="#"
                 empty="No shorts."
+                onSelect={pickShort}
               />
             </Section>
           )}
           {person.shorts18 > 0 && person.shorts18Id && (
-            <Section label="18+" onMore={() => setTab("18plus")}>
+            <Section label="18+">
               <ShortsGrid
                 query={{ profile: String(person.shorts18Id) }}
-                hrefPrefix={`/shorts18/profile/${person.shorts18Id}/watch?focus=`}
+                hrefPrefix="#"
                 empty="No clips."
+                onSelect={pickShort}
               />
             </Section>
           )}
         </div>
-      )}
+      ) : (
+        <>
+          {/* Tabs */}
+          {visible.length > 1 && (
+            <div className="mb-4 flex gap-1 border-b border-white/10">
+              {visible.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
+                    tab === t.id
+                      ? "border-white text-white"
+                      : "border-transparent text-white/50 hover:text-white"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
 
-      {tab === "photos" && <PostFeed query={personQuery} empty="No photos yet." />}
+          {tab === "all" && (
+            <div className="space-y-6">
+              {person.photos > 0 && (
+                <Section label="Photos" onMore={() => setTab("photos")}>
+                  <PostGrid query={personQuery} empty="No photos." />
+                </Section>
+              )}
+              {person.shortsMain > 0 && person.shortsMainId && (
+                <Section label="Shorts" onMore={() => setTab("shorts")}>
+                  <ShortsGrid
+                    query={{ profile: String(person.shortsMainId) }}
+                    hrefPrefix={`/shorts/profile/${person.shortsMainId}/watch?focus=`}
+                    empty="No shorts."
+                  />
+                </Section>
+              )}
+              {person.shorts18 > 0 && person.shorts18Id && (
+                <Section label="18+" onMore={() => setTab("18plus")}>
+                  <ShortsGrid
+                    query={{ profile: String(person.shorts18Id) }}
+                    hrefPrefix={`/shorts18/profile/${person.shorts18Id}/watch?focus=`}
+                    empty="No clips."
+                  />
+                </Section>
+              )}
+            </div>
+          )}
 
-      {tab === "shorts" && person.shortsMainId && (
-        <ShortsGrid
-          query={{ profile: String(person.shortsMainId) }}
-          hrefPrefix={`/shorts/profile/${person.shortsMainId}/watch?focus=`}
-          empty="No shorts yet."
-        />
-      )}
+          {tab === "photos" && <PostFeed query={personQuery} empty="No photos yet." />}
 
-      {tab === "18plus" && person.shorts18Id && (
-        <ShortsGrid
-          query={{ profile: String(person.shorts18Id) }}
-          hrefPrefix={`/shorts18/profile/${person.shorts18Id}/watch?focus=`}
-          empty="No clips yet."
-        />
-      )}
+          {tab === "shorts" && person.shortsMainId && (
+            <ShortsGrid
+              query={{ profile: String(person.shortsMainId) }}
+              hrefPrefix={`/shorts/profile/${person.shortsMainId}/watch?focus=`}
+              empty="No shorts yet."
+            />
+          )}
 
-      {picker && (
-        <AvatarPicker
-          query={personQuery}
-          onClose={() => setPicker(false)}
-          onSet={() => {
-            setPicker(false);
-            setAvatarBust(Date.now());
-          }}
-        />
+          {tab === "18plus" && person.shorts18Id && (
+            <ShortsGrid
+              query={{ profile: String(person.shorts18Id) }}
+              hrefPrefix={`/shorts18/profile/${person.shorts18Id}/watch?focus=`}
+              empty="No clips yet."
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -194,103 +246,20 @@ function Section({
   children,
 }: {
   label: string;
-  onMore: () => void;
+  onMore?: () => void;
   children: React.ReactNode;
 }) {
   return (
     <section>
       <div className="mb-2 flex items-center justify-between px-1">
         <h2 className="text-sm font-semibold text-white/80">{label}</h2>
-        <button onClick={onMore} className="text-xs text-white/50 hover:text-white">
-          See all
-        </button>
+        {onMore && (
+          <button onClick={onMore} className="text-xs text-white/50 hover:text-white">
+            See all
+          </button>
+        )}
       </div>
       {children}
     </section>
-  );
-}
-
-interface PickShort {
-  id: number;
-  has_poster: boolean;
-  media: { id: number }[];
-}
-
-// Pick one of the person's photos to use as the profile picture.
-function AvatarPicker({
-  query,
-  onClose,
-  onSet,
-}: {
-  query: Record<string, string>;
-  onClose: () => void;
-  onSet: () => void;
-}) {
-  const router = useRouter();
-  const [items, setItems] = useState<PickShort[]>([]);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    const url = new URL("/api/posts/feed", window.location.origin);
-    for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
-    url.searchParams.set("limit", "24");
-    fetch(url.toString())
-      .then((r) => r.json())
-      .then((d) => setItems(d.items || []))
-      .catch(() => {});
-  }, [query]);
-
-  const choose = async (mediaId: number) => {
-    if (busy) return;
-    setBusy(true);
-    const res = await fetch("/api/profile/avatar/from-media", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mediaId }),
-    });
-    setBusy(false);
-    if (res.ok) {
-      router.refresh();
-      onSet();
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
-      <div
-        className="flex max-h-[75%] flex-col rounded-t-2xl bg-neutral-900 text-white"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <span className="font-semibold">Choose profile photo</span>
-          <button onClick={onClose} aria-label="Close">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="grid grid-cols-3 gap-1 overflow-y-auto p-1 sm:grid-cols-4">
-          {items.map((p) =>
-            p.media[0] ? (
-              <button
-                key={p.id}
-                onClick={() => choose(p.media[0].id)}
-                disabled={busy}
-                className="group relative aspect-square overflow-hidden bg-white/5 disabled:opacity-50"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/api/posts/media/${p.media[0].id}?size=thumb`}
-                  alt=""
-                  loading="lazy"
-                  className="h-full w-full object-cover transition group-hover:opacity-70"
-                />
-                <span className="absolute inset-0 flex items-center justify-center opacity-0 transition group-hover:opacity-100">
-                  <Check size={24} className="text-white drop-shadow" />
-                </span>
-              </button>
-            ) : null
-          )}
-        </div>
-      </div>
-    </div>
   );
 }

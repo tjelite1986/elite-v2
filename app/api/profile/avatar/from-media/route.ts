@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import { db, PostMediaRow, PostRow } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { setAvatarKey } from "@/lib/profiles";
+import { setHandleAvatar } from "@/lib/profiles";
+import { handleOf } from "@/lib/directory";
 import { mediaPathFor, storeAvatar } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // The avatar belongs to the post's author, keyed by their handle.
+  let handle: string;
+  if (post.author_user_id) {
+    const u = db
+      .prepare("SELECT username FROM user_profiles WHERE user_id = ?")
+      .get(post.author_user_id) as { username: string } | undefined;
+    if (!u) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    handle = handleOf(u.username);
+  } else {
+    const c = db
+      .prepare("SELECT username FROM post_creators WHERE id = ?")
+      .get(post.author_creator_id) as { username: string } | undefined;
+    if (!c) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    handle = handleOf(c.username);
+  }
+
   const filePath = mediaPathFor(media.storage_key);
   if (!fs.existsSync(filePath)) {
     return NextResponse.json({ error: "Image file missing." }, { status: 404 });
@@ -40,14 +57,7 @@ export async function POST(request: Request) {
   try {
     const buffer = fs.readFileSync(filePath);
     const key = await storeAvatar(media.storage_key, "image/jpeg", buffer);
-    if (ownsAsUser) {
-      setAvatarKey(userId, key);
-    } else {
-      db.prepare("UPDATE post_creators SET avatar_key = ? WHERE id = ?").run(
-        key,
-        post.author_creator_id
-      );
-    }
+    setHandleAvatar(handle, key);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
