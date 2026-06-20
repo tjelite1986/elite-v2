@@ -14,13 +14,20 @@ export default function PostAvatar({
   username,
   size = 36,
   className,
+  version,
 }: {
   username: string | null;
   size?: number;
   className?: string;
+  // Bump to bust the avatar's 24h cache after it's changed (the URL is keyed by
+  // username, so without this a new picture keeps showing the cached old one).
+  version?: number;
 }) {
   const [failed, setFailed] = useState(false);
   const showImg = username && !failed;
+  const src =
+    `/api/profiles/${encodeURIComponent(username || "")}/avatar` +
+    (version ? `?v=${version}` : "");
 
   return (
     <span
@@ -33,7 +40,7 @@ export default function PostAvatar({
       {showImg ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={`/api/profiles/${encodeURIComponent(username)}/avatar`}
+          src={src}
           alt=""
           width={size}
           height={size}
