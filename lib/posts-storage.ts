@@ -21,11 +21,14 @@ export const POSTS_ROOT =
   process.env.POSTS_ROOT || path.join(DATA_DIR, "posts");
 
 export const AVATARS_SUBDIR = "avatars";
+export const BANNERS_SUBDIR = "banners";
 export const IMPORT_SUBDIR = "_import";
 
 const DISPLAY_MAX = 1440;
 const THUMB_SIZE = 600;
 const AVATAR_SIZE = 320;
+const BANNER_W = 1500;
+const BANNER_H = 500;
 
 // Filesystem-safe folder name for an author (user or creator), matching the
 // username slug rules so an author maps to one folder. Kept identical to the
@@ -169,6 +172,28 @@ export function movePostImageToAuthor(
     }
   }
   return newKey;
+}
+
+// Persist a profile cover banner (wide crop). Returns the banner_key.
+export async function storeBanner(
+  filename: string,
+  mime: string,
+  buffer: Buffer
+): Promise<string> {
+  if (!isSupportedImage(filename, mime)) {
+    throw new Error("Unsupported file type — images only");
+  }
+  const dir = path.join(POSTS_ROOT, BANNERS_SUBDIR);
+  ensureDir(dir);
+  const source = isHeic(filename, mime) ? heicToJpeg(buffer) : buffer;
+  const uuid = randomUUID();
+  const key = `${BANNERS_SUBDIR}/${uuid}.jpg`;
+  await sharp(source)
+    .rotate()
+    .resize(BANNER_W, BANNER_H, { fit: "cover" })
+    .jpeg({ quality: 82 })
+    .toFile(path.join(dir, `${uuid}.jpg`));
+  return key;
 }
 
 // Remove a post image's display + thumbnail (best effort).

@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { getProfileExtras, ProfileLink } from "./profiles";
 
 // Cross-section "people" directory: merges the three identity tables
 // (user_profiles, post_creators, short_profiles) by lowercased handle and
@@ -47,6 +48,8 @@ export interface ResolvedPerson {
   handle: string;
   displayName: string | null;
   bio: string | null;
+  links: ProfileLink[];
+  hasBanner: boolean;
   userId: number | null; // real user (1:1)
   creatorId: number | null; // photo creator
   isOwn: boolean;
@@ -139,10 +142,15 @@ export function resolvePerson(
         .get(viewerId, followType, followId)
     );
 
+  // Handle-scoped extras (bio/links/banner) override the legacy per-table bio.
+  const extras = getProfileExtras(h);
+
   return {
     handle: user?.username || creator?.username || h,
     displayName: user?.display_name || creator?.display_name || null,
-    bio: user?.bio || creator?.bio || null,
+    bio: extras?.bio || user?.bio || creator?.bio || null,
+    links: extras?.links ?? [],
+    hasBanner: Boolean(extras?.banner_key),
     userId: user?.user_id ?? null,
     creatorId: creator?.id ?? null,
     isOwn: user?.user_id === viewerId,

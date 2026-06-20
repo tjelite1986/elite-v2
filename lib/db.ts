@@ -372,6 +372,16 @@ function migrate(db: Database.Database) {
       avatar_key TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- Cross-section profile extras keyed by handle: bio, a cover banner, and a
+    -- JSON array of labeled links ([{label,url}]). Works for any identity type.
+    CREATE TABLE IF NOT EXISTS profile_extras (
+      handle TEXT PRIMARY KEY,
+      bio TEXT,
+      links_json TEXT,
+      banner_key TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
   `);
 
