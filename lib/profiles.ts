@@ -108,3 +108,19 @@ export function setAvatarKey(userId: number, avatarKey: string): void {
     userId
   );
 }
+
+// Per-user preference: surface 18+ content outside the dedicated 18+ section.
+// Viewing still requires the PIN cookie; this only controls whether adult
+// content is woven into general browsing.
+export function getShowAdultOutside(userId: number): boolean {
+  const row = db
+    .prepare("SELECT show_adult_outside FROM user_profiles WHERE user_id = ?")
+    .get(userId) as { show_adult_outside: number } | undefined;
+  return Boolean(row?.show_adult_outside);
+}
+
+export function setShowAdultOutside(userId: number, on: boolean): void {
+  db.prepare(
+    "UPDATE user_profiles SET show_adult_outside = ? WHERE user_id = ?"
+  ).run(on ? 1 : 0, userId);
+}

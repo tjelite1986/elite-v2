@@ -126,10 +126,14 @@ function Chip({
 function PersonRow({ person: p }: { person: PersonEntry }) {
   return (
     <div className="flex items-center gap-3 rounded-2xl bg-white/5 p-2.5">
-      <PostAvatar username={p.handle} size={48} />
+      <Link href={`/people/${p.handle}`}>
+        <PostAvatar username={p.handle} size={48} />
+      </Link>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-semibold">@{p.handle}</span>
+          <Link href={`/people/${p.handle}`} className="truncate text-sm font-semibold hover:underline">
+            @{p.handle}
+          </Link>
           {p.userId !== null && (
             <span className="rounded-full bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-rose-300">
               User

@@ -97,6 +97,7 @@ export type FeedScope =
   | { kind: "explore" }
   | { kind: "user"; userId: number }
   | { kind: "creator"; creatorId: number }
+  | { kind: "person"; userId: number | null; creatorId: number | null }
   | { kind: "tag"; tag: string };
 
 // Cursor-paginated feed (newest first; cursor = last post id seen). Adult posts
@@ -135,6 +136,14 @@ export function getFeed(
     case "creator":
       where.push("p.author_creator_id = @authorId");
       params.authorId = scope.creatorId;
+      break;
+    case "person":
+      // Union of a handle's user-authored and creator-authored posts.
+      where.push(
+        "(p.author_user_id = @personUser OR p.author_creator_id = @personCreator)"
+      );
+      params.personUser = scope.userId;
+      params.personCreator = scope.creatorId;
       break;
     case "tag":
       from += " JOIN post_hashtags ht ON ht.post_id = p.id ";

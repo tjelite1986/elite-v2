@@ -4,6 +4,7 @@ import {
   ensureUserProfile,
   setUsername,
   setProfileFields,
+  setShowAdultOutside,
   getProfileByUserId,
 } from "@/lib/profiles";
 
@@ -35,6 +36,10 @@ export async function PATCH(request: Request) {
   if (typeof body?.display_name === "string") fields.display_name = body.display_name.trim();
   if (typeof body?.bio === "string") fields.bio = body.bio.trim();
   setProfileFields(userId, fields);
+
+  if (typeof body?.show_adult_outside === "boolean") {
+    setShowAdultOutside(userId, body.show_adult_outside);
+  }
 
   return NextResponse.json({ ok: true, profile: getProfileByUserId(userId) });
 }

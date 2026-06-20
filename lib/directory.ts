@@ -42,6 +42,106 @@ function blank(handle: string): PersonEntry {
   };
 }
 
+export interface ResolvedPerson {
+  handle: string;
+  displayName: string | null;
+  bio: string | null;
+  userId: number | null; // real user (1:1)
+  creatorId: number | null; // photo creator
+  isOwn: boolean;
+  viewerFollows: boolean;
+  photos: number;
+  shortsMainId: number | null;
+  shortsMain: number;
+  shorts18Id: number | null;
+  shorts18: number;
+}
+
+// Resolve a handle to its identity across every section, for the unified
+// profile page. include18 controls whether 18+ shorts are counted/linked.
+export function resolvePerson(
+  handle: string,
+  viewerId: number,
+  include18: boolean
+): ResolvedPerson | null {
+  const h = handleOf(handle);
+
+  const user = db
+    .prepare(
+      "SELECT user_id, username, display_name, bio FROM user_profiles WHERE username = ?"
+    )
+    .get(h) as
+    | { user_id: number; username: string; display_name: string | null; bio: string | null }
+    | undefined;
+
+  const creator = db
+    .prepare(
+      "SELECT id, username, display_name, bio FROM post_creators WHERE username = ?"
+    )
+    .get(h) as
+    | { id: number; username: string; display_name: string | null; bio: string | null }
+    | undefined;
+
+  const shorts = db
+    .prepare("SELECT id, name, channel FROM short_profiles")
+    .all() as { id: number; name: string; channel: string }[];
+  let shortsMainId: number | null = null;
+  let shorts18Id: number | null = null;
+  for (const s of shorts) {
+    if (handleOf(s.name) !== h) continue;
+    if (s.channel === "18plus") shorts18Id = s.id;
+    else shortsMainId = s.id;
+  }
+
+  if (!user && !creator && shortsMainId === null && shorts18Id === null) {
+    return null;
+  }
+
+  const count = (sql: string, ...args: unknown[]) =>
+    (db.prepare(sql).get(...args) as { c: number }).c;
+
+  const photos =
+    (user ? count("SELECT COUNT(*) c FROM posts WHERE author_user_id = ? AND is_deleted = 0", user.user_id) : 0) +
+    (creator ? count("SELECT COUNT(*) c FROM posts WHERE author_creator_id = ? AND is_deleted = 0", creator.id) : 0);
+
+  const clipCount = (id: number | null) =>
+    id === null
+      ? 0
+      : count(
+          "SELECT COUNT(*) c FROM shorts WHERE profile_id = ? AND is_deleted = 0 AND status = 'ready'",
+          id
+        );
+
+  // Following state for the primary follow target (user wins over creator).
+  const followType = user ? "user" : creator ? "creator" : null;
+  const followId = user?.user_id ?? creator?.id ?? null;
+  const viewerFollows =
+    followType !== null &&
+    followId !== null &&
+    Boolean(
+      db
+        .prepare(
+          "SELECT 1 FROM follows WHERE follower_id = ? AND target_type = ? AND target_id = ?"
+        )
+        .get(viewerId, followType, followId)
+    );
+
+  return {
+    handle: user?.username || creator?.username || h,
+    displayName: user?.display_name || creator?.display_name || null,
+    bio: user?.bio || creator?.bio || null,
+    userId: user?.user_id ?? null,
+    creatorId: creator?.id ?? null,
+    isOwn: user?.user_id === viewerId,
+    viewerFollows,
+    photos,
+    shortsMainId,
+    shortsMain: clipCount(shortsMainId),
+    shorts18Id: include18 ? shorts18Id : null,
+    shorts18: include18 ? clipCount(shorts18Id) : 0,
+  };
+}
+
 export function getPeople(
   opts: { q?: string; include18?: boolean } = {}
 ): PersonEntry[] {
@@ -116,6 +216,8 @@ export function getPeople(
     const p = get(handleOf(s.name));
     if (!p.displayName) p.displayName = s.name;
     if (s.channel === "18plus") {
+      // Only surface 18+ counts/links when the viewer may see adult content.
+      if (!include18) continue;
       p.shorts18 += s.clips;
       if (s.clips > 0) p.shorts18Id = s.id;
     } else {
