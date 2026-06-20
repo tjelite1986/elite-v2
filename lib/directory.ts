@@ -19,8 +19,9 @@ export interface PersonEntry {
 }
 
 // Same slug rule used for short_profiles names elsewhere, so a clip creator maps
-// to the shared handle namespace.
-function handleOf(name: string): string {
+// to the shared handle namespace. Exported so shorts pages can link a creator
+// name to its unified /people profile.
+export function handleOf(name: string): string {
   return String(name)
     .trim()
     .toLowerCase()

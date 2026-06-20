@@ -67,6 +67,16 @@ function authorLabel(short: FeedShort): string {
   return "unknown";
 }
 
+// Shared handle namespace (matches handleOf in lib/directory.ts) so a clip
+// creator links to its unified /people profile.
+function personHandle(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._]+/g, "")
+    .replace(/^[._]+|[._]+$/g, "");
+}
+
 export default function ShortCard({
   short,
   active,
@@ -380,9 +390,9 @@ export default function ShortCard({
       {/* Caption / uploader */}
       {!chromeHidden && (
         <div className="absolute bottom-6 left-4 right-20 text-white">
-          {short.profile_id ? (
+          {short.profile_id && short.profile_name ? (
             <Link
-              href={`/shorts/profile/${short.profile_id}`}
+              href={`/people/${personHandle(short.profile_name)}`}
               className="inline-block text-sm font-semibold drop-shadow transition active:scale-95"
             >
               @{authorLabel(short)}

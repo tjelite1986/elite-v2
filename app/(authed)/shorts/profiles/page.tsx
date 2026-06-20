@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCreators } from "@/lib/shorts";
+import { handleOf } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
@@ -15,29 +16,36 @@ export default function ProfilesPage() {
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {creators.map((c) => (
-            <Link
+            <div
               key={c.id}
-              href={`/shorts/profile/${c.id}`}
               className="overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10 transition hover:bg-white/10"
             >
-              <div className="aspect-[9/16] bg-black/30">
-                {c.cover_id ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={`/api/shorts/${c.cover_id}/poster`}
-                    alt=""
-                    loading="lazy"
-                    className="h-full w-full object-cover"
-                  />
-                ) : null}
-              </div>
+              {/* Poster opens the clips; the name opens the unified profile. */}
+              <Link href={`/shorts/profile/${c.id}`} className="block">
+                <div className="aspect-[9/16] bg-black/30">
+                  {c.cover_id ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`/api/shorts/${c.cover_id}/poster`}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : null}
+                </div>
+              </Link>
               <div className="p-2.5">
-                <div className="truncate text-sm font-semibold">@{c.name}</div>
+                <Link
+                  href={`/people/${handleOf(c.name)}`}
+                  className="block truncate text-sm font-semibold hover:underline"
+                >
+                  @{c.name}
+                </Link>
                 <div className="text-xs text-white/50">
                   {c.clip_count} clip{c.clip_count === 1 ? "" : "s"}
                 </div>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
