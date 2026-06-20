@@ -28,7 +28,7 @@ export async function POST() {
       .find((l) => l.startsWith("RESULT "));
     const summary = line
       ? JSON.parse(line.slice("RESULT ".length))
-      : { imported: 0, creatorsNew: 0, skipped: 0 };
+      : { imported: 0, creatorsNew: 0, videosRouted: 0, deduped: 0, skipped: 0 };
     return NextResponse.json({ ok: true, ...summary });
   } catch (err) {
     console.error("[posts] import failed:", err);

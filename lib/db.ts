@@ -448,6 +448,18 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE gallery_items ADD COLUMN description TEXT");
   }
 
+  // Content hash on post_media so the importer can skip an image it already
+  // has for a creator (idempotent re-drops, no duplicates).
+  const postMediaCols = (
+    db.prepare("PRAGMA table_info(post_media)").all() as { name: string }[]
+  ).map((c) => c.name);
+  if (postMediaCols.length > 0 && !postMediaCols.includes("content_hash")) {
+    db.exec("ALTER TABLE post_media ADD COLUMN content_hash TEXT");
+  }
+  db.exec(
+    "CREATE INDEX IF NOT EXISTS idx_post_media_hash ON post_media(content_hash)"
+  );
+
   // Allow following video-only creators: rebuild follows with an expanded CHECK
   // if it still only permits user/creator (SQLite can't ALTER a CHECK in place).
   const followsSql =
