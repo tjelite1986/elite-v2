@@ -7,9 +7,13 @@ import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
 
 interface SettingsClientProps {
   isAdmin: boolean;
+  showAdultOutside: boolean;
 }
 
-export default function SettingsClient({ isAdmin }: SettingsClientProps) {
+export default function SettingsClient({
+  isAdmin,
+  showAdultOutside,
+}: SettingsClientProps) {
   const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -17,6 +21,28 @@ export default function SettingsClient({ isAdmin }: SettingsClientProps) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // 18+ visibility preference.
+  const [adultOutside, setAdultOutside] = useState(showAdultOutside);
+  const [adultSaving, setAdultSaving] = useState(false);
+
+  const toggleAdultOutside = async () => {
+    const next = !adultOutside;
+    setAdultOutside(next);
+    setAdultSaving(true);
+    try {
+      await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ show_adult_outside: next }),
+      });
+      router.refresh();
+    } catch {
+      setAdultOutside(!next); // revert on failure
+    } finally {
+      setAdultSaving(false);
+    }
+  };
 
   // Danger zone — account deletion.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -133,6 +159,36 @@ export default function SettingsClient({ isAdmin }: SettingsClientProps) {
               {loading ? "Saving..." : "Update password"}
             </button>
           </form>
+        </div>
+
+        {/* 18+ content visibility */}
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-8">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-medium">Show 18+ content everywhere</h2>
+              <p className="mt-1 max-w-md text-sm text-white/50">
+                Weave adult content into normal browsing (feeds, profiles, people)
+                instead of only the Shorts 18+ section. You still need to unlock
+                the 18+ PIN to view it.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={adultOutside}
+              onClick={toggleAdultOutside}
+              disabled={adultSaving}
+              className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-50 ${
+                adultOutside ? "bg-rose-500" : "bg-white/20"
+              }`}
+            >
+              <span
+                className={`absolute top-1 size-5 rounded-full bg-white transition-all ${
+                  adultOutside ? "left-6" : "left-1"
+                }`}
+              />
+            </button>
+          </div>
         </div>
 
         {/* Danger zone — hidden for admins (admin accounts can't be deleted) */}

@@ -438,6 +438,17 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE gallery_items ADD COLUMN description TEXT");
   }
 
+  // Per-user preference: surface 18+ content outside the dedicated Shorts 18+
+  // section (still requires the PIN cookie to actually view). Default off.
+  const profileColumns = (
+    db.prepare("PRAGMA table_info(user_profiles)").all() as { name: string }[]
+  ).map((c) => c.name);
+  if (profileColumns.length > 0 && !profileColumns.includes("show_adult_outside")) {
+    db.exec(
+      "ALTER TABLE user_profiles ADD COLUMN show_adult_outside INTEGER NOT NULL DEFAULT 0"
+    );
+  }
+
   // Give every existing user a public profile (username/avatar/bio) so the posts
   // module and attribution work. Username = slugified email local-part, with a
   // numeric suffix on collision; the user can change it later in settings.
@@ -678,6 +689,7 @@ export interface UserProfileRow {
   display_name: string | null;
   avatar_key: string | null;
   bio: string | null;
+  show_adult_outside: number;
   created_at: string;
 }
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { has18Access } from "@/lib/shorts-gate";
+import { getShowAdultOutside } from "@/lib/profiles";
 import { getFeed, FeedScope } from "@/lib/posts";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,16 @@ export async function GET(request: Request) {
     case "creator":
       scope = { kind: "creator", creatorId: Number(url.searchParams.get("id")) };
       break;
+    case "person": {
+      const u = Number(url.searchParams.get("userId"));
+      const c = Number(url.searchParams.get("creatorId"));
+      scope = {
+        kind: "person",
+        userId: Number.isInteger(u) && u > 0 ? u : null,
+        creatorId: Number.isInteger(c) && c > 0 ? c : null,
+      };
+      break;
+    }
     case "tag":
       scope = { kind: "tag", tag: url.searchParams.get("tag") || "" };
       break;
@@ -38,7 +49,12 @@ export async function GET(request: Request) {
       scope = { kind: "home" };
   }
 
-  const includeAdult = await has18Access();
+  // Adult posts require the PIN. On general surfaces they also require the
+  // per-user "show 18+ everywhere" preference; an explicit adult view (adult=1,
+  // e.g. a profile's 18+ tab) needs only the PIN.
+  const pin = await has18Access();
+  const forceAdult = url.searchParams.get("adult") === "1";
+  const includeAdult = pin && (forceAdult || getShowAdultOutside(viewerId));
   const { items, nextCursor } = getFeed(
     scope,
     viewerId,

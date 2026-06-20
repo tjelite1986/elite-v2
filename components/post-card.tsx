@@ -53,12 +53,12 @@ export default function PostCard({ post }: { post: FeedPost }) {
     <article className="mx-auto w-full max-w-md border-b border-white/10 pb-3">
       {/* Header */}
       <header className="flex items-center gap-2.5 px-3 py-2.5">
-        <Link href={`/posts/u/${handle}`}>
+        <Link href={`/people/${handle}`}>
           <PostAvatar username={post.author.username} size={34} />
         </Link>
         <div className="min-w-0 flex-1">
           <Link
-            href={`/posts/u/${handle}`}
+            href={`/people/${handle}`}
             className="block truncate text-sm font-semibold text-white"
           >
             {post.author.display_name || handle}
@@ -134,7 +134,7 @@ export default function PostCard({ post }: { post: FeedPost }) {
         )}
         {post.caption && (
           <p className="mt-0.5 text-sm text-white/90">
-            <Link href={`/posts/u/${handle}`} className="mr-1.5 font-semibold text-white">
+            <Link href={`/people/${handle}`} className="mr-1.5 font-semibold text-white">
               {handle}
             </Link>
             {post.caption}
@@ -237,7 +237,7 @@ function CommentsSheet({
               <PostAvatar username={c.author_username} size={28} />
               <p className="text-white/90">
                 <Link
-                  href={`/posts/u/${c.author_username ?? "unknown"}`}
+                  href={`/people/${c.author_username ?? "unknown"}`}
                   className="mr-1.5 font-semibold text-white"
                 >
                   {c.author_username ?? "unknown"}
