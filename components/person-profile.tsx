@@ -75,9 +75,13 @@ export default function PersonProfile({
     <div className="mx-auto max-w-2xl px-4 pb-24 pt-24 text-white">
       {/* Header */}
       <header className="mb-5 flex items-start gap-5">
-        <span key={avatarBust}>
-          <PostAvatar username={person.handle} size={84} className="text-2xl" />
-        </span>
+        <PostAvatar
+          key={avatarBust}
+          username={person.handle}
+          size={84}
+          className="text-2xl"
+          version={avatarBust}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg font-semibold">@{person.handle}</h1>

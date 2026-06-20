@@ -6,9 +6,9 @@ import { Search, Image as ImageIcon, Clapperboard, Lock } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
 import type { PersonEntry } from "@/lib/directory";
 
-// Module-level cache: survives client-side navigation within the session, so
-// returning from a profile restores the loaded list AND the scroll position
-// instead of resetting to the top.
+// Persisted in sessionStorage (survives a full remount/reload on back-nav, where
+// a module-level var would be re-initialized), so returning from a profile
+// restores the loaded list AND the scroll position instead of resetting to top.
 interface DirCache {
   q: string;
   items: PersonEntry[];
@@ -17,12 +17,25 @@ interface DirCache {
   total: number | null;
   scrollY: number;
 }
-let dirCache: DirCache | null = null;
+const CACHE_KEY = "people-dir-v1";
+
+function readCache(): DirCache | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    return raw ? (JSON.parse(raw) as DirCache) : null;
+  } catch {
+    return null;
+  }
+}
 
 // Browse everyone across the app — real users + mirrored photo/video creators —
 // with chips linking to wherever each person has content.
 export default function PeopleDirectory() {
-  const cached = dirCache;
+  const cachedRef = useRef<DirCache | null>(null);
+  if (cachedRef.current === null) cachedRef.current = readCache();
+  const cached = cachedRef.current;
+
   const [q, setQ] = useState(cached?.q ?? "");
   const [items, setItems] = useState<PersonEntry[]>(cached?.items ?? []);
   const [offset, setOffset] = useState(cached?.offset ?? 0);
@@ -32,6 +45,17 @@ export default function PeopleDirectory() {
   const sentinel = useRef<HTMLDivElement>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydrated = useRef(Boolean(cached));
+  // Latest state, mirrored for the scroll handler to persist without re-binding.
+  const stateRef = useRef({ q, items, offset, nextOffset, total });
+  stateRef.current = { q, items, offset, nextOffset, total };
+  // Last known scroll position. Seeded from the cache so a mount/remount never
+  // overwrites the saved position with the transient 0 it sits at before the
+  // restore runs; only real scroll events advance it.
+  const scrollYRef = useRef(cached?.scrollY ?? 0);
+  // True while we're re-asserting the restored position — scroll events during
+  // this window (incl. Next's own scroll-to-top on back-nav) must not clobber
+  // the saved position.
+  const restoringRef = useRef(Boolean(cached) && (cached?.scrollY ?? 0) > 0);
 
   const load = useCallback(
     async (reset: boolean) => {
@@ -80,31 +104,84 @@ export default function PeopleDirectory() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  // Restore scroll position once when returning from a profile.
+  // Restore scroll position once when returning from a profile. Next/the browser
+  // can scroll back to top a moment after mount, so disable auto-restoration and
+  // keep re-asserting our target until it sticks (content height settled), a
+  // ~2.5s window elapses, or the user scrolls.
   useEffect(() => {
-    if (cached) {
-      const y = cached.scrollY;
-      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
-    }
+    if (!cached || cached.scrollY <= 0) return;
+    const y = cached.scrollY;
+    const prevRestore = history.scrollRestoration;
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+
+    // Re-assert the position every frame for ~3s. Next/the browser can scroll to
+    // top several times after a back-nav (it settles by ~2.8s here); forcing the
+    // target is a no-op once we're already there, and snaps back when nudged.
+    let stop = false;
+    const start = performance.now();
+    const tick = () => {
+      if (stop) return;
+      if (window.scrollY !== y) window.scrollTo(0, y);
+      if (performance.now() - start > 3000) {
+        restoringRef.current = false;
+        scrollYRef.current = window.scrollY;
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+
+    // The user taking over ends the restore immediately.
+    const cancel = () => {
+      stop = true;
+      restoringRef.current = false;
+      scrollYRef.current = window.scrollY;
+    };
+    window.addEventListener("wheel", cancel, { passive: true, once: true });
+    window.addEventListener("touchstart", cancel, { passive: true, once: true });
+    window.addEventListener("keydown", cancel, { once: true });
+
+    return () => {
+      stop = true;
+      restoringRef.current = false;
+      window.removeEventListener("wheel", cancel);
+      window.removeEventListener("touchstart", cancel);
+      window.removeEventListener("keydown", cancel);
+      if ("scrollRestoration" in history) history.scrollRestoration = prevRestore;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep the cache in sync with the loaded list + live scroll position.
+  // Persist the loaded list + last known scroll position so a return restores
+  // them. scrollY comes from scrollYRef (advanced only by real scrolls), never
+  // from window.scrollY at mount — which is 0 before the restore runs.
+  const persist = useCallback(() => {
+    try {
+      sessionStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify({ ...stateRef.current, scrollY: scrollYRef.current })
+      );
+    } catch {
+      /* quota / disabled — degrade to no restore */
+    }
+  }, []);
   useEffect(() => {
-    dirCache = { q, items, offset, nextOffset, total, scrollY: window.scrollY };
-  }, [q, items, offset, nextOffset, total]);
+    persist();
+  }, [q, items, offset, nextOffset, total, persist]);
   useEffect(() => {
     let raf = 0;
     const onScroll = () => {
-      if (raf) return;
+      if (raf || restoringRef.current) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        if (dirCache) dirCache.scrollY = window.scrollY;
+        if (restoringRef.current) return;
+        scrollYRef.current = window.scrollY;
+        persist();
       });
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [persist]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -133,7 +210,17 @@ export default function PeopleDirectory() {
         <p className="mb-2 px-1 text-xs text-white/40">{total} people</p>
       )}
 
-      <div className="space-y-1.5">
+      {/* Capture the scroll position the instant any link is clicked (before the
+          outgoing navigation scrolls the window to top), and block further scroll
+          writes so it can't be clobbered while this page is still mounted. */}
+      <div
+        className="space-y-1.5"
+        onClickCapture={() => {
+          scrollYRef.current = window.scrollY;
+          restoringRef.current = true;
+          persist();
+        }}
+      >
         {items.map((p) => (
           <PersonRow key={p.handle} person={p} />
         ))}
