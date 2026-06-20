@@ -18,9 +18,14 @@ export default function PostsImportButton() {
       const res = await fetch("/api/posts/import", { method: "POST" });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
-        setMsg(
-          `Imported ${d.imported ?? 0} image(s), ${d.creatorsNew ?? 0} new creator(s), ${d.skipped ?? 0} skipped.`
-        );
+        const parts = [
+          `${d.imported ?? 0} image(s)`,
+          `${d.creatorsNew ?? 0} new creator(s)`,
+        ];
+        if (d.videosRouted) parts.push(`${d.videosRouted} video(s) → Shorts`);
+        if (d.deduped) parts.push(`${d.deduped} already imported`);
+        if (d.skipped) parts.push(`${d.skipped} skipped`);
+        setMsg(`Imported ${parts.join(", ")}.`);
         router.refresh();
       } else {
         setMsg(d.error || "Import failed.");

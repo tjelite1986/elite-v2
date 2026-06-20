@@ -22,14 +22,21 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import crypto from "node:crypto";
 import sharp from "sharp";
 
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const POSTS_ROOT = process.env.POSTS_ROOT || "/posts-store";
 const IMPORT_DIR = process.env.POSTS_IMPORT_DIR || path.join(POSTS_ROOT, "_import");
+// Videos in a drop don't belong in the photo feed — route them to the main
+// shorts import folder (named for the creator) so the shorts importer makes a
+// clip under the same handle. The unified /people profile merges the two.
+const SHORTS_ROOT = process.env.SHORTS_ROOT || "/shorts-store";
+const SHORTS_VIDEO_DROP = path.join(SHORTS_ROOT, "main", "_import");
 
 const IMG_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"]);
+const VIDEO_EXTS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
 const DISPLAY_MAX = 1440;
 const THUMB_SIZE = 600;
 
@@ -103,8 +110,13 @@ const insertPost = db.prepare(
   "INSERT INTO posts (author_creator_id, caption) VALUES (?, NULL)"
 );
 const insertMedia = db.prepare(
-  `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position)
-   VALUES (?, ?, ?, ?, ?, ?)`
+  `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position, content_hash)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`
+);
+// Has this creator already got an image with this exact content?
+const hashSeen = db.prepare(
+  `SELECT 1 FROM post_media pm JOIN posts p ON p.id = pm.post_id
+    WHERE p.author_creator_id = ? AND pm.content_hash = ? LIMIT 1`
 );
 
 const MAX_PER_POST = 10;
@@ -153,12 +165,47 @@ function resolveCreatorId(username) {
   return creatorId;
 }
 
+// Try to consume (delete) a source; returns false if we can't (host-owned drop
+// the container can't unlink) so the caller leaves it for a retry.
+function consume(srcPath) {
+  try {
+    fs.unlinkSync(srcPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let deduped = 0;
+let videosRouted = 0;
+
+// Move a video out of the photo drop into the main shorts import folder, named
+// for the creator, so the shorts importer makes a clip under the same handle.
+function routeVideo(username, srcPath, originalName) {
+  fs.mkdirSync(SHORTS_VIDEO_DROP, { recursive: true });
+  const dest = path.join(SHORTS_VIDEO_DROP, `${username}_-_${path.basename(originalName)}`);
+  try {
+    fs.copyFileSync(srcPath, dest);
+    if (!consume(srcPath)) {
+      try { fs.unlinkSync(dest); } catch {}
+      log(`skip video ${originalName}: can't consume source`);
+      skipped++;
+      return;
+    }
+    videosRouted++;
+  } catch (err) {
+    log(`skip video ${originalName}: ${err.message}`);
+    skipped++;
+  }
+}
+
 // Transcode one image into the creator's folder and queue it for grouping.
 // originalName is used only for date-based carousel grouping; consumed on success.
 async function processImage(username, srcPath, originalName) {
   const ext = path.extname(originalName).toLowerCase();
   if (!IMG_EXTS.has(ext)) return;
   const creatorId = resolveCreatorId(username);
+
   const folder = slug(username);
   const destDir = path.join(POSTS_ROOT, folder);
   fs.mkdirSync(destDir, { recursive: true });
@@ -174,10 +221,21 @@ async function processImage(username, srcPath, originalName) {
         : fs.readFileSync(srcPath);
     const upright = await sharp(source).rotate().toBuffer();
     const meta = await sharp(upright).metadata();
-    await sharp(upright)
+    const displayBuf = await sharp(upright)
       .resize(DISPLAY_MAX, DISPLAY_MAX, { fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 82 })
-      .toFile(displayPath);
+      .toBuffer();
+
+    // Dedup on the transcoded display bytes (deterministic for a given source),
+    // so re-dropping an already-imported image is skipped. Matches the backfill,
+    // which hashes the same display files.
+    const contentHash = crypto.createHash("sha256").update(displayBuf).digest("hex");
+    if (hashSeen.get(creatorId, contentHash)) {
+      if (consume(srcPath)) deduped++;
+      return; // already imported
+    }
+
+    fs.writeFileSync(displayPath, displayBuf);
     await sharp(upright)
       .resize(THUMB_SIZE, THUMB_SIZE, { fit: "cover" })
       .jpeg({ quality: 75 })
@@ -186,12 +244,10 @@ async function processImage(username, srcPath, originalName) {
     // Consume the source FIRST. If we can't delete it (e.g. a host-owned drop
     // the container can't unlink), back out the files we just wrote and skip —
     // otherwise the leftover source re-imports as a duplicate on the next run.
-    try {
-      fs.unlinkSync(srcPath);
-    } catch (unlinkErr) {
+    if (!consume(srcPath)) {
       try { fs.unlinkSync(displayPath); } catch {}
       try { fs.unlinkSync(thumbPath); } catch {}
-      log(`skip ${originalName}: can't consume source (${unlinkErr.code || unlinkErr.message})`);
+      log(`skip ${originalName}: can't consume source`);
       skipped++;
       return;
     }
@@ -202,6 +258,7 @@ async function processImage(username, srcPath, originalName) {
       storageKey,
       width: meta.width ?? null,
       height: meta.height ?? null,
+      contentHash,
     });
     imported++;
   } catch (err) {
@@ -212,6 +269,14 @@ async function processImage(username, srcPath, originalName) {
   }
 }
 
+// Dispatch a single file: images become posts, videos get routed to shorts,
+// anything else is ignored.
+async function handleFile(username, srcPath, originalName) {
+  const ext = path.extname(originalName).toLowerCase();
+  if (IMG_EXTS.has(ext)) await processImage(username, srcPath, originalName);
+  else if (VIDEO_EXTS.has(ext)) routeVideo(username, srcPath, originalName);
+}
+
 const entries = fs.readdirSync(IMPORT_DIR, { withFileTypes: true });
 
 for (const entry of entries) {
@@ -219,15 +284,11 @@ for (const entry of entries) {
   if (entry.isFile()) {
     // Top-level file: the creator is encoded in the filename.
     const stem = entry.name.slice(0, entry.name.length - path.extname(entry.name).length);
-    await processImage(
-      creatorUsername(parseCreator(stem)),
-      path.join(IMPORT_DIR, entry.name),
-      entry.name
-    );
+    await handleFile(creatorUsername(parseCreator(stem)), path.join(IMPORT_DIR, entry.name), entry.name);
   } else if (entry.isDirectory()) {
     // Subfolder: the FOLDER NAME is the creator; every image inside goes to it
-    // (filenames don't matter). One level deep. A bad folder must not abort the
-    // whole run.
+    // and videos route to shorts (filenames don't matter). One level deep. A bad
+    // folder must not abort the whole run.
     const username = creatorUsername(entry.name);
     const dir = path.join(IMPORT_DIR, entry.name);
     try {
@@ -235,7 +296,7 @@ for (const entry of entries) {
         if (f.startsWith(".")) continue;
         const fp = path.join(dir, f);
         try {
-          if (fs.statSync(fp).isFile()) await processImage(username, fp, f);
+          if (fs.statSync(fp).isFile()) await handleFile(username, fp, f);
         } catch (err) {
           log(`skip ${entry.name}/${f}: ${err.message}`);
           skipped++;
@@ -255,11 +316,14 @@ for (const [creatorId, items] of byCreator) {
   for (const group of groupByDate(items)) {
     const postId = Number(insertPost.run(creatorId).lastInsertRowid);
     group.forEach((m, i) =>
-      insertMedia.run(postId, m.storageKey, "image/jpeg", m.width, m.height, i)
+      insertMedia.run(postId, m.storageKey, "image/jpeg", m.width, m.height, i, m.contentHash)
     );
   }
 }
 
-log(`done: ${imported} imported, ${creatorsNew} new creators, ${skipped} skipped`);
-result({ imported, creatorsNew, skipped });
+log(
+  `done: ${imported} imported, ${creatorsNew} new creators, ` +
+    `${videosRouted} videos→shorts, ${deduped} dup-skipped, ${skipped} skipped`
+);
+result({ imported, creatorsNew, videosRouted, deduped, skipped });
 db.close();
