@@ -37,6 +37,29 @@ function slug(name) {
     .replace(/[^a-z0-9._-]+/g, "_").replace(/^[._-]+|[._-]+$/g, "").slice(0, 64);
   return s || "unknown";
 }
+const MAX_PER_POST = 10;
+function dateKey(name) {
+  let m = name.match(/-(\d{8})-/);
+  if (m) return m[1];
+  m = name.match(/-(\d{2}-\d{2}-\d{4})-/);
+  if (m) return m[1];
+  return null;
+}
+// Group processed images (sorted by filename) into carousels: same source date
+// = one post, capped at 10; undated images each their own post.
+function groupByDate(items) {
+  const groups = [];
+  let cur = [];
+  let curKey;
+  for (const it of items) {
+    const k = dateKey(it.file);
+    if (cur.length === 0) { cur = [it]; curKey = k; }
+    else if (k !== null && k === curKey && cur.length < MAX_PER_POST) cur.push(it);
+    else { groups.push(cur); cur = [it]; curKey = k; }
+  }
+  if (cur.length) groups.push(cur);
+  return groups;
+}
 
 if (!fs.existsSync(SRC)) {
   log(`source not found: ${SRC}`);
@@ -57,7 +80,7 @@ const creatorPostCount = db.prepare(
 const insertPost = db.prepare("INSERT INTO posts (author_creator_id, caption) VALUES (?, NULL)");
 const insertMedia = db.prepare(
   `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position)
-   VALUES (?, ?, ?, ?, ?, 0)`
+   VALUES (?, ?, ?, ?, ?, ?)`
 );
 
 const folders = fs.readdirSync(SRC, { withFileTypes: true })
@@ -85,7 +108,8 @@ for (const folder of folders) {
   const files = fs.readdirSync(srcDir)
     .filter((f) => IMG_EXTS.has(path.extname(f).toLowerCase()));
 
-  let count = 0;
+  // Transcode every image first, then group by source date into carousels.
+  const processed = [];
   for (const f of files) {
     try {
       const buf = fs.readFileSync(path.join(srcDir, f));
@@ -100,17 +124,27 @@ for (const folder of folders) {
         .resize(THUMB_SIZE, THUMB_SIZE, { fit: "cover" })
         .jpeg({ quality: 75 })
         .toFile(path.join(destDir, `${uuid}_t.jpg`));
-      const postId = Number(insertPost.run(creatorId).lastInsertRowid);
-      insertMedia.run(postId, `${slug(uname)}/${uuid}.jpg`, "image/jpeg",
-        meta.width ?? null, meta.height ?? null);
-      imported++;
-      count++;
+      processed.push({
+        file: f,
+        storageKey: `${slug(uname)}/${uuid}.jpg`,
+        width: meta.width ?? null,
+        height: meta.height ?? null,
+      });
     } catch (err) {
       log(`skip ${folder}/${f}: ${err.message}`);
     }
   }
+
+  processed.sort((a, b) => a.file.localeCompare(b.file));
+  for (const group of groupByDate(processed)) {
+    const postId = Number(insertPost.run(creatorId).lastInsertRowid);
+    group.forEach((m, i) =>
+      insertMedia.run(postId, m.storageKey, "image/jpeg", m.width, m.height, i)
+    );
+    imported += group.length;
+  }
   creatorsDone++;
-  log(`${uname}: ${count} images (${creatorsDone}/${folders.length} creators, ${imported} total)`);
+  log(`${uname}: ${processed.length} images (${creatorsDone}/${folders.length} creators, ${imported} total)`);
 }
 
 log(`done: ${imported} images across ${creatorsDone} creators`);

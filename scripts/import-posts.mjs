@@ -96,8 +96,32 @@ const insertPost = db.prepare(
 );
 const insertMedia = db.prepare(
   `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position)
-   VALUES (?, ?, ?, ?, ?, 0)`
+   VALUES (?, ?, ?, ?, ?, ?)`
 );
+
+const MAX_PER_POST = 10;
+function dateKey(name) {
+  let m = name.match(/-(\d{8})-/);
+  if (m) return m[1];
+  m = name.match(/-(\d{2}-\d{2}-\d{4})-/);
+  if (m) return m[1];
+  return null;
+}
+// Group processed images (sorted by filename) into carousels: same source date
+// = one post, capped at 10; undated images each their own post.
+function groupByDate(items) {
+  const groups = [];
+  let cur = [];
+  let curKey;
+  for (const it of items) {
+    const k = dateKey(it.file);
+    if (cur.length === 0) { cur = [it]; curKey = k; }
+    else if (k !== null && k === curKey && cur.length < MAX_PER_POST) cur.push(it);
+    else { groups.push(cur); cur = [it]; curKey = k; }
+  }
+  if (cur.length) groups.push(cur);
+  return groups;
+}
 
 const entries = fs
   .readdirSync(IMPORT_DIR, { withFileTypes: true })
@@ -107,13 +131,14 @@ let imported = 0;
 let creatorsNew = 0;
 let skipped = 0;
 const creatorCache = new Map();
+// creatorId -> { username, items: [{ file, storageKey, width, height }] }
+const byCreator = new Map();
 
 for (const entry of entries) {
   const ext = path.extname(entry.name).toLowerCase();
   if (!IMG_EXTS.has(ext)) continue;
-  const stem = entry.name.slice(0, entry.name.length - ext.length);
 
-  const username = creatorUsername(parseCreator(stem));
+  const username = creatorUsername(parseCreator(entry.name.slice(0, entry.name.length - ext.length)));
   const folder = slug(username);
 
   let creatorId = creatorCache.get(username);
@@ -150,14 +175,30 @@ for (const entry of entries) {
       .jpeg({ quality: 75 })
       .toFile(path.join(destDir, `${uuid}_t.jpg`));
 
-    const postId = Number(insertPost.run(creatorId).lastInsertRowid);
-    insertMedia.run(postId, storageKey, "image/jpeg", meta.width ?? null, meta.height ?? null);
+    if (!byCreator.has(creatorId)) byCreator.set(creatorId, []);
+    byCreator.get(creatorId).push({
+      file: entry.name,
+      storageKey,
+      width: meta.width ?? null,
+      height: meta.height ?? null,
+    });
 
     fs.unlinkSync(srcPath); // consume the drop
     imported++;
   } catch (err) {
     log(`skip ${entry.name}: ${err.message}`);
     skipped++;
+  }
+}
+
+// Group each creator's images by source date into carousel posts.
+for (const [creatorId, items] of byCreator) {
+  items.sort((a, b) => a.file.localeCompare(b.file));
+  for (const group of groupByDate(items)) {
+    const postId = Number(insertPost.run(creatorId).lastInsertRowid);
+    group.forEach((m, i) =>
+      insertMedia.run(postId, m.storageKey, "image/jpeg", m.width, m.height, i)
+    );
   }
 }
 
