@@ -28,6 +28,7 @@ import PostFeed from "@/components/post-feed";
 import PostGrid from "@/components/post-grid";
 import ShortsGrid from "@/components/shorts-grid";
 import ProfileShortsSettings from "@/components/profile-shorts-settings";
+import ProfileMergeButton from "@/components/profile-merge-button";
 import type { ResolvedPerson } from "@/lib/directory";
 
 type Tab = "all" | "photos" | "shorts" | "18plus";
@@ -142,6 +143,9 @@ export default function PersonProfile({
               >
                 <Pencil size={14} /> Edit profile
               </Link>
+            )}
+            {isAdmin && person.userId === null && (
+              <ProfileMergeButton targetHandle={person.handle} />
             )}
             {canManage && (person.photos > 0 || person.shortsMain > 0 || person.shorts18 > 0) && (
               <button
