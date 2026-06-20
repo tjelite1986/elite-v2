@@ -6,17 +6,32 @@ import { Search, Image as ImageIcon, Clapperboard, Lock } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
 import type { PersonEntry } from "@/lib/directory";
 
+// Module-level cache: survives client-side navigation within the session, so
+// returning from a profile restores the loaded list AND the scroll position
+// instead of resetting to the top.
+interface DirCache {
+  q: string;
+  items: PersonEntry[];
+  offset: number;
+  nextOffset: number | null;
+  total: number | null;
+  scrollY: number;
+}
+let dirCache: DirCache | null = null;
+
 // Browse everyone across the app — real users + mirrored photo/video creators —
 // with chips linking to wherever each person has content.
 export default function PeopleDirectory() {
-  const [q, setQ] = useState("");
-  const [items, setItems] = useState<PersonEntry[]>([]);
-  const [offset, setOffset] = useState(0);
-  const [nextOffset, setNextOffset] = useState<number | null>(0);
-  const [total, setTotal] = useState<number | null>(null);
+  const cached = dirCache;
+  const [q, setQ] = useState(cached?.q ?? "");
+  const [items, setItems] = useState<PersonEntry[]>(cached?.items ?? []);
+  const [offset, setOffset] = useState(cached?.offset ?? 0);
+  const [nextOffset, setNextOffset] = useState<number | null>(cached?.nextOffset ?? 0);
+  const [total, setTotal] = useState<number | null>(cached?.total ?? null);
   const [loading, setLoading] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydrated = useRef(Boolean(cached));
 
   const load = useCallback(
     async (reset: boolean) => {
@@ -45,8 +60,13 @@ export default function PeopleDirectory() {
     [loading, offset, nextOffset, q]
   );
 
-  // Reload from the top whenever the query changes (debounced).
+  // Reload from the top whenever the query changes (debounced). Skip the very
+  // first run when we hydrated from cache — we already have those items.
   useEffect(() => {
+    if (hydrated.current) {
+      hydrated.current = false;
+      return;
+    }
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => {
       setItems([]);
@@ -59,6 +79,32 @@ export default function PeopleDirectory() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
+
+  // Restore scroll position once when returning from a profile.
+  useEffect(() => {
+    if (cached) {
+      const y = cached.scrollY;
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, y)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the cache in sync with the loaded list + live scroll position.
+  useEffect(() => {
+    dirCache = { q, items, offset, nextOffset, total, scrollY: window.scrollY };
+  }, [q, items, offset, nextOffset, total]);
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        if (dirCache) dirCache.scrollY = window.scrollY;
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   useEffect(() => {
     const el = sentinel.current;

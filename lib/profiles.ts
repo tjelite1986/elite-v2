@@ -109,6 +109,24 @@ export function setAvatarKey(userId: number, avatarKey: string): void {
   );
 }
 
+// Handle-scoped avatar (works for any identity type, incl. video-only creators
+// with no post_creators row). Takes precedence over the legacy avatar_key
+// columns in the avatar route.
+export function setHandleAvatar(handle: string, avatarKey: string): void {
+  db.prepare(
+    `INSERT INTO handle_avatars (handle, avatar_key, updated_at)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(handle) DO UPDATE SET avatar_key = excluded.avatar_key, updated_at = datetime('now')`
+  ).run(handle, avatarKey);
+}
+
+export function getHandleAvatar(handle: string): string | null {
+  const row = db
+    .prepare("SELECT avatar_key FROM handle_avatars WHERE handle = ?")
+    .get(handle) as { avatar_key: string } | undefined;
+  return row?.avatar_key ?? null;
+}
+
 // Per-user preference: surface 18+ content outside the dedicated 18+ section.
 // Viewing still requires the PIN cookie; this only controls whether adult
 // content is woven into general browsing.

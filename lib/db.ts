@@ -362,6 +362,16 @@ function migrate(db: Database.Database) {
       tag TEXT NOT NULL,
       PRIMARY KEY (post_id, tag)
     );
+
+    -- Avatar chosen for a person, keyed by their shared handle so it works for
+    -- every identity type (user / photo creator / video-only creator). Takes
+    -- precedence over the legacy avatar_key columns. Set from a post image or a
+    -- shorts/18+ clip poster.
+    CREATE TABLE IF NOT EXISTS handle_avatars (
+      handle TEXT PRIMARY KEY,
+      avatar_key TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
     CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
   `);
 

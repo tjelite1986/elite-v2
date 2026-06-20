@@ -32,6 +32,7 @@ export default function ShortsGrid({
   categoryEditable = false,
   adminActions = false,
   channel,
+  onSelect,
 }: {
   query: Record<string, string>;
   hrefPrefix: string;
@@ -43,6 +44,9 @@ export default function ShortsGrid({
   // When set, admins also get a per-tile "move to profile" button. The channel
   // scopes the profile picker so a clip never moves across main/18+.
   channel?: "main" | "18plus";
+  // Selection mode: a tile calls onSelect(shortId) instead of opening the clip
+  // (used to pick a profile picture from a clip's poster frame).
+  onSelect?: (shortId: number) => void;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<GridShort[]>([]);
@@ -153,8 +157,8 @@ export default function ShortsGrid({
             key={s.id}
             className="group relative aspect-[9/16] overflow-hidden rounded-md bg-white/5"
           >
-            <Link href={`${hrefPrefix}${s.id}`} className="block h-full w-full">
-              {s.has_poster ? (
+            {(() => {
+              const poster = s.has_poster ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={`/api/shorts/${s.id}/poster`}
@@ -166,12 +170,25 @@ export default function ShortsGrid({
                 <div className="flex h-full w-full items-center justify-center text-white/30">
                   <Play size={28} />
                 </div>
-              )}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[11px] text-white">
-                <Heart size={12} className="fill-white/90" />
-                {s.like_count}
-              </div>
-            </Link>
+              );
+              const overlay = (
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[11px] text-white">
+                  <Heart size={12} className="fill-white/90" />
+                  {s.like_count}
+                </div>
+              );
+              return onSelect ? (
+                <button onClick={() => onSelect(s.id)} className="block h-full w-full">
+                  {poster}
+                  {overlay}
+                </button>
+              ) : (
+                <Link href={`${hrefPrefix}${s.id}`} className="block h-full w-full">
+                  {poster}
+                  {overlay}
+                </Link>
+              );
+            })()}
             {categoryEditable && (
               <select
                 value={(SHORT_CATEGORIES as string[]).includes(s.category) ? s.category : "uncategorized"}
