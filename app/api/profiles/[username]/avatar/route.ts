@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // Serve a user's or creator's avatar by username. 404 when none is set so the
 // client falls back to an initials placeholder.
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { username: string } }
 ) {
   const session = await getSession();
@@ -34,12 +34,26 @@ export async function GET(
   const filePath = avatarPathFor(avatarKey);
   if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
 
+  // The avatar URL is keyed by username (stable), but the underlying file changes
+  // when the picture is changed. Tag the response with the avatar key so the
+  // browser always revalidates and picks up a new picture immediately, while
+  // unchanged avatars come back as a cheap 304. (A long max-age would otherwise
+  // keep serving the old picture for 24h everywhere it's rendered.)
+  const etag = `"${avatarKey}"`;
+  if (request.headers.get("if-none-match") === etag) {
+    return new NextResponse(null, {
+      status: 304,
+      headers: { ETag: etag, "Cache-Control": "private, no-cache" },
+    });
+  }
+
   return new NextResponse(fs.readFileSync(filePath), {
     headers: {
       "Content-Type": imageMimeFor(avatarKey),
       "X-Content-Type-Options": "nosniff",
       "Content-Disposition": "inline",
-      "Cache-Control": "private, max-age=86400",
+      ETag: etag,
+      "Cache-Control": "private, no-cache",
     },
   });
 }
