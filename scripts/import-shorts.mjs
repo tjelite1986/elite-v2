@@ -48,6 +48,16 @@ const RDT_RE = /^RDT_\d+_\d+$/;
 
 const log = (m) => console.log(`[import-shorts] ${m}`);
 
+// Shared handle (matches handleOf in lib/directory.ts) — used to reuse an
+// existing profile regardless of capitalization instead of creating a variant.
+function handleOf(name) {
+  return String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._]+/g, "")
+    .replace(/^[._]+|[._]+$/g, "");
+}
+
 // Match lib/shorts-storage.ts profileSlug() exactly so a profile maps to one dir.
 function profileSlug(name) {
   const slug = (name || "unknown")
@@ -157,9 +167,15 @@ const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
 
-const findProfile = db.prepare(
-  "SELECT id, name FROM short_profiles WHERE channel = ? AND name = ? LIMIT 1"
-);
+// Existing profiles in this channel keyed by handle, so a dropped file reuses
+// the same person's profile even if the filename's capitalization differs.
+const profilesByHandle = new Map();
+for (const p of db
+  .prepare("SELECT id, name FROM short_profiles WHERE channel = ?")
+  .all(CHANNEL)) {
+  const h = handleOf(p.name);
+  if (h && !profilesByHandle.has(h)) profilesByHandle.set(h, p);
+}
 const insertProfile = db.prepare(
   `INSERT INTO short_profiles (name, channel, source_type, source_ref, auto_poll, videos_limit)
    VALUES (?, ?, 'manual', '', 0, 20)`
@@ -181,26 +197,25 @@ const entries = fs
 let imported = 0;
 let profilesNew = 0;
 let skipped = 0;
-const profileCache = new Map();
 
 for (const entry of entries) {
   const [stem, ext] = splitExt(entry.name);
   if (!VIDEO_EXTS.has(ext) && ext !== ".web.mp4") continue;
 
   const profileName = sanitizeStem(parseProfile(stem));
-  const slug = profileSlug(profileName);
+  const handle = handleOf(profileName);
 
-  let profile = profileCache.get(profileName);
+  // Reuse an existing same-handle profile (any capitalization) or create one.
+  let profile = profilesByHandle.get(handle);
   if (!profile) {
-    profile = findProfile.get(CHANNEL, profileName);
-    if (!profile) {
-      const r = insertProfile.run(profileName, CHANNEL);
-      profile = { id: Number(r.lastInsertRowid), name: profileName };
-      profilesNew++;
-      log(`profile + ${profileName}`);
-    }
-    profileCache.set(profileName, profile);
+    const r = insertProfile.run(profileName, CHANNEL);
+    profile = { id: Number(r.lastInsertRowid), name: profileName };
+    if (handle) profilesByHandle.set(handle, profile);
+    profilesNew++;
+    log(`profile + ${profileName}`);
   }
+  // Files go to the resolved profile's folder, not the incoming name's.
+  const slug = profileSlug(profile.name);
 
   const safeStem = sanitizeStem(stem);
   const sourceId = safeStem; // dedup key for re-runs

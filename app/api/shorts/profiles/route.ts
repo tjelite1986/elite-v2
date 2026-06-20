@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { db, ShortProfileRow } from "@/lib/db";
 import { deriveProfileName } from "@/lib/shorts-source";
 import { triggerPoll } from "@/lib/shorts-poll";
+import { handleOf } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +74,23 @@ export async function POST(request: Request) {
     // Auto-derive the display name from the source when left blank.
     if (!name) {
       name = await deriveProfileName(sourceType, sourceRef);
+    }
+  }
+
+  // Reuse an existing profile with the same handle in this channel instead of
+  // creating a capitalization variant (prevents split profiles).
+  const handle = handleOf(name);
+  if (handle) {
+    const existing = (
+      db
+        .prepare("SELECT * FROM short_profiles WHERE channel = ?")
+        .all(channel) as { id: number; name: string }[]
+    ).find((p) => handleOf(p.name) === handle);
+    if (existing) {
+      const full = db
+        .prepare("SELECT * FROM short_profiles WHERE id = ?")
+        .get(existing.id);
+      return NextResponse.json({ ok: true, profile: full, reused: true });
     }
   }
 
