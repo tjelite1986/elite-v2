@@ -5,6 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Camera, Pencil, X, Link as LinkIcon } from "lucide-react";
 
+function isHttpUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function linkLabel(l: { label: string; url: string }): string {
   if (l.label) return l.label;
   try {
@@ -18,6 +27,7 @@ import FollowButton from "@/components/follow-button";
 import PostFeed from "@/components/post-feed";
 import PostGrid from "@/components/post-grid";
 import ShortsGrid from "@/components/shorts-grid";
+import ProfileShortsSettings from "@/components/profile-shorts-settings";
 import type { ResolvedPerson } from "@/lib/directory";
 
 type Tab = "all" | "photos" | "shorts" | "18plus";
@@ -155,7 +165,7 @@ export default function PersonProfile({
           )}
           {person.links.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
-              {person.links.map((l, i) => (
+              {person.links.filter((l) => isHttpUrl(l.url)).map((l, i) => (
                 <a
                   key={i}
                   href={l.url}
@@ -170,6 +180,29 @@ export default function PersonProfile({
             </div>
           )}
         </div>
+      )}
+
+      {isAdmin && !selecting && (
+        <ProfileShortsSettings
+          channels={[
+            ...(person.shortsMainId && person.shortsMainPollable
+              ? [{
+                  id: person.shortsMainId,
+                  channel: "main" as const,
+                  autoPoll: person.shortsMainAutoPoll,
+                  basePath: "/shorts",
+                }]
+              : []),
+            ...(person.shorts18Id && person.shorts18Pollable
+              ? [{
+                  id: person.shorts18Id,
+                  channel: "18plus" as const,
+                  autoPoll: person.shorts18AutoPoll,
+                  basePath: "/shorts18",
+                }]
+              : []),
+          ]}
+        />
       )}
 
       {/* Select-a-profile-picture mode: scroll the real grids and tap any
