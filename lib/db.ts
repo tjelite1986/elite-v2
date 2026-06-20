@@ -319,7 +319,7 @@ function migrate(db: Database.Database) {
     -- Polymorphic social graph: a user follows either another user or a creator.
     CREATE TABLE IF NOT EXISTS follows (
       follower_id INTEGER NOT NULL REFERENCES users(id),
-      target_type TEXT NOT NULL CHECK (target_type IN ('user','creator')),
+      target_type TEXT NOT NULL CHECK (target_type IN ('user','creator','shorts')),
       target_id INTEGER NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (follower_id, target_type, target_id)
@@ -446,6 +446,28 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE gallery_items ADD COLUMN camera TEXT");
     if (!galleryColumns.includes("description"))
       db.exec("ALTER TABLE gallery_items ADD COLUMN description TEXT");
+  }
+
+  // Allow following video-only creators: rebuild follows with an expanded CHECK
+  // if it still only permits user/creator (SQLite can't ALTER a CHECK in place).
+  const followsSql =
+    (db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='follows'")
+      .get() as { sql: string } | undefined)?.sql ?? "";
+  if (followsSql && !followsSql.includes("'shorts'")) {
+    db.exec(`
+      CREATE TABLE follows_new (
+        follower_id INTEGER NOT NULL REFERENCES users(id),
+        target_type TEXT NOT NULL CHECK (target_type IN ('user','creator','shorts')),
+        target_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (follower_id, target_type, target_id)
+      );
+      INSERT INTO follows_new SELECT * FROM follows;
+      DROP TABLE follows;
+      ALTER TABLE follows_new RENAME TO follows;
+      CREATE INDEX IF NOT EXISTS idx_follows_target ON follows(target_type, target_id);
+    `);
   }
 
   // Per-user preference: surface 18+ content outside the dedicated Shorts 18+
@@ -743,7 +765,7 @@ export interface PostCommentRow {
   created_at: string;
 }
 
-export type FollowTargetType = "user" | "creator";
+export type FollowTargetType = "user" | "creator" | "shorts";
 
 export interface FollowRow {
   follower_id: number;

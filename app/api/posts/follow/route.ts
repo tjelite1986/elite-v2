@@ -12,7 +12,12 @@ export async function POST(request: Request) {
   const userId = Number(session.sub);
 
   const body = await request.json().catch(() => ({}));
-  const targetType = body?.targetType === "creator" ? "creator" : "user";
+  const targetType =
+    body?.targetType === "creator"
+      ? "creator"
+      : body?.targetType === "shorts"
+        ? "shorts"
+        : "user";
   const targetId = Number(body?.targetId);
   if (!Number.isInteger(targetId) || targetId <= 0) {
     return NextResponse.json({ error: "Invalid target." }, { status: 400 });
@@ -25,7 +30,9 @@ export async function POST(request: Request) {
   const exists =
     targetType === "user"
       ? db.prepare("SELECT 1 FROM user_profiles WHERE user_id = ?").get(targetId)
-      : db.prepare("SELECT 1 FROM post_creators WHERE id = ?").get(targetId);
+      : targetType === "creator"
+        ? db.prepare("SELECT 1 FROM post_creators WHERE id = ?").get(targetId)
+        : db.prepare("SELECT 1 FROM short_profiles WHERE id = ?").get(targetId);
   if (!exists) return NextResponse.json({ error: "Target not found." }, { status: 404 });
 
   const has = db

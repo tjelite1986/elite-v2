@@ -105,10 +105,11 @@ export default function PersonProfile({
                 <Pencil size={14} /> Edit profile
               </Link>
             ) : (
-              (person.userId !== null || person.creatorId !== null) && (
+              person.followType !== null &&
+              person.followId !== null && (
                 <FollowButton
-                  targetType={person.userId !== null ? "user" : "creator"}
-                  targetId={(person.userId ?? person.creatorId) as number}
+                  targetType={person.followType}
+                  targetId={person.followId}
                   initialFollowing={person.viewerFollows}
                 />
               )

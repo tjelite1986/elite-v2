@@ -50,6 +50,10 @@ export interface ResolvedPerson {
   userId: number | null; // real user (1:1)
   creatorId: number | null; // photo creator
   isOwn: boolean;
+  // Follow target: a person is followed via their user, else photo creator, else
+  // (video-only creators) one of their shorts profiles. null = nothing to follow.
+  followType: "user" | "creator" | "shorts" | null;
+  followId: number | null;
   viewerFollows: boolean;
   photos: number;
   shortsMainId: number | null;
@@ -113,9 +117,17 @@ export function resolvePerson(
           id
         );
 
-  // Following state for the primary follow target (user wins over creator).
-  const followType = user ? "user" : creator ? "creator" : null;
-  const followId = user?.user_id ?? creator?.id ?? null;
+  // Following state for the primary follow target (user > creator > shorts, so a
+  // video-only creator is still followable).
+  const shortsFollowId = shortsMainId ?? shorts18Id;
+  const followType: "user" | "creator" | "shorts" | null = user
+    ? "user"
+    : creator
+      ? "creator"
+      : shortsFollowId !== null
+        ? "shorts"
+        : null;
+  const followId = user?.user_id ?? creator?.id ?? shortsFollowId ?? null;
   const viewerFollows =
     followType !== null &&
     followId !== null &&
@@ -134,6 +146,8 @@ export function resolvePerson(
     userId: user?.user_id ?? null,
     creatorId: creator?.id ?? null,
     isOwn: user?.user_id === viewerId,
+    followType,
+    followId,
     viewerFollows,
     photos,
     shortsMainId,
