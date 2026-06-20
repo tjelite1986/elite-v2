@@ -61,8 +61,12 @@ export interface ResolvedPerson {
   photos: number;
   shortsMainId: number | null;
   shortsMain: number;
+  shortsMainAutoPoll: boolean;
+  shortsMainPollable: boolean;
   shorts18Id: number | null;
   shorts18: number;
+  shorts18AutoPoll: boolean;
+  shorts18Pollable: boolean;
 }
 
 // Resolve a handle to its identity across every section, for the unified
@@ -91,14 +95,37 @@ export function resolvePerson(
     | undefined;
 
   const shorts = db
-    .prepare("SELECT id, name, channel FROM short_profiles")
-    .all() as { id: number; name: string; channel: string }[];
+    .prepare(
+      "SELECT id, name, channel, auto_poll, source_type, source_ref FROM short_profiles"
+    )
+    .all() as {
+    id: number;
+    name: string;
+    channel: string;
+    auto_poll: number;
+    source_type: string;
+    source_ref: string;
+  }[];
   let shortsMainId: number | null = null;
   let shorts18Id: number | null = null;
+  // Poll/download settings make sense only for a pollable source (not 'manual').
+  const pollOf = (s: { source_type: string; source_ref: string }) =>
+    s.source_type !== "manual" && Boolean(s.source_ref);
+  let shortsMainAutoPoll = false;
+  let shorts18AutoPoll = false;
+  let shortsMainPollable = false;
+  let shorts18Pollable = false;
   for (const s of shorts) {
     if (handleOf(s.name) !== h) continue;
-    if (s.channel === "18plus") shorts18Id = s.id;
-    else shortsMainId = s.id;
+    if (s.channel === "18plus") {
+      shorts18Id = s.id;
+      shorts18AutoPoll = Boolean(s.auto_poll);
+      shorts18Pollable = pollOf(s);
+    } else {
+      shortsMainId = s.id;
+      shortsMainAutoPoll = Boolean(s.auto_poll);
+      shortsMainPollable = pollOf(s);
+    }
   }
 
   if (!user && !creator && shortsMainId === null && shorts18Id === null) {
@@ -160,8 +187,12 @@ export function resolvePerson(
     photos,
     shortsMainId,
     shortsMain: clipCount(shortsMainId),
+    shortsMainAutoPoll,
+    shortsMainPollable,
     shorts18Id: include18 ? shorts18Id : null,
     shorts18: include18 ? clipCount(shorts18Id) : 0,
+    shorts18AutoPoll: include18 ? shorts18AutoPoll : false,
+    shorts18Pollable: include18 ? shorts18Pollable : false,
   };
 }
 

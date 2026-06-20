@@ -171,15 +171,30 @@ function upsertExtras(handle: string, fields: Record<string, string | null>) {
   ).run(handle, ...keys.map((k) => fields[k]));
 }
 
+// Only http(s) links — reject javascript:/data: etc. (the url is rendered into
+// an href, so a bad scheme would be stored XSS).
+function safeHttpUrl(raw: string): string | null {
+  let url = raw.trim().slice(0, 300);
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export function setProfileBioLinks(
   handle: string,
   bio: string | null,
   links: ProfileLink[]
 ): void {
   const clean = (links || [])
-    .filter((l) => l && typeof l.url === "string" && l.url.trim())
-    .slice(0, 10)
-    .map((l) => ({ label: String(l.label || "").trim().slice(0, 40), url: l.url.trim().slice(0, 300) }));
+    .filter((l) => l && typeof l.url === "string")
+    .map((l) => ({ label: String(l.label || "").trim().slice(0, 40), url: safeHttpUrl(l.url) }))
+    .filter((l): l is ProfileLink => l.url !== null)
+    .slice(0, 10);
   upsertExtras(handle, {
     bio: bio?.trim().slice(0, 500) || null,
     links_json: JSON.stringify(clean),
