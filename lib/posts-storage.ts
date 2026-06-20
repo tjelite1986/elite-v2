@@ -131,6 +131,46 @@ export async function storeAvatar(
   return key;
 }
 
+// Move a post image (display + thumbnail) into another author's folder, keeping
+// the basename so the by-id media route resolves unchanged. Used when an admin
+// reassigns a post to a different author. Returns the new storage_key. On a
+// basename collision in the destination a short suffix is added so two images
+// never clobber each other.
+export function movePostImageToAuthor(
+  storageKey: string,
+  newAuthorName: string
+): string {
+  const slug = authorSlug(newAuthorName);
+  const destDir = path.join(POSTS_ROOT, slug);
+  ensureDir(destDir);
+
+  let base = path.basename(storageKey); // "<uuid>.jpg"
+  const srcDisplay = mediaPathFor(storageKey);
+  let destDisplay = path.join(destDir, base);
+  if (
+    fs.existsSync(destDisplay) &&
+    path.resolve(srcDisplay) !== path.resolve(destDisplay)
+  ) {
+    const stem = base.slice(0, -".jpg".length);
+    base = `${stem}_${randomUUID().slice(0, 8)}.jpg`;
+    destDisplay = path.join(destDir, base);
+  }
+
+  // Move the display image, then its thumbnail alongside.
+  fs.renameSync(srcDisplay, destDisplay);
+  const newKey = `${slug}/${base}`;
+
+  const srcThumb = mediaPathFor(thumbKeyFor(storageKey));
+  if (fs.existsSync(srcThumb)) {
+    try {
+      fs.renameSync(srcThumb, mediaPathFor(thumbKeyFor(newKey)));
+    } catch {
+      /* best effort — thumbnail can be regenerated */
+    }
+  }
+  return newKey;
+}
+
 // Remove a post image's display + thumbnail (best effort).
 export function deletePostImageFiles(storageKey: string) {
   for (const p of [mediaPathFor(storageKey), mediaPathFor(thumbKeyFor(storageKey))]) {
