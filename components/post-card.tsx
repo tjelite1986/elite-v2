@@ -64,7 +64,13 @@ export default function PostCard({ post }: { post: FeedPost }) {
             {post.author.display_name || handle}
           </Link>
         </div>
-        <span className="text-xs text-white/40">{relativeTime(post.created_at)}</span>
+        <Link
+          href={`/posts/p/${post.id}`}
+          className="text-xs text-white/40 transition hover:text-white/70"
+          title="Open post"
+        >
+          {relativeTime(post.created_at)}
+        </Link>
       </header>
 
       {/* Media carousel */}
