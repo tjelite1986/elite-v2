@@ -3,7 +3,16 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, Pencil, X } from "lucide-react";
+import { Camera, Pencil, X, Link as LinkIcon } from "lucide-react";
+
+function linkLabel(l: { label: string; url: string }): string {
+  if (l.label) return l.label;
+  try {
+    return new URL(l.url).hostname.replace(/^www\./, "");
+  } catch {
+    return l.url;
+  }
+}
 import PostAvatar from "@/components/post-avatar";
 import FollowButton from "@/components/follow-button";
 import PostFeed from "@/components/post-feed";
@@ -72,7 +81,17 @@ export default function PersonProfile({
     setAvatar("/api/profile/avatar/from-short", { shortId });
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pb-24 pt-24 text-white">
+    <div className="mx-auto max-w-2xl px-4 pb-24 pt-20 text-white">
+      {/* Cover banner */}
+      {person.hasBanner && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/api/profiles/${encodeURIComponent(person.handle)}/banner`}
+          alt=""
+          className="mb-4 h-32 w-full rounded-2xl object-cover sm:h-40"
+        />
+      )}
+
       {/* Header */}
       <header className="mb-5 flex items-start gap-5">
         <PostAvatar
@@ -97,14 +116,7 @@ export default function PersonProfile({
             {person.shorts18 > 0 && <Stat value={person.shorts18} label="18+" />}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {person.isOwn ? (
-              <Link
-                href="/posts/edit"
-                className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold transition hover:bg-white/15"
-              >
-                <Pencil size={14} /> Edit profile
-              </Link>
-            ) : (
+            {!person.isOwn &&
               person.followType !== null &&
               person.followId !== null && (
                 <FollowButton
@@ -112,7 +124,14 @@ export default function PersonProfile({
                   targetId={person.followId}
                   initialFollowing={person.viewerFollows}
                 />
-              )
+              )}
+            {canManage && (
+              <Link
+                href={`/people/${person.handle}/edit`}
+                className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold transition hover:bg-white/15"
+              >
+                <Pencil size={14} /> Edit profile
+              </Link>
             )}
             {canManage && (person.photos > 0 || person.shortsMain > 0 || person.shorts18 > 0) && (
               <button
@@ -126,13 +145,29 @@ export default function PersonProfile({
         </div>
       </header>
 
-      {(person.displayName || person.bio) && !selecting && (
+      {(person.displayName || person.bio || person.links.length > 0) && !selecting && (
         <div className="mb-5">
           {person.displayName && person.displayName !== person.handle && (
             <div className="text-sm font-semibold">{person.displayName}</div>
           )}
           {person.bio && (
             <p className="mt-0.5 whitespace-pre-wrap text-sm text-white/80">{person.bio}</p>
+          )}
+          {person.links.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {person.links.map((l, i) => (
+                <a
+                  key={i}
+                  href={l.url}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-rose-300 transition hover:bg-white/15 hover:text-rose-200"
+                >
+                  <LinkIcon size={12} />
+                  {linkLabel(l)}
+                </a>
+              ))}
+            </div>
           )}
         </div>
       )}

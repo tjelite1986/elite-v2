@@ -127,6 +127,69 @@ export function getHandleAvatar(handle: string): string | null {
   return row?.avatar_key ?? null;
 }
 
+// Cross-section profile extras (bio / banner / labeled links), keyed by handle.
+export interface ProfileLink {
+  label: string;
+  url: string;
+}
+export interface ProfileExtras {
+  bio: string | null;
+  links: ProfileLink[];
+  banner_key: string | null;
+}
+
+export function getProfileExtras(handle: string): ProfileExtras | null {
+  const row = db
+    .prepare("SELECT bio, links_json, banner_key FROM profile_extras WHERE handle = ?")
+    .get(handle) as
+    | { bio: string | null; links_json: string | null; banner_key: string | null }
+    | undefined;
+  if (!row) return null;
+  let links: ProfileLink[] = [];
+  try {
+    const parsed = row.links_json ? JSON.parse(row.links_json) : [];
+    if (Array.isArray(parsed)) {
+      links = parsed
+        .filter((l) => l && typeof l.url === "string")
+        .map((l) => ({ label: String(l.label || "").slice(0, 40), url: String(l.url).slice(0, 300) }));
+    }
+  } catch {
+    /* bad json -> no links */
+  }
+  return { bio: row.bio, links, banner_key: row.banner_key };
+}
+
+function upsertExtras(handle: string, fields: Record<string, string | null>) {
+  const keys = Object.keys(fields);
+  if (keys.length === 0) return;
+  db.prepare(
+    `INSERT INTO profile_extras (handle, ${keys.join(", ")}, updated_at)
+     VALUES (?, ${keys.map(() => "?").join(", ")}, datetime('now'))
+     ON CONFLICT(handle) DO UPDATE SET ${keys
+       .map((k) => `${k} = excluded.${k}`)
+       .join(", ")}, updated_at = datetime('now')`
+  ).run(handle, ...keys.map((k) => fields[k]));
+}
+
+export function setProfileBioLinks(
+  handle: string,
+  bio: string | null,
+  links: ProfileLink[]
+): void {
+  const clean = (links || [])
+    .filter((l) => l && typeof l.url === "string" && l.url.trim())
+    .slice(0, 10)
+    .map((l) => ({ label: String(l.label || "").trim().slice(0, 40), url: l.url.trim().slice(0, 300) }));
+  upsertExtras(handle, {
+    bio: bio?.trim().slice(0, 500) || null,
+    links_json: JSON.stringify(clean),
+  });
+}
+
+export function setProfileBanner(handle: string, bannerKey: string): void {
+  upsertExtras(handle, { banner_key: bannerKey });
+}
+
 // Per-user preference: surface 18+ content outside the dedicated 18+ section.
 // Viewing still requires the PIN cookie; this only controls whether adult
 // content is woven into general browsing.
