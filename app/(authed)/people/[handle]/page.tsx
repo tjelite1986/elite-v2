@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
-import { ensureUserProfile, getShowAdultOutside } from "@/lib/profiles";
+import { ensureUserProfile } from "@/lib/profiles";
 import { has18Access } from "@/lib/shorts-gate";
 import { resolvePerson } from "@/lib/directory";
 import PersonProfile from "@/components/person-profile";
@@ -18,8 +18,10 @@ export default async function PersonPage({
   const viewerId = Number(session.sub);
   ensureUserProfile(viewerId, session.email);
 
-  // 18+ content is included only with the PIN unlocked AND the opt-in preference.
-  const include18 = (await has18Access()) && getShowAdultOutside(viewerId);
+  // An explicitly-navigated profile's 18+ tab shows whenever the PIN is unlocked
+  // (you came to this person on purpose). The "show 18+ everywhere" preference
+  // governs only general surfaces (home/explore feeds, the people directory).
+  const include18 = await has18Access();
 
   const person = resolvePerson(
     decodeURIComponent(params.handle),
