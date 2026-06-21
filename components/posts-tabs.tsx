@@ -9,6 +9,7 @@ const TABS = [
   { label: "Explore", href: "/posts/explore" },
   { label: "Create", href: "/posts/create" },
   { label: "Profile", href: "/posts/me" },
+  { label: "Settings", href: "/posts/settings" },
 ];
 
 function activeHref(pathname: string): string {
@@ -21,6 +22,7 @@ function activeHref(pathname: string): string {
     pathname.startsWith("/posts/edit")
   )
     return "/posts/me";
+  if (pathname.startsWith("/posts/settings")) return "/posts/settings";
   return "/posts";
 }
 
