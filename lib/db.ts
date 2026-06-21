@@ -300,6 +300,59 @@ function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
 
+    -- Duplicate-image grouping for the posts library, mirroring short_dupe_groups.
+    -- Written by scripts/scan-posts-duplicates.mjs for admin review under the
+    -- posts Settings page; the scan deletes nothing. One row per image that
+    -- belongs to a group, tied together by group_key. The whole table is
+    -- rewritten on each scan. Duplicates are scoped per author (a creator's or a
+    -- user's own images) so the same photo posted by two different authors is not
+    -- flagged as deletable.
+    CREATE TABLE IF NOT EXISTS post_dupe_groups (
+      group_key TEXT NOT NULL,
+      media_id INTEGER NOT NULL REFERENCES post_media(id) ON DELETE CASCADE,
+      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      match_type TEXT NOT NULL,            -- 'exact' | 'perceptual'
+      quality_score REAL NOT NULL DEFAULT 0,
+      is_best INTEGER NOT NULL DEFAULT 0,  -- the suggested image to keep
+      distance INTEGER NOT NULL DEFAULT 0, -- dHash Hamming to the best (0 = exact)
+      scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (group_key, media_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_post_dupe_media ON post_dupe_groups(media_id);
+
+    -- Pairs of images an admin marked "not duplicates" so the perceptual matcher
+    -- stops grouping them on future scans (a<b by media id). Exact byte-identical
+    -- matches are never ignored — only the fuzzy perceptual ones.
+    CREATE TABLE IF NOT EXISTS post_dupe_ignored (
+      a_media_id INTEGER NOT NULL,
+      b_media_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (a_media_id, b_media_id)
+    );
+
+    -- Single-row progress beacon for the posts duplicate scan, so the admin UI
+    -- can poll while the detached scan runs.
+    CREATE TABLE IF NOT EXISTS post_dupe_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
+      started_at TEXT,
+      finished_at TEXT,
+      scanned INTEGER NOT NULL DEFAULT 0,
+      groups INTEGER NOT NULL DEFAULT 0,
+      message TEXT
+    );
+
+    -- Per-image fingerprint cache (sha256 + perceptual dHash) so repeat scans
+    -- skip hashing/decoding images whose file size is unchanged. Written by
+    -- scripts/scan-posts-duplicates.mjs.
+    CREATE TABLE IF NOT EXISTS post_media_fp (
+      media_id INTEGER PRIMARY KEY REFERENCES post_media(id) ON DELETE CASCADE,
+      size_bytes INTEGER NOT NULL,
+      sha TEXT,
+      sig TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS post_likes (
       post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -469,6 +522,17 @@ function migrate(db: Database.Database) {
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_post_media_hash ON post_media(content_hash)"
   );
+
+  // distance column on an already-created post_dupe_groups (perceptual Hamming
+  // to the kept image, surfaced as a similarity % in the review UI).
+  const postDupeCols = (
+    db.prepare("PRAGMA table_info(post_dupe_groups)").all() as { name: string }[]
+  ).map((c) => c.name);
+  if (postDupeCols.length > 0 && !postDupeCols.includes("distance")) {
+    db.exec(
+      "ALTER TABLE post_dupe_groups ADD COLUMN distance INTEGER NOT NULL DEFAULT 0"
+    );
+  }
 
   // Allow following video-only creators: rebuild follows with an expanded CHECK
   // if it still only permits user/creator (SQLite can't ALTER a CHECK in place).
@@ -785,6 +849,16 @@ export interface PostCommentRow {
   user_id: number;
   body: string;
   created_at: string;
+}
+
+export interface PostDupeStateRow {
+  id: number;
+  status: "idle" | "running" | "done" | "error";
+  started_at: string | null;
+  finished_at: string | null;
+  scanned: number;
+  groups: number;
+  message: string | null;
 }
 
 export type FollowTargetType = "user" | "creator" | "shorts";

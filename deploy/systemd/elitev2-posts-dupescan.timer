@@ -1,0 +1,11 @@
+[Unit]
+Description=Run elitev2-posts-dupescan daily
+
+[Timer]
+OnCalendar=*-*-* 05:00:00
+RandomizedDelaySec=10min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
