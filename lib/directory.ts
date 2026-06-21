@@ -67,6 +67,12 @@ export interface ResolvedPerson {
   shorts18: number;
   shorts18AutoPoll: boolean;
   shorts18Pollable: boolean;
+  // Instagram cookie-sync config/status (from profile_extras), keyed by handle.
+  instagramHandle: string | null;
+  igAutoPoll: boolean;
+  igLastSyncedAt: string | null;
+  igLastSyncError: string | null;
+  igSyncing: boolean;
 }
 
 // Resolve a handle to its identity across every section, for the unified
@@ -193,6 +199,11 @@ export function resolvePerson(
     shorts18: include18 ? clipCount(shorts18Id) : 0,
     shorts18AutoPoll: include18 ? shorts18AutoPoll : false,
     shorts18Pollable: include18 ? shorts18Pollable : false,
+    instagramHandle: extras?.instagramHandle ?? null,
+    igAutoPoll: extras?.igAutoPoll ?? false,
+    igLastSyncedAt: extras?.igLastSyncedAt ?? null,
+    igLastSyncError: extras?.igLastSyncError ?? null,
+    igSyncing: extras?.igSyncing ?? false,
   };
 }
 

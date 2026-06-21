@@ -21,3 +21,7 @@ npm-debug.log*
 
 # OS / editor
 .DS_Store
+
+# Python (Instaloader sidecar bytecode)
+__pycache__/
+*.pyc

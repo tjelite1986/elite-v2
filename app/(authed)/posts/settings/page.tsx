@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import PostsImportButton from "@/components/posts-import-button";
 import PostsDuplicates from "@/components/posts-duplicates";
+import InstagramAutoConnect from "@/components/instagram-auto-connect";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,19 @@ export default async function PostsSettingsPage() {
             runs this automatically.
           </p>
           <PostsImportButton />
+        </section>
+      )}
+
+      {isAdmin && (
+        <section className="mb-8">
+          <h2 className="mb-1 text-lg font-semibold">Instagram sync</h2>
+          <p className="text-sm text-white/50">
+            Connect an Instagram account on a person’s profile (Edit profile →
+            Instagram) and use “Sync from Instagram” there to import their photos
+            as posts and videos as shorts. Or auto-connect every creator folder
+            whose name is a real Instagram account (100% match):
+          </p>
+          <InstagramAutoConnect />
         </section>
       )}
 

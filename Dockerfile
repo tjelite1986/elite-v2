@@ -34,8 +34,13 @@ ENV DATA_DIR=/app/data
 # libheif (heif-convert) decodes iPhone HEIC/HEIF, which sharp's bundled libvips
 # can't — we convert HEIC -> JPEG to generate thumbs/previews. ffmpeg/ffprobe
 # read video metadata and extract poster frames for video thumbnails.
+# curl drives the Instagram web_profile_info API (its TLS fingerprint dodges the
+# rate limits Node's fetch hits) and gallery-dl downloads IG photos/carousels
+# (yt-dlp, bind-mounted via YT_DLP_BIN, handles the videos).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libheif-examples ffmpeg \
+  && apt-get install -y --no-install-recommends \
+       libheif-examples ffmpeg curl ca-certificates python3 python3-pip \
+  && pip3 install --no-cache-dir --break-system-packages gallery-dl instaloader \
   && rm -rf /var/lib/apt/lists/*
 
 RUN addgroup --system --gid 1001 nodejs \

@@ -426,17 +426,42 @@ function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    -- Cross-section profile extras keyed by handle: bio, a cover banner, and a
-    -- JSON array of labeled links ([{label,url}]). Works for any identity type.
+    -- Cross-section profile extras keyed by handle: bio, a cover banner, a JSON
+    -- array of labeled links ([{label,url}]), and the Instagram cookie-sync
+    -- config/status for this person. Works for any identity type. The IG source
+    -- (instagram_handle) can differ from the local handle; synced media is
+    -- imported under the local handle so it attaches to THIS profile.
     CREATE TABLE IF NOT EXISTS profile_extras (
       handle TEXT PRIMARY KEY,
       bio TEXT,
       links_json TEXT,
       banner_key TEXT,
+      instagram_handle TEXT,
+      ig_auto_poll INTEGER NOT NULL DEFAULT 0,
+      ig_last_synced_at TEXT,
+      ig_last_sync_error TEXT,
+      ig_syncing INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
   `);
+
+  // Backfill the Instagram-sync columns on profile_extras for older databases.
+  {
+    const cols = (
+      db.prepare("PRAGMA table_info(profile_extras)").all() as { name: string }[]
+    ).map((c) => c.name);
+    if (!cols.includes("instagram_handle"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN instagram_handle TEXT");
+    if (!cols.includes("ig_auto_poll"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_auto_poll INTEGER NOT NULL DEFAULT 0");
+    if (!cols.includes("ig_last_synced_at"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_last_synced_at TEXT");
+    if (!cols.includes("ig_last_sync_error"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_last_sync_error TEXT");
+    if (!cols.includes("ig_syncing"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_syncing INTEGER NOT NULL DEFAULT 0");
+  }
 
   // Backfill last_seen for databases created before this column existed.
   const hasLastSeen = (
