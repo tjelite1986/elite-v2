@@ -29,6 +29,7 @@ import PostGrid from "@/components/post-grid";
 import ShortsGrid from "@/components/shorts-grid";
 import ProfileShortsSettings from "@/components/profile-shorts-settings";
 import ProfileMergeButton from "@/components/profile-merge-button";
+import ProfileInstagramSync from "@/components/profile-instagram-sync";
 import type { ResolvedPerson } from "@/lib/directory";
 
 type Tab = "all" | "photos" | "shorts" | "18plus";
@@ -159,7 +160,7 @@ export default function PersonProfile({
         </div>
       </header>
 
-      {(person.displayName || person.bio || person.links.length > 0) && !selecting && (
+      {(person.displayName || person.bio || person.links.length > 0 || person.instagramHandle) && !selecting && (
         <div className="mb-5">
           {person.displayName && person.displayName !== person.handle && (
             <div className="text-sm font-semibold">{person.displayName}</div>
@@ -167,8 +168,18 @@ export default function PersonProfile({
           {person.bio && (
             <p className="mt-0.5 whitespace-pre-wrap text-sm text-white/80">{person.bio}</p>
           )}
-          {person.links.length > 0 && (
+          {(person.links.length > 0 || person.instagramHandle) && (
             <div className="mt-2 flex flex-wrap gap-2">
+              {person.instagramHandle && (
+                <a
+                  href={`https://www.instagram.com/${person.instagramHandle}/`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-rose-300 transition hover:bg-white/15 hover:text-rose-200"
+                >
+                  <Camera size={12} />@{person.instagramHandle}
+                </a>
+              )}
               {person.links.filter((l) => isHttpUrl(l.url)).map((l, i) => (
                 <a
                   key={i}
@@ -184,6 +195,19 @@ export default function PersonProfile({
             </div>
           )}
         </div>
+      )}
+
+      {canManage && person.instagramHandle && !selecting && (
+        <ProfileInstagramSync
+          handle={person.handle}
+          initial={{
+            instagramHandle: person.instagramHandle,
+            autoPoll: person.igAutoPoll,
+            syncing: person.igSyncing,
+            lastSyncedAt: person.igLastSyncedAt,
+            lastSyncError: person.igLastSyncError,
+          }}
+        />
       )}
 
       {isAdmin && !selecting && (

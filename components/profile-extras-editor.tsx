@@ -1,22 +1,27 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, Trash2, Image as ImageIcon } from "lucide-react";
 import type { ProfileLink } from "@/lib/profiles";
 
-// Edit a profile's cross-section extras: cover banner, bio, and labeled links.
-// Works for the viewer's own profile or, for admins, any creator.
+// Edit a profile's cross-section extras: cover banner, bio, labeled links, and
+// the connected Instagram source. Works for the viewer's own profile or, for
+// admins, any creator.
 export default function ProfileExtrasEditor({
   handle,
   initialBio,
   initialLinks,
   hasBanner,
+  initialInstagram,
+  initialIgAutoPoll,
 }: {
   handle: string;
   initialBio: string;
   initialLinks: ProfileLink[];
   hasBanner: boolean;
+  initialInstagram: string;
+  initialIgAutoPoll: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -24,10 +29,23 @@ export default function ProfileExtrasEditor({
   const [links, setLinks] = useState<ProfileLink[]>(
     initialLinks.length ? initialLinks : []
   );
+  const [instagram, setInstagram] = useState(initialInstagram);
+  const [igAutoPoll, setIgAutoPoll] = useState(initialIgAutoPoll);
+  const [cookieState, setCookieState] = useState<"active" | "expired" | "missing" | null>(null);
   const [bannerBust, setBannerBust] = useState(hasBanner ? 1 : 0);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/instagram/cookies")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        setCookieState(d.alive ? "active" : d.enabled ? "expired" : "missing");
+      })
+      .catch(() => {});
+  }, []);
 
   const setLink = (i: number, field: keyof ProfileLink, value: string) =>
     setLinks((ls) => ls.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)));
@@ -67,7 +85,12 @@ export default function ProfileExtrasEditor({
     const res = await fetch(`/api/profiles/${encodeURIComponent(handle)}/extras`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bio, links: clean }),
+      body: JSON.stringify({
+        bio,
+        links: clean,
+        instagramHandle: instagram.trim(),
+        igAutoPoll,
+      }),
     });
     const d = await res.json().catch(() => ({}));
     if (res.ok) {
@@ -161,6 +184,44 @@ export default function ProfileExtrasEditor({
           >
             <Plus size={14} /> Add link
           </button>
+        )}
+      </div>
+
+      {/* Instagram source */}
+      <div>
+        <span className="mb-1 block text-xs font-medium text-white/50">Instagram</span>
+        <input
+          value={instagram}
+          onChange={(e) => setInstagram(e.target.value)}
+          placeholder="@username or instagram.com/username"
+          className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+        />
+        <label className="mt-2 flex items-center gap-2 text-sm text-white/70">
+          <input
+            type="checkbox"
+            checked={igAutoPoll}
+            onChange={(e) => setIgAutoPoll(e.target.checked)}
+          />
+          Auto-poll daily (pull new posts automatically)
+        </label>
+        <p className="mt-1 text-xs text-white/40">
+          Connect an Instagram account to import its photos as posts and videos
+          as shorts on this profile. Use the “Sync from Instagram” button on the
+          profile to pull now.
+        </p>
+        {cookieState === "expired" && (
+          <p className="mt-1 text-xs text-amber-400">
+            Session cookies are set but expired — re-export cookies.txt or sync will fail.
+          </p>
+        )}
+        {cookieState === "missing" && (
+          <p className="mt-1 text-xs text-amber-400">
+            No session cookies set — sync needs a logged-in cookies.txt at
+            /mnt/4tb/elitev2/instagram/cookies.txt.
+          </p>
+        )}
+        {cookieState === "active" && (
+          <p className="mt-1 text-xs text-emerald-400">Session cookies: active.</p>
         )}
       </div>
 

@@ -242,11 +242,16 @@ for (const entry of entries) {
     continue;
   }
 
-  // Move a matching poster/sidecars next to the video.
+  // Move a matching poster/sidecars next to the video. A .md sidecar holds the
+  // caption (e.g. an Instagram post's text routed here from import-posts).
   let posterKey = null;
+  let caption = null;
   for (const scExt of SIDECAR_EXTS) {
     const sc = path.join(IMPORT_DIR, `${stem}${scExt}`);
     if (fs.existsSync(sc)) {
+      if (scExt === ".md") {
+        try { caption = fs.readFileSync(sc, "utf8").trim() || null; } catch { /* best effort */ }
+      }
       const dest = path.join(destDir, `${safeStem}${scExt}`);
       try {
         fs.renameSync(sc, dest);
@@ -277,7 +282,7 @@ for (const entry of entries) {
   insertShort.run(
     CHANNEL,
     profile.id,
-    parseTitle(stem).slice(0, 2000) || null,
+    (caption || parseTitle(stem)).slice(0, 2000) || null,
     `${slug}/${destVideoName}`,
     posterKey,
     mimeFor(ext),

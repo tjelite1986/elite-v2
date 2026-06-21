@@ -5,8 +5,10 @@ import {
   getProfileExtras,
   setProfileBioLinks,
   setProfileBanner,
+  setProfileInstagram,
 } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
+import { parseInstagramUsername } from "@/lib/instagram";
 import { storeBanner } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +38,13 @@ export async function PATCH(
   const bio = typeof body?.bio === "string" ? body.bio : null;
   const links = Array.isArray(body?.links) ? body.links : [];
   setProfileBioLinks(handle, bio, links);
+
+  // Optional Instagram source: a username/URL to pull media from, plus an
+  // auto-poll flag. Empty/invalid input disconnects it.
+  if ("instagramHandle" in (body ?? {})) {
+    const ig = parseInstagramUsername(String(body.instagramHandle ?? ""));
+    setProfileInstagram(handle, ig, Boolean(body?.igAutoPoll));
+  }
   return NextResponse.json({ ok: true, extras: getProfileExtras(handle) });
 }
 

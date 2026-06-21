@@ -43,6 +43,8 @@ export default async function EditProfilePage({
         initialBio={extras?.bio ?? person.bio ?? ""}
         initialLinks={person.links}
         hasBanner={person.hasBanner}
+        initialInstagram={extras?.instagramHandle ?? ""}
+        initialIgAutoPoll={extras?.igAutoPoll ?? false}
       />
     </div>
   );

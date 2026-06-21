@@ -91,6 +91,29 @@ function heicToJpeg(srcPath) {
   return buf;
 }
 
+// True only for a real HEIF container (ISO-BMFF `ftyp` box with a HEIF brand).
+// Files that merely carry a .heic/.heif extension but hold JPEG/PNG/etc. bytes
+// (common with mislabeled downloads) return false so we read them directly and
+// let sharp decode them, instead of feeding heif-convert garbage it rejects.
+function isHeif(srcPath) {
+  let fd;
+  try {
+    fd = fs.openSync(srcPath, "r");
+    const buf = Buffer.alloc(12);
+    fs.readSync(fd, buf, 0, 12, 0);
+    if (buf.toString("latin1", 4, 8) !== "ftyp") return false;
+    const brand = buf.toString("latin1", 8, 12);
+    return ["heic", "heix", "hevc", "heim", "heis", "hevm", "hevs", "mif1", "msf1", "heif"]
+      .includes(brand);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* best effort */ }
+    }
+  }
+}
+
 if (!fs.existsSync(IMPORT_DIR)) {
   fs.mkdirSync(IMPORT_DIR, { recursive: true });
   log(`created import dir: ${IMPORT_DIR}`);
@@ -107,11 +130,14 @@ const insertCreator = db.prepare(
   "INSERT INTO post_creators (username, display_name, source) VALUES (?, ?, 'import')"
 );
 const insertPost = db.prepare(
-  "INSERT INTO posts (author_creator_id, caption) VALUES (?, NULL)"
+  "INSERT INTO posts (author_creator_id, caption) VALUES (?, ?)"
 );
 const insertMedia = db.prepare(
   `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position, content_hash)
    VALUES (?, ?, ?, ?, ?, ?, ?)`
+);
+const insertHashtag = db.prepare(
+  "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)"
 );
 // Has this creator already got an image with this exact content?
 const hashSeen = db.prepare(
@@ -127,14 +153,46 @@ function dateKey(name) {
   if (m) return m[1];
   return null;
 }
-// Group processed images (sorted by filename) into carousels: same source date
-// = one post, capped at 10; undated images each their own post.
-function groupByDate(items) {
+
+// gallery-dl writes a `<file>.json` sidecar (--write-metadata) with the post's
+// caption, shortcode, and date. Read it for an image/video source, if present.
+function readSidecar(srcPath) {
+  try {
+    const d = JSON.parse(fs.readFileSync(`${srcPath}.json`, "utf8"));
+    return {
+      caption: typeof d.description === "string" ? d.description : null,
+      shortcode: d.post_shortcode || d.shortcode || null,
+    };
+  } catch {
+    return null;
+  }
+}
+function consumeSidecar(srcPath) {
+  try { fs.unlinkSync(`${srcPath}.json`); } catch { /* none / best effort */ }
+}
+
+// Unique lowercase #hashtags from a caption — mirrors parseHashtags in lib/posts.
+function parseHashtags(caption) {
+  if (!caption) return [];
+  const tags = [];
+  const re = /#([a-z0-9_]{1,50})/gi;
+  let m;
+  while ((m = re.exec(caption)) !== null) {
+    const t = m[1].toLowerCase();
+    if (!tags.includes(t)) tags.push(t);
+  }
+  return tags;
+}
+
+// Group processed images (sorted by filename) into carousels: same Instagram
+// shortcode (or, for non-IG drops, same source date) = one post, capped at 10;
+// items with neither key each get their own post.
+function groupItems(items) {
   const groups = [];
   let cur = [];
   let curKey;
   for (const it of items) {
-    const k = dateKey(it.file);
+    const k = it.shortcode || dateKey(it.file);
     if (cur.length === 0) { cur = [it]; curKey = k; }
     else if (k !== null && k === curKey && cur.length < MAX_PER_POST) cur.push(it);
     else { groups.push(cur); cur = [it]; curKey = k; }
@@ -184,6 +242,7 @@ let videosRouted = 0;
 function routeVideo(username, srcPath, originalName) {
   fs.mkdirSync(SHORTS_VIDEO_DROP, { recursive: true });
   const dest = path.join(SHORTS_VIDEO_DROP, `${username}_-_${path.basename(originalName)}`);
+  const sidecar = readSidecar(srcPath);
   try {
     fs.copyFileSync(srcPath, dest);
     if (!consume(srcPath)) {
@@ -191,6 +250,13 @@ function routeVideo(username, srcPath, originalName) {
       log(`skip video ${originalName}: can't consume source`);
       skipped++;
       return;
+    }
+    consumeSidecar(srcPath);
+    // Carry the Instagram caption to the shorts importer via a .md sidecar named
+    // for the routed video's stem (import-shorts reads it as the clip caption).
+    if (sidecar?.caption) {
+      const destStem = dest.slice(0, dest.length - path.extname(dest).length);
+      try { fs.writeFileSync(`${destStem}.md`, sidecar.caption); } catch { /* best effort */ }
     }
     videosRouted++;
   } catch (err) {
@@ -214,9 +280,10 @@ async function processImage(username, srcPath, originalName) {
 
   const displayPath = path.join(destDir, `${uuid}.jpg`);
   const thumbPath = path.join(destDir, `${uuid}_t.jpg`);
+  const sidecar = readSidecar(srcPath);
   try {
     const source =
-      ext === ".heic" || ext === ".heif"
+      (ext === ".heic" || ext === ".heif") && isHeif(srcPath)
         ? heicToJpeg(srcPath)
         : fs.readFileSync(srcPath);
     const upright = await sharp(source).rotate().toBuffer();
@@ -231,7 +298,7 @@ async function processImage(username, srcPath, originalName) {
     // which hashes the same display files.
     const contentHash = crypto.createHash("sha256").update(displayBuf).digest("hex");
     if (hashSeen.get(creatorId, contentHash)) {
-      if (consume(srcPath)) deduped++;
+      if (consume(srcPath)) { consumeSidecar(srcPath); deduped++; }
       return; // already imported
     }
 
@@ -252,6 +319,7 @@ async function processImage(username, srcPath, originalName) {
       return;
     }
 
+    consumeSidecar(srcPath);
     if (!byCreator.has(creatorId)) byCreator.set(creatorId, []);
     byCreator.get(creatorId).push({
       file: originalName,
@@ -259,6 +327,8 @@ async function processImage(username, srcPath, originalName) {
       width: meta.width ?? null,
       height: meta.height ?? null,
       contentHash,
+      caption: sidecar?.caption ?? null,
+      shortcode: sidecar?.shortcode ?? null,
     });
     imported++;
   } catch (err) {
@@ -310,14 +380,18 @@ for (const entry of entries) {
   }
 }
 
-// Group each creator's images by source date into carousel posts.
+// Group each creator's images into carousel posts (by IG shortcode, else date),
+// carrying the caption + hashtags from the gallery-dl metadata sidecar.
 for (const [creatorId, items] of byCreator) {
   items.sort((a, b) => a.file.localeCompare(b.file));
-  for (const group of groupByDate(items)) {
-    const postId = Number(insertPost.run(creatorId).lastInsertRowid);
+  for (const group of groupItems(items)) {
+    const caption = group.find((m) => m.caption)?.caption ?? null;
+    const cap = caption ? caption.slice(0, 2200) : null;
+    const postId = Number(insertPost.run(creatorId, cap).lastInsertRowid);
     group.forEach((m, i) =>
       insertMedia.run(postId, m.storageKey, "image/jpeg", m.width, m.height, i, m.contentHash)
     );
+    if (cap) for (const tag of parseHashtags(cap)) insertHashtag.run(postId, tag);
   }
 }
 

@@ -136,13 +136,31 @@ export interface ProfileExtras {
   bio: string | null;
   links: ProfileLink[];
   banner_key: string | null;
+  instagramHandle: string | null;
+  igAutoPoll: boolean;
+  igLastSyncedAt: string | null;
+  igLastSyncError: string | null;
+  igSyncing: boolean;
 }
 
 export function getProfileExtras(handle: string): ProfileExtras | null {
   const row = db
-    .prepare("SELECT bio, links_json, banner_key FROM profile_extras WHERE handle = ?")
+    .prepare(
+      `SELECT bio, links_json, banner_key, instagram_handle, ig_auto_poll,
+              ig_last_synced_at, ig_last_sync_error, ig_syncing
+         FROM profile_extras WHERE handle = ?`
+    )
     .get(handle) as
-    | { bio: string | null; links_json: string | null; banner_key: string | null }
+    | {
+        bio: string | null;
+        links_json: string | null;
+        banner_key: string | null;
+        instagram_handle: string | null;
+        ig_auto_poll: number;
+        ig_last_synced_at: string | null;
+        ig_last_sync_error: string | null;
+        ig_syncing: number;
+      }
     | undefined;
   if (!row) return null;
   let links: ProfileLink[] = [];
@@ -156,7 +174,16 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
   } catch {
     /* bad json -> no links */
   }
-  return { bio: row.bio, links, banner_key: row.banner_key };
+  return {
+    bio: row.bio,
+    links,
+    banner_key: row.banner_key,
+    instagramHandle: row.instagram_handle,
+    igAutoPoll: !!row.ig_auto_poll,
+    igLastSyncedAt: row.ig_last_synced_at,
+    igLastSyncError: row.ig_last_sync_error,
+    igSyncing: !!row.ig_syncing,
+  };
 }
 
 function upsertExtras(handle: string, fields: Record<string, string | null>) {
@@ -203,6 +230,19 @@ export function setProfileBioLinks(
 
 export function setProfileBanner(handle: string, bannerKey: string): void {
   upsertExtras(handle, { banner_key: bannerKey });
+}
+
+// Set (or clear) the Instagram source + auto-poll flag for a profile. The
+// instagram_handle is the IG username to pull from; pass null to disconnect.
+export function setProfileInstagram(
+  handle: string,
+  instagramHandle: string | null,
+  autoPoll: boolean
+): void {
+  upsertExtras(handle, {
+    instagram_handle: instagramHandle,
+    ig_auto_poll: autoPoll ? "1" : "0",
+  });
 }
 
 // Per-user preference: surface 18+ content outside the dedicated 18+ section.
