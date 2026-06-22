@@ -19,6 +19,7 @@ export async function GET(req: Request) {
   });
   if (sp.get("ids")) qs.set("ids", sp.get("ids") as string);
   if (sp.get("creator")) qs.set("creator", sp.get("creator") as string);
+  if (sp.get("web") === "1") qs.set("web", "1");
 
   let upstream: Response;
   try {
