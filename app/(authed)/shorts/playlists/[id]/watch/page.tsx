@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import ShortsFeed from "@/components/shorts-feed";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +16,13 @@ export default async function PlaylistWatchPage({
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const pl = db
-    .prepare("SELECT id FROM short_playlists WHERE id = ? AND user_id = ?")
-    .get(Number(params.id), Number(session.sub)) as { id: number } | undefined;
+  const pl = getOne<{ id: number }>(
+    qb
+      .selectFrom("short_playlists")
+      .select("id")
+      .where("id", "=", Number(params.id))
+      .where("user_id", "=", Number(session.sub))
+  );
   if (!pl) notFound();
 
   const focus = Number(searchParams?.focus);
