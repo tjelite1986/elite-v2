@@ -100,10 +100,40 @@ function igUser(username: string): IgUser | null {
   }
 }
 
+// Cache the live login-check so the admin manage page polling this status
+// doesn't spawn a graphql test_login on every request — that endpoint is what
+// Instagram throttles ("Please wait a few minutes"). A positive result is held
+// longer than a negative one (which may just be a transient throttle).
+let aliveCache: { value: boolean; mtimeMs: number; expires: number } | null =
+  null;
+const ALIVE_POS_TTL = 30 * 60 * 1000; // 30 min
+const ALIVE_NEG_TTL = 5 * 60 * 1000; //  5 min
+
 // Whether the saved session is still valid (Instagram rotates cookies every few
 // weeks). Uses Instaloader's test_login — accurate, unlike file-presence.
+// Cached by cookie-file mtime so a freshly dropped cookies.txt re-checks at once.
 export function cookiesAlive(): boolean {
   if (!hasCookies()) return false;
+  let mtimeMs = 0;
+  try {
+    mtimeMs = fs.statSync(COOKIES_PATH).mtimeMs;
+  } catch {
+    /* fall through to a live check */
+  }
+  const now = Date.now();
+  if (aliveCache && aliveCache.mtimeMs === mtimeMs && now < aliveCache.expires) {
+    return aliveCache.value;
+  }
+  const value = probeCookiesAlive();
+  aliveCache = {
+    value,
+    mtimeMs,
+    expires: now + (value ? ALIVE_POS_TTL : ALIVE_NEG_TTL),
+  };
+  return value;
+}
+
+function probeCookiesAlive(): boolean {
   const out = runIgPython(["login-check"]);
   if (!out) return false;
   const last = out.trim().split("\n").pop();
