@@ -21,6 +21,7 @@ export async function GET(req: Request) {
   });
   if (sp.get("creator")) qs.set("creator", sp.get("creator") as string);
   if (sp.get("web") === "1") qs.set("web", "1");
+  if (sp.get("quality")) qs.set("quality", sp.get("quality") as string);
   try {
     const r = await fetch(`${LADDA}/api/download?${qs.toString()}`);
     const data = await r.json().catch(() => ({ ok: false, error: "Download failed" }));

@@ -20,6 +20,7 @@ export async function GET(req: Request) {
   if (sp.get("ids")) qs.set("ids", sp.get("ids") as string);
   if (sp.get("creator")) qs.set("creator", sp.get("creator") as string);
   if (sp.get("web") === "1") qs.set("web", "1");
+  if (sp.get("quality")) qs.set("quality", sp.get("quality") as string);
 
   let upstream: Response;
   try {
