@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { getSession } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import ShortsGrid from "@/components/shorts-grid";
 
 export const dynamic = "force-dynamic";
@@ -21,9 +21,13 @@ export default async function Playlist18Page({
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const pl = db
-    .prepare("SELECT id, name FROM short_playlists WHERE id = ? AND user_id = ?")
-    .get(Number(params.id), Number(session.sub)) as PlaylistRow | undefined;
+  const pl = getOne<PlaylistRow>(
+    qb
+      .selectFrom("short_playlists")
+      .select(["id", "name"])
+      .where("id", "=", Number(params.id))
+      .where("user_id", "=", Number(session.sub))
+  );
   if (!pl) notFound();
 
   return (

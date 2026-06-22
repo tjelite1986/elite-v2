@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Pencil } from "lucide-react";
 import { getSession } from "@/lib/auth";
-import { db, PostCreatorRow } from "@/lib/db";
+import { PostCreatorRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getProfileByUsername } from "@/lib/profiles";
 import {
   followerCount,
@@ -41,9 +42,9 @@ export default async function PostsProfilePage({
   const userProfile = getProfileByUsername(username);
   const creator = userProfile
     ? null
-    : (db
-        .prepare("SELECT * FROM post_creators WHERE username = ?")
-        .get(username) as PostCreatorRow | undefined);
+    : getOne<PostCreatorRow>(
+        qb.selectFrom("post_creators").selectAll().where("username", "=", username)
+      );
 
   if (!userProfile && !creator) notFound();
 
