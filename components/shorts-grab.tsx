@@ -25,6 +25,7 @@ export default function ShortsGrab() {
 
   const [channel, setChannel] = useState<Channel>("main");
   const [creator, setCreator] = useState("");
+  const [web, setWeb] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const [progress, setProgress] = useState<string | null>(null);
@@ -104,6 +105,7 @@ export default function ShortsGrab() {
     try {
       const qs = new URLSearchParams({ url: url.trim(), channel });
       if (creator.trim()) qs.set("creator", creator.trim());
+      if (web) qs.set("web", "1");
       const r = await fetch(`/api/shorts/grab/download?${qs.toString()}`);
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "Download failed");
@@ -146,6 +148,7 @@ export default function ShortsGrab() {
       ids: Array.from(selected).join(","),
     });
     if (creator.trim()) qs.set("creator", creator.trim());
+    if (web) qs.set("web", "1");
 
     const es = new EventSource(`/api/shorts/grab/download-all?${qs.toString()}`);
     esRef.current = es;
@@ -226,6 +229,18 @@ export default function ShortsGrab() {
             placeholder="Profile name"
             className="min-w-[160px] flex-1 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm outline-none focus:border-white/30"
           />
+          <label
+            title="Save a web-optimized .web.mp4 — ready instantly, skips the transcoder"
+            className="flex cursor-pointer select-none items-center gap-2 text-sm text-white/70"
+          >
+            <input
+              type="checkbox"
+              checked={web}
+              onChange={(e) => setWeb(e.target.checked)}
+              className="h-4 w-4 accent-rose-500"
+            />
+            Web format
+          </label>
         </div>
       )}
 
