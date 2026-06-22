@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import { db, GalleryItemRow } from "@/lib/db";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { parseFilenameDate } from "@/lib/filename-date";
 import { originalPathFor, readExifMeta } from "@/lib/gallery-storage";
@@ -26,22 +27,33 @@ export async function POST() {
   }
   const userId = Number(session.sub);
 
-  const items = db
-    .prepare(
-      `SELECT id, filename, storage_key, taken_at, latitude, longitude, location_name, camera
-       FROM gallery_items WHERE user_id = ?`
-    )
-    .all(userId) as Pick<
-    GalleryItemRow,
-    | "id"
-    | "filename"
-    | "storage_key"
-    | "taken_at"
-    | "latitude"
-    | "longitude"
-    | "location_name"
-    | "camera"
-  >[];
+  const items = getAll<
+    Pick<
+      GalleryItemRow,
+      | "id"
+      | "filename"
+      | "storage_key"
+      | "taken_at"
+      | "latitude"
+      | "longitude"
+      | "location_name"
+      | "camera"
+    >
+  >(
+    qb
+      .selectFrom("gallery_items")
+      .select([
+        "id",
+        "filename",
+        "storage_key",
+        "taken_at",
+        "latitude",
+        "longitude",
+        "location_name",
+        "camera",
+      ])
+      .where("user_id", "=", userId)
+  );
 
   const updateDate = db.prepare(
     "UPDATE gallery_items SET taken_at = ? WHERE id = ? AND user_id = ?"

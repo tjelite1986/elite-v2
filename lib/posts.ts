@@ -1,4 +1,6 @@
-import { db, PostRow } from "./db";
+import { sql } from "kysely";
+import { PostRow } from "./db";
+import { qb, getOne, getAll } from "./kysely";
 
 // Query layer for the posts module. Author of a post is a real user OR a
 // mirrored creator; every query resolves a unified author shape by joining both
@@ -43,31 +45,62 @@ interface PostQueryRow extends PostRow {
   viewer_liked: number;
 }
 
-const POST_SELECT = `
-  SELECT p.*,
-         COALESCE(up.username, pc.username)         AS author_username,
-         COALESCE(up.display_name, pc.display_name) AS author_display_name,
-         COALESCE(up.avatar_key, pc.avatar_key)     AS author_avatar_key,
-         CASE WHEN p.author_user_id IS NOT NULL THEN 'user' ELSE 'creator' END AS author_type,
-         COALESCE(p.author_user_id, p.author_creator_id) AS author_id,
-         (SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id)    AS like_count,
-         (SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id) AS comment_count,
-         EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = @viewer) AS viewer_liked
-    FROM posts p
-    LEFT JOIN user_profiles up ON up.user_id = p.author_user_id
-    LEFT JOIN post_creators  pc ON pc.id      = p.author_creator_id
-`;
+// Shared base: posts joined to both author tables, with the coalesced author
+// shape, like/comment counts and viewer-liked flag. Equivalent to the old
+// POST_SELECT string — the polymorphic COALESCE/CASE columns stay as sql``
+// fragments (the builder has no native COALESCE-across-joins), while the joins,
+// filters, ordering and pagination become type-checked builder calls.
+function postBase(viewerId: number) {
+  return qb
+    .selectFrom("posts as p")
+    .leftJoin("user_profiles as up", "up.user_id", "p.author_user_id")
+    .leftJoin("post_creators as pc", "pc.id", "p.author_creator_id")
+    .selectAll("p")
+    .select([
+      sql<string | null>`COALESCE(up.username, pc.username)`.as(
+        "author_username"
+      ),
+      sql<string | null>`COALESCE(up.display_name, pc.display_name)`.as(
+        "author_display_name"
+      ),
+      sql<string | null>`COALESCE(up.avatar_key, pc.avatar_key)`.as(
+        "author_avatar_key"
+      ),
+      sql<AuthorType>`CASE WHEN p.author_user_id IS NOT NULL THEN 'user' ELSE 'creator' END`.as(
+        "author_type"
+      ),
+      sql<number>`COALESCE(p.author_user_id, p.author_creator_id)`.as(
+        "author_id"
+      ),
+      sql<number>`(SELECT COUNT(*) FROM post_likes l WHERE l.post_id = p.id)`.as(
+        "like_count"
+      ),
+      sql<number>`(SELECT COUNT(*) FROM post_comments c WHERE c.post_id = p.id)`.as(
+        "comment_count"
+      ),
+      sql<number>`EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id = p.id AND l.user_id = ${viewerId})`.as(
+        "viewer_liked"
+      ),
+    ]);
+}
 
 function attachMedia(rows: PostQueryRow[]): FeedPost[] {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
-  const placeholders = ids.map(() => "?").join(",");
-  const media = db
-    .prepare(
-      `SELECT id, post_id, width, height FROM post_media
-        WHERE post_id IN (${placeholders}) ORDER BY post_id, position, id`
-    )
-    .all(...ids) as { id: number; post_id: number; width: number | null; height: number | null }[];
+  const media = getAll<{
+    id: number;
+    post_id: number;
+    width: number | null;
+    height: number | null;
+  }>(
+    qb
+      .selectFrom("post_media")
+      .select(["id", "post_id", "width", "height"])
+      .where("post_id", "in", ids)
+      .orderBy("post_id")
+      .orderBy("position")
+      .orderBy("id")
+  );
   const byPost = new Map<number, FeedPostMedia[]>();
   for (const m of media) {
     if (!byPost.has(m.post_id)) byPost.set(m.post_id, []);
@@ -109,54 +142,71 @@ export function getFeed(
   limit = 12,
   includeAdult = false
 ): { items: FeedPost[]; nextCursor: number | null } {
-  const where: string[] = ["p.is_deleted = 0"];
-  const params: Record<string, unknown> = { viewer: viewerId, limit: limit + 1 };
+  let q = postBase(viewerId).where("p.is_deleted", "=", 0);
 
-  if (!includeAdult) where.push("p.is_adult = 0");
-  if (cursor) {
-    where.push("p.id < @cursor");
-    params.cursor = cursor;
-  }
+  if (!includeAdult) q = q.where("p.is_adult", "=", 0);
+  if (cursor) q = q.where("p.id", "<", cursor);
 
-  let from = POST_SELECT;
   switch (scope.kind) {
     case "home":
-      where.push(`(
-        p.author_user_id IN (SELECT target_id FROM follows WHERE follower_id = @viewer AND target_type = 'user')
-        OR p.author_creator_id IN (SELECT target_id FROM follows WHERE follower_id = @viewer AND target_type = 'creator')
-        OR p.author_user_id = @viewer
-      )`);
+      q = q.where((eb) =>
+        eb.or([
+          eb(
+            "p.author_user_id",
+            "in",
+            qb
+              .selectFrom("follows")
+              .select("target_id")
+              .where("follower_id", "=", viewerId)
+              .where("target_type", "=", "user")
+          ),
+          eb(
+            "p.author_creator_id",
+            "in",
+            qb
+              .selectFrom("follows")
+              .select("target_id")
+              .where("follower_id", "=", viewerId)
+              .where("target_type", "=", "creator")
+          ),
+          eb("p.author_user_id", "=", viewerId),
+        ])
+      );
       break;
     case "explore":
       break;
     case "user":
-      where.push("p.author_user_id = @authorId");
-      params.authorId = scope.userId;
+      q = q.where("p.author_user_id", "=", scope.userId);
       break;
     case "creator":
-      where.push("p.author_creator_id = @authorId");
-      params.authorId = scope.creatorId;
+      q = q.where("p.author_creator_id", "=", scope.creatorId);
       break;
     case "person":
       // Union of a handle's user-authored and creator-authored posts.
-      where.push(
-        "(p.author_user_id = @personUser OR p.author_creator_id = @personCreator)"
+      q = q.where((eb) =>
+        eb.or([
+          eb("p.author_user_id", "=", scope.userId),
+          eb("p.author_creator_id", "=", scope.creatorId),
+        ])
       );
-      params.personUser = scope.userId;
-      params.personCreator = scope.creatorId;
       break;
     case "tag":
-      from += " JOIN post_hashtags ht ON ht.post_id = p.id ";
-      where.push("ht.tag = @tag");
-      params.tag = scope.tag.toLowerCase();
+      // A post carries each tag at most once (PK on post_id,tag), so an IN
+      // subquery is equivalent to the old JOIN without changing row counts.
+      q = q.where(
+        "p.id",
+        "in",
+        qb
+          .selectFrom("post_hashtags")
+          .select("post_id")
+          .where("tag", "=", scope.tag.toLowerCase())
+      );
       break;
   }
 
-  const rows = db
-    .prepare(
-      `${from} WHERE ${where.join(" AND ")} ORDER BY p.id DESC LIMIT @limit`
-    )
-    .all(params) as PostQueryRow[];
+  const rows = getAll<PostQueryRow>(
+    q.orderBy("p.id", "desc").limit(limit + 1)
+  );
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
@@ -167,18 +217,22 @@ export function getFeed(
 }
 
 export function getPost(id: number, viewerId: number): FeedPost | undefined {
-  const row = db
-    .prepare(`${POST_SELECT} WHERE p.id = @id AND p.is_deleted = 0`)
-    .get({ viewer: viewerId, id }) as PostQueryRow | undefined;
+  const row = getOne<PostQueryRow>(
+    postBase(viewerId).where("p.id", "=", id).where("p.is_deleted", "=", 0)
+  );
   if (!row) return undefined;
   return attachMedia([row])[0];
 }
 
 // Bare row (no joins) for ownership/gate checks in mutating routes.
 export function getPostRow(id: number): PostRow | undefined {
-  return db
-    .prepare("SELECT * FROM posts WHERE id = ? AND is_deleted = 0")
-    .get(id) as PostRow | undefined;
+  return getOne<PostRow>(
+    qb
+      .selectFrom("posts")
+      .selectAll()
+      .where("id", "=", id)
+      .where("is_deleted", "=", 0)
+  );
 }
 
 // Extract unique lowercase #hashtags from a caption.
@@ -199,49 +253,57 @@ export function isFollowing(
   targetType: AuthorType,
   targetId: number
 ): boolean {
-  return Boolean(
-    db
-      .prepare(
-        "SELECT 1 FROM follows WHERE follower_id = ? AND target_type = ? AND target_id = ?"
-      )
-      .get(followerId, targetType, targetId)
+  return (
+    getOne(
+      qb
+        .selectFrom("follows")
+        .select("follower_id")
+        .where("follower_id", "=", followerId)
+        .where("target_type", "=", targetType)
+        .where("target_id", "=", targetId)
+    ) !== undefined
   );
 }
 
 export function followerCount(targetType: AuthorType, targetId: number): number {
-  return (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM follows WHERE target_type = ? AND target_id = ?"
-      )
-      .get(targetType, targetId) as { c: number }
-  ).c;
+  const r = getOne<{ c: number }>(
+    qb
+      .selectFrom("follows")
+      .select((eb) => eb.fn.countAll<number>().as("c"))
+      .where("target_type", "=", targetType)
+      .where("target_id", "=", targetId)
+  );
+  return r?.c ?? 0;
 }
 
 export function followingCount(userId: number): number {
-  return (
-    db
-      .prepare("SELECT COUNT(*) AS c FROM follows WHERE follower_id = ?")
-      .get(userId) as { c: number }
-  ).c;
+  const r = getOne<{ c: number }>(
+    qb
+      .selectFrom("follows")
+      .select((eb) => eb.fn.countAll<number>().as("c"))
+      .where("follower_id", "=", userId)
+  );
+  return r?.c ?? 0;
 }
 
 export function postCountForUser(userId: number): number {
-  return (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM posts WHERE author_user_id = ? AND is_deleted = 0"
-      )
-      .get(userId) as { c: number }
-  ).c;
+  const r = getOne<{ c: number }>(
+    qb
+      .selectFrom("posts")
+      .select((eb) => eb.fn.countAll<number>().as("c"))
+      .where("author_user_id", "=", userId)
+      .where("is_deleted", "=", 0)
+  );
+  return r?.c ?? 0;
 }
 
 export function postCountForCreator(creatorId: number): number {
-  return (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM posts WHERE author_creator_id = ? AND is_deleted = 0"
-      )
-      .get(creatorId) as { c: number }
-  ).c;
+  const r = getOne<{ c: number }>(
+    qb
+      .selectFrom("posts")
+      .select((eb) => eb.fn.countAll<number>().as("c"))
+      .where("author_creator_id", "=", creatorId)
+      .where("is_deleted", "=", 0)
+  );
+  return r?.c ?? 0;
 }

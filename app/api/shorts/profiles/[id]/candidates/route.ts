@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { db, ShortProfileRow } from "@/lib/db";
+import { ShortProfileRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import {
   enumerateCandidates,
   downloadOne,
@@ -14,9 +15,9 @@ async function adminProfile(id: number) {
   const session = await getSession();
   if (!session) return { error: "Unauthorized", status: 401 as const };
   if (session.role !== "admin") return { error: "Forbidden", status: 403 as const };
-  const profile = db
-    .prepare("SELECT * FROM short_profiles WHERE id = ?")
-    .get(id) as ShortProfileRow | undefined;
+  const profile = getOne<ShortProfileRow>(
+    qb.selectFrom("short_profiles").selectAll().where("id", "=", id)
+  );
   if (!profile) return { error: "Not found", status: 404 as const };
   return { profile };
 }

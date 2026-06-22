@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { getSession } from "@/lib/auth";
 import { db, ShortTitleStateRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { parseChannel } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +21,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const current = db
-    .prepare("SELECT status FROM short_title_state WHERE id = 1")
-    .get() as Pick<ShortTitleStateRow, "status"> | undefined;
+  const current = getOne<Pick<ShortTitleStateRow, "status">>(
+    qb.selectFrom("short_title_state").select("status").where("id", "=", 1)
+  );
   if (current?.status === "running") {
     return NextResponse.json({ ok: true, alreadyRunning: true });
   }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { db, PostMediaRow, PostRow } from "@/lib/db";
+import { PostMediaRow, PostRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { has18Access } from "@/lib/shorts-gate";
 import { mediaPathFor, thumbKeyFor, imageMimeFor } from "@/lib/posts-storage";
@@ -17,14 +18,14 @@ export async function GET(
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 
-  const media = db
-    .prepare("SELECT * FROM post_media WHERE id = ?")
-    .get(Number(params.mediaId)) as PostMediaRow | undefined;
+  const media = getOne<PostMediaRow>(
+    qb.selectFrom("post_media").selectAll().where("id", "=", Number(params.mediaId))
+  );
   if (!media) return new NextResponse("Not found", { status: 404 });
 
-  const post = db
-    .prepare("SELECT * FROM posts WHERE id = ? AND is_deleted = 0")
-    .get(media.post_id) as PostRow | undefined;
+  const post = getOne<PostRow>(
+    qb.selectFrom("posts").selectAll().where("id", "=", media.post_id).where("is_deleted", "=", 0)
+  );
   if (!post) return new NextResponse("Not found", { status: 404 });
 
   if (post.is_adult && !(await has18Access())) {

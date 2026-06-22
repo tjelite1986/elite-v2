@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { has18Access } from "@/lib/shorts-gate";
 import { getPostRow } from "@/lib/posts";
@@ -23,9 +24,13 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const existing = db
-    .prepare("SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?")
-    .get(post.id, userId);
+  const existing = getOne(
+    qb
+      .selectFrom("post_likes")
+      .select("post_id")
+      .where("post_id", "=", post.id)
+      .where("user_id", "=", userId)
+  );
 
   let liked: boolean;
   if (existing) {
@@ -39,8 +44,12 @@ export async function POST(
     }
   }
 
-  const like_count = (
-    db.prepare("SELECT COUNT(*) AS c FROM post_likes WHERE post_id = ?").get(post.id) as { c: number }
-  ).c;
+  const like_count =
+    getOne<{ c: number }>(
+      qb
+        .selectFrom("post_likes")
+        .select((eb) => eb.fn.countAll<number>().as("c"))
+        .where("post_id", "=", post.id)
+    )?.c ?? 0;
   return NextResponse.json({ ok: true, liked, like_count });
 }

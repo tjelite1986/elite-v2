@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, PostMediaRow } from "@/lib/db";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { has18Access } from "@/lib/shorts-gate";
 import { getPost, getPostRow, parseHashtags } from "@/lib/posts";
@@ -71,9 +72,9 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const media = db
-    .prepare("SELECT * FROM post_media WHERE post_id = ?")
-    .all(post.id) as PostMediaRow[];
+  const media = getAll<PostMediaRow>(
+    qb.selectFrom("post_media").selectAll().where("post_id", "=", post.id)
+  );
   for (const m of media) deletePostImageFiles(m.storage_key);
 
   db.prepare("UPDATE posts SET is_deleted = 1 WHERE id = ?").run(post.id);

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { db, InviteRequestRow } from "@/lib/db";
+import { sql } from "kysely";
+import { InviteRequestRow } from "@/lib/db";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { isMailConfigured } from "@/lib/mail";
 
@@ -16,12 +18,13 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const requests = db
-    .prepare(
-      `SELECT * FROM invite_requests
-       ORDER BY (status = 'pending') DESC, created_at DESC`
-    )
-    .all() as InviteRequestRow[];
+  const requests = getAll<InviteRequestRow>(
+    qb
+      .selectFrom("invite_requests")
+      .selectAll()
+      .orderBy(sql`(status = 'pending') desc`)
+      .orderBy("created_at", "desc")
+  );
 
   return NextResponse.json({ requests, mailConfigured: isMailConfigured() });
 }

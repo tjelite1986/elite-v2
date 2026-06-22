@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "fs";
 import path from "path";
 import { hashPassword } from "./password";
+import { syncArchiveCatalog } from "./appstore-sync";
 
 // Resolve the data directory (mounted as a named volume in Docker).
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
@@ -20,6 +21,7 @@ function createDb(): Database.Database {
   db.pragma("foreign_keys = ON");
   migrate(db);
   seedAdmin(db);
+  seedAppStore(db);
   return db;
 }
 
@@ -643,6 +645,140 @@ function migrate(db: Database.Database) {
   } catch {
     /* FTS5 unavailable — search uses a LIKE fallback */
   }
+
+  // --- App Store module (phase 1: local APK archive catalog) ---
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS apps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      developer TEXT,
+      tagline TEXT,
+      description TEXT,
+      category TEXT NOT NULL DEFAULT 'App',
+      section TEXT NOT NULL DEFAULT 'apps',     -- apps | games
+      website TEXT,
+      icon_key TEXT,
+      banner_key TEXT,
+      source TEXT NOT NULL DEFAULT 'local',      -- local archive; external sources are phase 2
+      requires_pin INTEGER NOT NULL DEFAULT 0,   -- adult apps, gated like /shorts18
+      featured INTEGER NOT NULL DEFAULT 0,
+      editors_choice INTEGER NOT NULL DEFAULT 0,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      install_count INTEGER NOT NULL DEFAULT 0,
+      rating_avg REAL NOT NULL DEFAULT 0,
+      rating_count INTEGER NOT NULL DEFAULT 0,
+      current_version TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_apps_browse
+      ON apps(enabled, section, category, sort_order);
+
+    CREATE TABLE IF NOT EXISTS app_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      app_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      version TEXT NOT NULL,
+      apk_key TEXT NOT NULL,
+      file_name TEXT,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      is_current INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(app_id, version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_versions_app ON app_versions(app_id);
+
+    CREATE TABLE IF NOT EXISTS app_screenshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      app_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      image_key TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_screenshots_app ON app_screenshots(app_id, sort_order);
+
+    CREATE TABLE IF NOT EXISTS app_reviews (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      app_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      body TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT,
+      UNIQUE(app_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_reviews_app ON app_reviews(app_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS user_app_installs (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      app_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      installed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      pinned INTEGER NOT NULL DEFAULT 0,
+      last_opened_at TEXT,
+      PRIMARY KEY (user_id, app_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_user_app_installs_user ON user_app_installs(user_id);
+
+    CREATE TABLE IF NOT EXISTS saved_apps (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      app_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+      saved_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, app_id)
+    );
+  `);
+
+  // Phase 2: external sources (GitHub / F-Droid / Play Store) + update tracking.
+  // Added via backfill so the live phase-1 catalog gets the new columns.
+  {
+    // Add a column if missing; tolerate "duplicate column" so a concurrent /
+    // repeated migrate (e.g. across bundled chunks during a production build)
+    // can never crash boot.
+    const addColumn = (table: string, existing: string[], name: string, decl: string) => {
+      if (existing.includes(name)) return;
+      try {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`);
+      } catch (err) {
+        if (!/duplicate column/i.test((err as Error).message)) throw err;
+      }
+    };
+
+    const appCols = (
+      db.prepare("PRAGMA table_info(apps)").all() as { name: string }[]
+    ).map((c) => c.name);
+    const addApp = (name: string, decl: string) =>
+      addColumn("apps", appCols, name, decl);
+    addApp("source_repo", "TEXT");
+    addApp("source_package", "TEXT");
+    addApp("source_url", "TEXT");
+    addApp("homepage", "TEXT");
+    addApp("auto_update", "INTEGER NOT NULL DEFAULT 0");
+    addApp("update_available", "INTEGER NOT NULL DEFAULT 0");
+    addApp("available_version", "TEXT");
+    addApp("last_checked_at", "TEXT");
+    addApp("signing_cert", "TEXT");
+    addApp("review_flag", "TEXT");
+    addApp("source_meta", "TEXT");
+    // A Play Store package linked to an EXISTING app (any primary source) purely
+    // for metadata enrichment + version-check — never changes how the app is served.
+    addApp("play_package", "TEXT");
+    // A latestmodapks.com page URL linked for metadata/banner/version-check
+    // (mod apps not on Play/F-Droid). Scraped via curl-impersonate.
+    addApp("modapk_url", "TEXT");
+
+    const verCols = (
+      db.prepare("PRAGMA table_info(app_versions)").all() as { name: string }[]
+    ).map((c) => c.name);
+    const addVer = (name: string, decl: string) =>
+      addColumn("app_versions", verCols, name, decl);
+    addVer("storage", "TEXT NOT NULL DEFAULT 'archive'");
+    addVer("download_url", "TEXT");
+    addVer("sha256", "TEXT");
+    addVer("verify_status", "TEXT");
+    addVer("downloaded_at", "TEXT");
+
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_apps_source ON apps(source, update_available)"
+    );
+  }
 }
 
 // Bootstrap an admin account from env on first run so codes can be created.
@@ -659,6 +795,22 @@ function seedAdmin(db: Database.Database) {
   db.prepare(
     "INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'admin')"
   ).run(email.toLowerCase(), hashPassword(password));
+}
+
+// Populate the App Store catalog from the on-disk archive the first time (when
+// the apps table is empty). Reads only small metadata files, never APK bytes, so
+// it is cheap. Idempotent: skips entirely once seeded. Admins can force a rescan
+// via the manage page. Wrapped so a missing/unreadable archive never breaks boot.
+function seedAppStore(db: Database.Database) {
+  try {
+    const count = (
+      db.prepare("SELECT COUNT(*) AS n FROM apps").get() as { n: number }
+    ).n;
+    if (count > 0) return;
+    syncArchiveCatalog(db);
+  } catch (err) {
+    console.error("App Store seed skipped:", (err as Error).message);
+  }
 }
 
 export const db = globalForDb.db ?? createDb();
@@ -903,6 +1055,81 @@ export interface StoryRow {
   media_version: number;
   created_at: string;
   expires_at: string;
+}
+
+// --- App Store module ---
+
+export interface AppRow {
+  id: number;
+  slug: string;
+  name: string;
+  developer: string | null;
+  tagline: string | null;
+  description: string | null;
+  category: string;
+  section: "apps" | "games";
+  website: string | null;
+  icon_key: string | null;
+  banner_key: string | null;
+  source: string;
+  requires_pin: number;
+  featured: number;
+  editors_choice: number;
+  enabled: number;
+  sort_order: number;
+  install_count: number;
+  rating_avg: number;
+  rating_count: number;
+  current_version: string | null;
+  created_at: string;
+  // Phase 2: external sources + updates (nullable for phase-1 'local' apps).
+  source_repo: string | null;
+  source_package: string | null;
+  source_url: string | null;
+  homepage: string | null;
+  auto_update: number;
+  update_available: number;
+  available_version: string | null;
+  last_checked_at: string | null;
+  signing_cert: string | null;
+  review_flag: string | null;
+  source_meta: string | null;
+  play_package: string | null;
+  modapk_url: string | null;
+}
+
+export interface AppVersionRow {
+  id: number;
+  app_id: number;
+  version: string;
+  apk_key: string;
+  file_name: string | null;
+  file_size: number;
+  is_current: number;
+  created_at: string;
+  // Phase 2
+  storage: "archive" | "download";
+  download_url: string | null;
+  sha256: string | null;
+  verify_status: string | null;
+  downloaded_at: string | null;
+}
+
+export interface AppScreenshotRow {
+  id: number;
+  app_id: number;
+  image_key: string;
+  sort_order: number;
+}
+
+export interface AppReviewRow {
+  id: number;
+  app_id: number;
+  user_id: number;
+  rating: number;
+  body: string | null;
+  created_at: string;
+  updated_at: string | null;
 }
 
 export type NotificationType = "like" | "comment" | "follow" | "mention";

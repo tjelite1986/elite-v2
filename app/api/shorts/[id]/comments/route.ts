@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db, ShortCommentRow } from "@/lib/db";
+import { qb, getOne, getAll } from "@/lib/kysely";
 import { canAccessChannel, getShort } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
@@ -26,15 +27,16 @@ export async function GET(
     return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
 
-  const comments = db
-    .prepare(
-      `SELECT c.*, u.email AS author_email
-         FROM short_comments c
-         LEFT JOIN users u ON u.id = c.user_id
-        WHERE c.short_id = ?
-        ORDER BY c.created_at ASC, c.id ASC`
-    )
-    .all(short.id) as CommentWithAuthor[];
+  const comments = getAll<CommentWithAuthor>(
+    qb
+      .selectFrom("short_comments as c")
+      .leftJoin("users as u", "u.id", "c.user_id")
+      .selectAll("c")
+      .select("u.email as author_email")
+      .where("c.short_id", "=", short.id)
+      .orderBy("c.created_at")
+      .orderBy("c.id")
+  );
 
   return NextResponse.json({ comments });
 }
@@ -69,14 +71,14 @@ export async function POST(
     )
     .run(short.id, userId, body.slice(0, 2000));
 
-  const comment = db
-    .prepare(
-      `SELECT c.*, u.email AS author_email
-         FROM short_comments c
-         LEFT JOIN users u ON u.id = c.user_id
-        WHERE c.id = ?`
-    )
-    .get(Number(result.lastInsertRowid)) as CommentWithAuthor;
+  const comment = getOne<CommentWithAuthor>(
+    qb
+      .selectFrom("short_comments as c")
+      .leftJoin("users as u", "u.id", "c.user_id")
+      .selectAll("c")
+      .select("u.email as author_email")
+      .where("c.id", "=", Number(result.lastInsertRowid))
+  )!;
 
   return NextResponse.json({ ok: true, comment });
 }

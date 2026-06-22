@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { db, ShortProfileRow } from "@/lib/db";
+import { ShortProfileRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { triggerPoll } from "@/lib/shorts-poll";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +21,9 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const profile = db
-    .prepare("SELECT id FROM short_profiles WHERE id = ?")
-    .get(Number(params.id)) as Pick<ShortProfileRow, "id"> | undefined;
+  const profile = getOne<Pick<ShortProfileRow, "id">>(
+    qb.selectFrom("short_profiles").select("id").where("id", "=", Number(params.id))
+  );
   if (!profile) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

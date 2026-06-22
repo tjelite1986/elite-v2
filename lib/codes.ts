@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import { db } from "./db";
+import { qb, getOne } from "./kysely";
 
 // Generate a human-friendly code like "A1B2-C3D4" (no ambiguous characters).
 export function generateCode(): string {
@@ -36,9 +37,9 @@ export function isCodeExpired(expiresAt: string | null): boolean {
 export function generateUniqueCode(): string {
   let code = generateCode();
   for (let i = 0; i < 5; i++) {
-    const exists = db
-      .prepare("SELECT id FROM registration_codes WHERE code = ?")
-      .get(code);
+    const exists = getOne(
+      qb.selectFrom("registration_codes").select("id").where("code", "=", code)
+    );
     if (!exists) break;
     code = generateCode();
   }

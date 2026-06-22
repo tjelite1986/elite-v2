@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, MessageRow } from "@/lib/db";
+import { qb, getOne, getAll } from "@/lib/kysely";
 import { getSession, getUserById } from "@/lib/auth";
 
 interface Attachment {
@@ -18,14 +19,13 @@ function buildAttachment(
       .map((n) => Number(n))
       .filter((n) => Number.isInteger(n));
     if (ids.length === 0) return null;
-    const placeholders = ids.map(() => "?").join(",");
-    const owned = (
-      db
-        .prepare(
-          `SELECT id FROM gallery_items
-           WHERE user_id = ? AND is_deleted = 0 AND id IN (${placeholders})`
-        )
-        .all(meId, ...ids) as { id: number }[]
+    const owned = getAll<{ id: number }>(
+      qb
+        .selectFrom("gallery_items")
+        .select("id")
+        .where("user_id", "=", meId)
+        .where("is_deleted", "=", 0)
+        .where("id", "in", ids)
     ).map((r) => r.id);
     if (owned.length === 0) return null;
     return { type: "photos", data: { ids: owned } };
@@ -34,19 +34,22 @@ function buildAttachment(
   if (body.attachmentType === "album") {
     const albumId = Number(body.albumId);
     if (!Number.isInteger(albumId)) return null;
-    const album = db
-      .prepare("SELECT id, name FROM gallery_albums WHERE id = ? AND user_id = ?")
-      .get(albumId, meId) as { id: number; name: string } | undefined;
+    const album = getOne<{ id: number; name: string }>(
+      qb
+        .selectFrom("gallery_albums")
+        .select(["id", "name"])
+        .where("id", "=", albumId)
+        .where("user_id", "=", meId)
+    );
     if (!album) return null;
-    const ids = (
-      db
-        .prepare(
-          `SELECT ai.item_id AS id FROM gallery_album_items ai
-           JOIN gallery_items gi ON gi.id = ai.item_id
-           WHERE ai.album_id = ? AND gi.is_deleted = 0
-           ORDER BY gi.taken_at DESC`
-        )
-        .all(albumId) as { id: number }[]
+    const ids = getAll<{ id: number }>(
+      qb
+        .selectFrom("gallery_album_items as ai")
+        .innerJoin("gallery_items as gi", "gi.id", "ai.item_id")
+        .select("ai.item_id as id")
+        .where("ai.album_id", "=", albumId)
+        .where("gi.is_deleted", "=", 0)
+        .orderBy("gi.taken_at", "desc")
     ).map((r) => r.id);
     if (ids.length === 0) return null;
     return { type: "album", data: { ids, album_name: album.name } };
@@ -97,9 +100,9 @@ export async function POST(request: Request) {
       attachment ? JSON.stringify(attachment.data) : null
     );
 
-  const message = db
-    .prepare("SELECT * FROM messages WHERE id = ?")
-    .get(Number(result.lastInsertRowid)) as MessageRow;
+  const message = getOne<MessageRow>(
+    qb.selectFrom("messages").selectAll().where("id", "=", Number(result.lastInsertRowid))
+  )!;
 
   // Push to any live WebSocket clients for both participants (same process —
   // the custom server in server.mjs stores the registry on globalThis).

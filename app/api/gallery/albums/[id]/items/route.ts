@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { qb, getOne, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 function ownsAlbum(albumId: number, userId: number): boolean {
-  return !!db
-    .prepare("SELECT id FROM gallery_albums WHERE id = ? AND user_id = ?")
-    .get(albumId, userId);
+  return !!getOne(
+    qb
+      .selectFrom("gallery_albums")
+      .select("id")
+      .where("id", "=", albumId)
+      .where("user_id", "=", userId)
+  );
 }
 
 function parseIds(body: { ids?: unknown }): number[] {
@@ -32,13 +37,12 @@ export async function POST(
   if (ids.length === 0)
     return NextResponse.json({ error: "No items selected." }, { status: 400 });
 
-  const placeholders = ids.map(() => "?").join(",");
-  const owned = (
-    db
-      .prepare(
-        `SELECT id FROM gallery_items WHERE user_id = ? AND id IN (${placeholders})`
-      )
-      .all(userId, ...ids) as { id: number }[]
+  const owned = getAll<{ id: number }>(
+    qb
+      .selectFrom("gallery_items")
+      .select("id")
+      .where("user_id", "=", userId)
+      .where("id", "in", ids)
   ).map((r) => r.id);
 
   const insert = db.prepare(

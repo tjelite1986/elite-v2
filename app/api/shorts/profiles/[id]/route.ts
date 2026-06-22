@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db, ShortProfileRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 
 export const dynamic = "force-dynamic";
 
@@ -20,9 +21,9 @@ export async function PATCH(
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const existing = db
-    .prepare("SELECT * FROM short_profiles WHERE id = ?")
-    .get(Number(params.id)) as ShortProfileRow | undefined;
+  const existing = getOne<ShortProfileRow>(
+    qb.selectFrom("short_profiles").selectAll().where("id", "=", Number(params.id))
+  );
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -55,9 +56,9 @@ export async function PATCH(
       WHERE id = ?`
   ).run(name, channel, sourceType, sourceRef, autoPoll, videosLimit, existing.id);
 
-  const profile = db
-    .prepare("SELECT * FROM short_profiles WHERE id = ?")
-    .get(existing.id);
+  const profile = getOne(
+    qb.selectFrom("short_profiles").selectAll().where("id", "=", existing.id)
+  );
   return NextResponse.json({ ok: true, profile });
 }
 

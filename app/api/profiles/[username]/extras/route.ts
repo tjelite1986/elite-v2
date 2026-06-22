@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import {
   getProfileExtras,
@@ -18,9 +18,9 @@ async function authorize(handle: string) {
   const session = await getSession();
   if (!session) return { error: "Unauthorized", status: 401 as const };
   if (session.role === "admin") return { session };
-  const me = db
-    .prepare("SELECT username FROM user_profiles WHERE user_id = ?")
-    .get(Number(session.sub)) as { username: string } | undefined;
+  const me = getOne<{ username: string }>(
+    qb.selectFrom("user_profiles").select("username").where("user_id", "=", Number(session.sub))
+  );
   if (me && handleOf(me.username) === handle) return { session };
   return { error: "Forbidden", status: 403 as const };
 }

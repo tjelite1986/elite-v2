@@ -1,0 +1,11 @@
+# Runs the App Store update checker every 6 hours. Pairs with the .service.
+[Unit]
+Description=Elite v2 App Store update check (schedule)
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

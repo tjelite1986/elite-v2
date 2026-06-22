@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import { Readable } from "node:stream";
-import { db, GalleryItemRow } from "@/lib/db";
+import { GalleryItemRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import {
   originalPathFor,
@@ -25,9 +26,9 @@ export async function GET(
   }
   const userId = Number(session.sub);
 
-  const item = db
-    .prepare("SELECT * FROM gallery_items WHERE id = ?")
-    .get(Number(params.id)) as GalleryItemRow | undefined;
+  const item = getOne<GalleryItemRow>(
+    qb.selectFrom("gallery_items").selectAll().where("id", "=", Number(params.id))
+  );
   if (!item) {
     return new NextResponse("Not found", { status: 404 });
   }

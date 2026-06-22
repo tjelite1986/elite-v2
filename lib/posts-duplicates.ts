@@ -1,4 +1,6 @@
+import { sql } from "kysely";
 import { db, PostDupeStateRow } from "./db";
+import { qb, getOne, getAll } from "./kysely";
 import { deletePostImageFiles } from "./posts-storage";
 
 // One image inside a duplicate group, with the details the review UI needs to
@@ -31,22 +33,37 @@ interface MemberRow extends Omit<PostDupeMember, "is_best"> {
 // All duplicate groups, best image first within each group. The author name is
 // resolved from whichever author owns the post (user or mirrored creator).
 export function getPostDupeGroups(): PostDupeGroup[] {
-  const rows = db
-    .prepare(
-      `SELECT g.group_key, g.match_type, g.is_best, g.quality_score, g.distance,
-              pm.id AS media_id, pm.post_id, pm.storage_key,
-              pm.width, pm.height, pm.position,
-              COALESCE(up.username, pc.username) AS author_name,
-              (SELECT COUNT(*) FROM post_media m2 WHERE m2.post_id = pm.post_id)
-                AS post_media_count
-         FROM post_dupe_groups g
-         JOIN post_media pm ON pm.id = g.media_id
-         JOIN posts p ON p.id = pm.post_id AND p.is_deleted = 0
-         LEFT JOIN user_profiles up ON up.user_id = p.author_user_id
-         LEFT JOIN post_creators pc ON pc.id = p.author_creator_id
-        ORDER BY g.group_key, g.is_best DESC, g.quality_score DESC, pm.id`
-    )
-    .all() as MemberRow[];
+  const rows = getAll<MemberRow>(
+    qb
+      .selectFrom("post_dupe_groups as g")
+      .innerJoin("post_media as pm", "pm.id", "g.media_id")
+      .innerJoin("posts as p", (join) =>
+        join.onRef("p.id", "=", "pm.post_id").on("p.is_deleted", "=", 0)
+      )
+      .leftJoin("user_profiles as up", "up.user_id", "p.author_user_id")
+      .leftJoin("post_creators as pc", "pc.id", "p.author_creator_id")
+      .select([
+        "g.group_key",
+        "g.match_type",
+        "g.is_best",
+        "g.quality_score",
+        "g.distance",
+        "pm.id as media_id",
+        "pm.post_id",
+        "pm.storage_key",
+        "pm.width",
+        "pm.height",
+        "pm.position",
+        sql<string | null>`COALESCE(up.username, pc.username)`.as("author_name"),
+        sql<number>`(SELECT COUNT(*) FROM post_media m2 WHERE m2.post_id = pm.post_id)`.as(
+          "post_media_count"
+        ),
+      ])
+      .orderBy("g.group_key")
+      .orderBy("g.is_best", "desc")
+      .orderBy("g.quality_score", "desc")
+      .orderBy("pm.id")
+  );
 
   const groups = new Map<string, PostDupeGroup>();
   for (const r of rows) {
@@ -79,9 +96,9 @@ export function getPostDupeGroups(): PostDupeGroup[] {
 }
 
 export function getPostDupeState(): PostDupeStateRow {
-  const row = db
-    .prepare("SELECT * FROM post_dupe_state WHERE id = 1")
-    .get() as PostDupeStateRow | undefined;
+  const row = getOne<PostDupeStateRow>(
+    qb.selectFrom("post_dupe_state").selectAll().where("id", "=", 1)
+  );
   return (
     row ?? {
       id: 1,
@@ -110,26 +127,28 @@ export function deletePostDuplicates(mediaIds: number[]): {
   );
   if (ids.size === 0) return { deleted: 0, keptBest: 0 };
 
-  const memberRows = db
-    .prepare(
-      "SELECT media_id, group_key, is_best FROM post_dupe_groups WHERE media_id IN (" +
-        Array.from(ids).map(() => "?").join(",") +
-        ")"
-    )
-    .all(...Array.from(ids)) as {
+  const memberRows = getAll<{
     media_id: number;
     group_key: string;
     is_best: number;
-  }[];
+  }>(
+    qb
+      .selectFrom("post_dupe_groups")
+      .select(["media_id", "group_key", "is_best"])
+      .where("media_id", "in", Array.from(ids))
+  );
 
   // Per touched group, if the whole group is selected, drop its best from the
   // deletion set so at least one image survives for comparison.
   const groupKeys = Array.from(new Set(memberRows.map((r) => r.group_key)));
   let keptBest = 0;
   for (const gk of groupKeys) {
-    const all = db
-      .prepare("SELECT media_id, is_best FROM post_dupe_groups WHERE group_key = ?")
-      .all(gk) as { media_id: number; is_best: number }[];
+    const all = getAll<{ media_id: number; is_best: number }>(
+      qb
+        .selectFrom("post_dupe_groups")
+        .select(["media_id", "is_best"])
+        .where("group_key", "=", gk)
+    );
     const allSelected = all.every((m) => ids.has(m.media_id));
     if (allSelected) {
       const keep =

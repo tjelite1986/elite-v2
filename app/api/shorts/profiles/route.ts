@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { sql } from "kysely";
 import { getSession } from "@/lib/auth";
 import { db, ShortProfileRow } from "@/lib/db";
+import { qb, getOne, getAll } from "@/lib/kysely";
 import { deriveProfileName } from "@/lib/shorts-source";
 import { triggerPoll } from "@/lib/shorts-poll";
 import { handleOf } from "@/lib/directory";
@@ -25,15 +27,18 @@ export async function GET(request: Request) {
   const channel =
     channelParam === "18plus" || channelParam === "main" ? channelParam : null;
 
-  const profiles = db
-    .prepare(
-      `SELECT p.*,
-              (SELECT COUNT(*) FROM shorts s WHERE s.profile_id = p.id AND s.is_deleted = 0) AS clip_count
-         FROM short_profiles p
-        WHERE (@channel IS NULL OR p.channel = @channel)
-        ORDER BY p.created_at DESC`
-    )
-    .all({ channel }) as (ShortProfileRow & { clip_count: number })[];
+  const profiles = getAll<ShortProfileRow & { clip_count: number }>(
+    qb
+      .selectFrom("short_profiles as p")
+      .selectAll("p")
+      .select(
+        sql<number>`(SELECT COUNT(*) FROM shorts s WHERE s.profile_id = p.id AND s.is_deleted = 0)`.as(
+          "clip_count"
+        )
+      )
+      .$if(channel !== null, (q) => q.where("p.channel", "=", channel!))
+      .orderBy("p.created_at", "desc")
+  );
 
   return NextResponse.json({ profiles });
 }
@@ -81,15 +86,13 @@ export async function POST(request: Request) {
   // creating a capitalization variant (prevents split profiles).
   const handle = handleOf(name);
   if (handle) {
-    const existing = (
-      db
-        .prepare("SELECT * FROM short_profiles WHERE channel = ?")
-        .all(channel) as { id: number; name: string }[]
+    const existing = getAll<{ id: number; name: string }>(
+      qb.selectFrom("short_profiles").select(["id", "name"]).where("channel", "=", channel)
     ).find((p) => handleOf(p.name) === handle);
     if (existing) {
-      const full = db
-        .prepare("SELECT * FROM short_profiles WHERE id = ?")
-        .get(existing.id);
+      const full = getOne(
+        qb.selectFrom("short_profiles").selectAll().where("id", "=", existing.id)
+      );
       return NextResponse.json({ ok: true, profile: full, reused: true });
     }
   }
@@ -107,9 +110,9 @@ export async function POST(request: Request) {
   // 30-minute timer (manual profiles have nothing to poll).
   if (!isManual) triggerPoll(id);
 
-  const profile = db
-    .prepare("SELECT * FROM short_profiles WHERE id = ?")
-    .get(id);
+  const profile = getOne(
+    qb.selectFrom("short_profiles").selectAll().where("id", "=", id)
+  );
 
   return NextResponse.json({ ok: true, profile });
 }

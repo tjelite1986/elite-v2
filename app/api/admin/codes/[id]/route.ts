@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, CodeRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 
 async function requireAdmin() {
@@ -20,9 +21,9 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const code = db
-    .prepare("SELECT * FROM registration_codes WHERE id = ?")
-    .get(Number(params.id)) as CodeRow | undefined;
+  const code = getOne<CodeRow>(
+    qb.selectFrom("registration_codes").selectAll().where("id", "=", Number(params.id))
+  );
 
   if (!code) {
     return NextResponse.json({ error: "Code not found." }, { status: 404 });

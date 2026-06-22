@@ -1,4 +1,19 @@
 import { db, NotificationRow, NotificationType } from "./db";
+import { qb, getOne, getAll } from "./kysely";
+
+// Reads go through the typed Kysely builder; the INSERT in notify() and the
+// UPDATE in markAllRead() stay on raw better-sqlite3 (single write path).
+const NOTIFICATION_SELECT = () =>
+  qb
+    .selectFrom("notifications as n")
+    .leftJoin("user_profiles as up", "up.user_id", "n.actor_user_id")
+    .selectAll("n")
+    .select(["up.username as actor_username", "up.avatar_key as actor_avatar_key"]);
+
+interface NotificationWithActor extends NotificationRow {
+  actor_username: string | null;
+  actor_avatar_key: string | null;
+}
 
 // Create a notification and push it to the recipient's live WebSocket sockets
 // (same `globalThis.__wsClients` registry the messages route uses — populated by
@@ -26,14 +41,9 @@ export function notify(opts: {
       opts.commentId ?? null
     );
 
-  const row = db
-    .prepare(
-      `SELECT n.*, up.username AS actor_username, up.avatar_key AS actor_avatar_key
-         FROM notifications n
-         LEFT JOIN user_profiles up ON up.user_id = n.actor_user_id
-        WHERE n.id = ?`
-    )
-    .get(Number(result.lastInsertRowid));
+  const row = getOne<NotificationWithActor>(
+    NOTIFICATION_SELECT().where("n.id", "=", Number(result.lastInsertRowid))
+  );
 
   const registry = (
     globalThis as unknown as {
@@ -53,25 +63,23 @@ export function notify(opts: {
 }
 
 export function unreadCount(userId: number): number {
-  return (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read_at IS NULL"
-      )
-      .get(userId) as { c: number }
-  ).c;
+  const r = getOne<{ c: number }>(
+    qb
+      .selectFrom("notifications")
+      .select((eb) => eb.fn.countAll<number>().as("c"))
+      .where("user_id", "=", userId)
+      .where("read_at", "is", null)
+  );
+  return r?.c ?? 0;
 }
 
 export function listNotifications(userId: number, limit = 40): NotificationRow[] {
-  return db
-    .prepare(
-      `SELECT n.*, up.username AS actor_username, up.avatar_key AS actor_avatar_key
-         FROM notifications n
-         LEFT JOIN user_profiles up ON up.user_id = n.actor_user_id
-        WHERE n.user_id = ?
-        ORDER BY n.id DESC LIMIT ?`
-    )
-    .all(userId, limit) as NotificationRow[];
+  return getAll<NotificationRow>(
+    NOTIFICATION_SELECT()
+      .where("n.user_id", "=", userId)
+      .orderBy("n.id", "desc")
+      .limit(limit)
+  );
 }
 
 export function markAllRead(userId: number): void {

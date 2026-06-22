@@ -1,4 +1,6 @@
+import { sql } from "kysely";
 import { db, StoryRow } from "./db";
+import { qb, getOne, getAll } from "./kysely";
 
 // Ephemeral 24h stories (users only in v1). Grouped per author for the rail; the
 // viewer sees their own plus the people they follow.
@@ -29,23 +31,37 @@ interface StoryQueryRow {
 // by author. The viewer's own group is sorted first, then authors with unseen
 // stories, then the rest.
 export function getActiveStoryGroups(viewerId: number): StoryGroup[] {
-  const rows = db
-    .prepare(
-      `SELECT s.id, s.author_user_id, up.username, up.avatar_key,
-              EXISTS(SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.user_id = @viewer) AS viewed
-         FROM stories s
-         JOIN user_profiles up ON up.user_id = s.author_user_id
-        WHERE s.expires_at > datetime('now')
-          AND (
-            s.author_user_id = @viewer
-            OR s.author_user_id IN (
-              SELECT target_id FROM follows
-               WHERE follower_id = @viewer AND target_type = 'user'
-            )
-          )
-        ORDER BY s.author_user_id, s.id`
-    )
-    .all({ viewer: viewerId }) as StoryQueryRow[];
+  const rows = getAll<StoryQueryRow>(
+    qb
+      .selectFrom("stories as s")
+      .innerJoin("user_profiles as up", "up.user_id", "s.author_user_id")
+      .select([
+        "s.id",
+        "s.author_user_id",
+        "up.username",
+        "up.avatar_key",
+        sql<number>`EXISTS(SELECT 1 FROM story_views v WHERE v.story_id = s.id AND v.user_id = ${viewerId})`.as(
+          "viewed"
+        ),
+      ])
+      .where("s.expires_at", ">", sql<string>`datetime('now')`)
+      .where((eb) =>
+        eb.or([
+          eb("s.author_user_id", "=", viewerId),
+          eb(
+            "s.author_user_id",
+            "in",
+            qb
+              .selectFrom("follows")
+              .select("target_id")
+              .where("follower_id", "=", viewerId)
+              .where("target_type", "=", "user")
+          ),
+        ])
+      )
+      .orderBy("s.author_user_id")
+      .orderBy("s.id")
+  );
 
   const byAuthor = new Map<number, StoryGroup>();
   for (const r of rows) {
@@ -88,9 +104,13 @@ export function createStory(
 }
 
 export function getStory(id: number): StoryRow | undefined {
-  return db
-    .prepare("SELECT * FROM stories WHERE id = ? AND expires_at > datetime('now')")
-    .get(id) as StoryRow | undefined;
+  return getOne<StoryRow>(
+    qb
+      .selectFrom("stories")
+      .selectAll()
+      .where("id", "=", id)
+      .where("expires_at", ">", sql<string>`datetime('now')`)
+  );
 }
 
 export function markStoryViewed(storyId: number, userId: number): void {

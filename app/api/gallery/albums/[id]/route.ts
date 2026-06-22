@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { db, GalleryAlbumRow } from "@/lib/db";
+import { qb, getOne, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 function getOwnedAlbum(id: number, userId: number): GalleryAlbumRow | undefined {
-  return db
-    .prepare("SELECT * FROM gallery_albums WHERE id = ? AND user_id = ?")
-    .get(id, userId) as GalleryAlbumRow | undefined;
+  return getOne<GalleryAlbumRow>(
+    qb
+      .selectFrom("gallery_albums")
+      .selectAll()
+      .where("id", "=", id)
+      .where("user_id", "=", userId)
+  );
 }
 
 // Album detail + its (non-deleted) items, newest first.
@@ -22,17 +27,29 @@ export async function GET(
   const album = getOwnedAlbum(Number(params.id), userId);
   if (!album) return NextResponse.json({ error: "Not found." }, { status: 404 });
 
-  const items = db
-    .prepare(
-      `SELECT gi.id, gi.filename, gi.mime_type, gi.width, gi.height,
-              gi.latitude, gi.longitude, gi.location_name, gi.media_version,
-              gi.taken_at, gi.is_favorite, gi.is_deleted
-       FROM gallery_album_items ai
-       JOIN gallery_items gi ON gi.id = ai.item_id
-       WHERE ai.album_id = ? AND gi.is_deleted = 0
-       ORDER BY gi.taken_at DESC, gi.id DESC`
-    )
-    .all(album.id);
+  const items = getAll(
+    qb
+      .selectFrom("gallery_album_items as ai")
+      .innerJoin("gallery_items as gi", "gi.id", "ai.item_id")
+      .select([
+        "gi.id",
+        "gi.filename",
+        "gi.mime_type",
+        "gi.width",
+        "gi.height",
+        "gi.latitude",
+        "gi.longitude",
+        "gi.location_name",
+        "gi.media_version",
+        "gi.taken_at",
+        "gi.is_favorite",
+        "gi.is_deleted",
+      ])
+      .where("ai.album_id", "=", album.id)
+      .where("gi.is_deleted", "=", 0)
+      .orderBy("gi.taken_at", "desc")
+      .orderBy("gi.id", "desc")
+  );
 
   return NextResponse.json({ album, items });
 }

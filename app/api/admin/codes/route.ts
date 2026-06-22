@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, CodeRow } from "@/lib/db";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { generateUniqueCode, expiresAtFromDays } from "@/lib/codes";
 import { sendInviteEmail, isMailConfigured } from "@/lib/mail";
@@ -20,14 +21,14 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const codes = db
-    .prepare(
-      `SELECT c.*, u.email AS used_by_email
-       FROM registration_codes c
-       LEFT JOIN users u ON u.id = c.used_by
-       ORDER BY c.created_at DESC`
-    )
-    .all() as (CodeRow & { used_by_email: string | null })[];
+  const codes = getAll<CodeRow & { used_by_email: string | null }>(
+    qb
+      .selectFrom("registration_codes as c")
+      .leftJoin("users as u", "u.id", "c.used_by")
+      .selectAll("c")
+      .select("u.email as used_by_email")
+      .orderBy("c.created_at", "desc")
+  );
 
   return NextResponse.json({ codes, mailConfigured: isMailConfigured() });
 }

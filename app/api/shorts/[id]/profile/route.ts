@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db, ShortProfileRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getShort } from "@/lib/shorts";
 import { moveShortToProfile } from "@/lib/shorts-storage";
 
@@ -36,9 +37,9 @@ export async function PATCH(
     return NextResponse.json({ ok: true, profile_id: profileId });
   }
 
-  const profile = db
-    .prepare("SELECT * FROM short_profiles WHERE id = ?")
-    .get(profileId) as ShortProfileRow | undefined;
+  const profile = getOne<ShortProfileRow>(
+    qb.selectFrom("short_profiles").selectAll().where("id", "=", profileId)
+  );
   if (!profile) {
     return NextResponse.json({ error: "Profile not found." }, { status: 404 });
   }

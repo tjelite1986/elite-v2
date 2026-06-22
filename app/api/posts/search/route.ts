@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "kysely";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { handleOf } from "@/lib/directory";
 
@@ -19,37 +20,44 @@ export async function GET(request: Request) {
   }
   const like = `%${q.replace(/[%_]/g, "")}%`;
 
-  const users = db
-    .prepare(
-      `SELECT username, display_name FROM user_profiles
-        WHERE username LIKE ? OR LOWER(display_name) LIKE ?
-        ORDER BY username LIMIT 10`
-    )
-    .all(like, like) as { username: string; display_name: string | null }[];
+  const users = getAll<{ username: string; display_name: string | null }>(
+    qb
+      .selectFrom("user_profiles")
+      .select(["username", "display_name"])
+      .where(sql<boolean>`(username LIKE ${like} OR LOWER(display_name) LIKE ${like})`)
+      .orderBy("username")
+      .limit(10)
+  );
 
-  const creators = db
-    .prepare(
-      `SELECT username, display_name FROM post_creators
-        WHERE username LIKE ? OR LOWER(display_name) LIKE ?
-        ORDER BY username LIMIT 10`
-    )
-    .all(like, like) as { username: string; display_name: string | null }[];
+  const creators = getAll<{ username: string; display_name: string | null }>(
+    qb
+      .selectFrom("post_creators")
+      .select(["username", "display_name"])
+      .where(sql<boolean>`(username LIKE ${like} OR LOWER(display_name) LIKE ${like})`)
+      .orderBy("username")
+      .limit(10)
+  );
 
   // Video creators (shorts) — name isn't normalized, so key by its handle.
-  const shortCreators = db
-    .prepare(
-      `SELECT DISTINCT name FROM short_profiles
-        WHERE LOWER(name) LIKE ? ORDER BY name LIMIT 20`
-    )
-    .all(like) as { name: string }[];
+  const shortCreators = getAll<{ name: string }>(
+    qb
+      .selectFrom("short_profiles")
+      .select("name")
+      .distinct()
+      .where(sql<boolean>`LOWER(name) LIKE ${like}`)
+      .orderBy("name")
+      .limit(20)
+  );
 
-  const tags = db
-    .prepare(
-      `SELECT tag, COUNT(*) AS count FROM post_hashtags
-        WHERE tag LIKE ?
-        GROUP BY tag ORDER BY count DESC LIMIT 10`
-    )
-    .all(like) as { tag: string; count: number }[];
+  const tags = getAll<{ tag: string; count: number }>(
+    qb
+      .selectFrom("post_hashtags")
+      .select((eb) => ["tag", eb.fn.countAll<number>().as("count")])
+      .where("tag", "like", like)
+      .groupBy("tag")
+      .orderBy("count", "desc")
+      .limit(10)
+  );
 
   // Dedupe by handle, preferring user > photo creator > video creator.
   const byHandle = new Map<string, { username: string; display_name: string | null; type: "user" | "creator" }>();

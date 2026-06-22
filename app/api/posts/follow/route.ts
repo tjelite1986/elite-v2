@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { notify } from "@/lib/notifications";
 
@@ -29,17 +30,20 @@ export async function POST(request: Request) {
   // Validate the target exists so we never store dangling follows.
   const exists =
     targetType === "user"
-      ? db.prepare("SELECT 1 FROM user_profiles WHERE user_id = ?").get(targetId)
+      ? getOne(qb.selectFrom("user_profiles").select("user_id").where("user_id", "=", targetId))
       : targetType === "creator"
-        ? db.prepare("SELECT 1 FROM post_creators WHERE id = ?").get(targetId)
-        : db.prepare("SELECT 1 FROM short_profiles WHERE id = ?").get(targetId);
+        ? getOne(qb.selectFrom("post_creators").select("id").where("id", "=", targetId))
+        : getOne(qb.selectFrom("short_profiles").select("id").where("id", "=", targetId));
   if (!exists) return NextResponse.json({ error: "Target not found." }, { status: 404 });
 
-  const has = db
-    .prepare(
-      "SELECT 1 FROM follows WHERE follower_id = ? AND target_type = ? AND target_id = ?"
-    )
-    .get(userId, targetType, targetId);
+  const has = getOne(
+    qb
+      .selectFrom("follows")
+      .select("follower_id")
+      .where("follower_id", "=", userId)
+      .where("target_type", "=", targetType)
+      .where("target_id", "=", targetId)
+  );
 
   let following: boolean;
   if (has) {
@@ -57,12 +61,13 @@ export async function POST(request: Request) {
     }
   }
 
-  const follower_count = (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM follows WHERE target_type = ? AND target_id = ?"
-      )
-      .get(targetType, targetId) as { c: number }
-  ).c;
+  const follower_count =
+    getOne<{ c: number }>(
+      qb
+        .selectFrom("follows")
+        .select((eb) => eb.fn.countAll<number>().as("c"))
+        .where("target_type", "=", targetType)
+        .where("target_id", "=", targetId)
+    )?.c ?? 0;
   return NextResponse.json({ ok: true, following, follower_count });
 }

@@ -1,4 +1,5 @@
 import { db, ShortChannel, ShortDupeStateRow } from "./db";
+import { qb, getOne, getAll } from "./kysely";
 import { deleteShortFiles } from "./shorts-storage";
 
 // One clip inside a duplicate group, with the details the review UI needs to
@@ -34,19 +35,37 @@ interface MemberRow extends Omit<DupeMember, "is_best"> {
 
 // All duplicate groups for a channel, best clip first within each group.
 export function getDupeGroups(channel?: ShortChannel): DupeGroup[] {
-  const rows = db
-    .prepare(
-      `SELECT g.group_key, g.channel, g.match_type, g.is_best, g.quality_score,
-              s.id AS short_id, s.caption, s.storage_key, s.poster_key,
-              s.width, s.height, s.duration, s.size_bytes, s.status, s.created_at,
-              p.name AS profile_name
-         FROM short_dupe_groups g
-         JOIN shorts s ON s.id = g.short_id AND s.is_deleted = 0
-         LEFT JOIN short_profiles p ON p.id = s.profile_id
-        ${channel ? "WHERE g.channel = @channel" : ""}
-        ORDER BY g.group_key, g.is_best DESC, g.quality_score DESC, s.id`
-    )
-    .all(channel ? { channel } : {}) as MemberRow[];
+  const rows = getAll<MemberRow>(
+    qb
+      .selectFrom("short_dupe_groups as g")
+      .innerJoin("shorts as s", (join) =>
+        join.onRef("s.id", "=", "g.short_id").on("s.is_deleted", "=", 0)
+      )
+      .leftJoin("short_profiles as p", "p.id", "s.profile_id")
+      .select([
+        "g.group_key",
+        "g.channel",
+        "g.match_type",
+        "g.is_best",
+        "g.quality_score",
+        "s.id as short_id",
+        "s.caption",
+        "s.storage_key",
+        "s.poster_key",
+        "s.width",
+        "s.height",
+        "s.duration",
+        "s.size_bytes",
+        "s.status",
+        "s.created_at",
+        "p.name as profile_name",
+      ])
+      .$if(!!channel, (q) => q.where("g.channel", "=", channel!))
+      .orderBy("g.group_key")
+      .orderBy("g.is_best", "desc")
+      .orderBy("g.quality_score", "desc")
+      .orderBy("s.id")
+  );
 
   const groups = new Map<string, DupeGroup>();
   for (const r of rows) {
@@ -83,9 +102,9 @@ export function getDupeGroups(channel?: ShortChannel): DupeGroup[] {
 }
 
 export function getDupeState(): ShortDupeStateRow {
-  const row = db
-    .prepare("SELECT * FROM short_dupe_state WHERE id = 1")
-    .get() as ShortDupeStateRow | undefined;
+  const row = getOne<ShortDupeStateRow>(
+    qb.selectFrom("short_dupe_state").selectAll().where("id", "=", 1)
+  );
   return (
     row ?? {
       id: 1,

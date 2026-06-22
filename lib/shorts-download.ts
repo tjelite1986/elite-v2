@@ -5,6 +5,7 @@ import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import { db, ShortProfileRow } from "./db";
+import { qb, getOne, getAll } from "./kysely";
 import { channelDir, profileSlug } from "./shorts-storage";
 
 const YT_DLP = process.env.YT_DLP_BIN || "yt-dlp";
@@ -120,12 +121,12 @@ export function enumerateCandidates(
   }
 
   const known = new Set(
-    (
-      db
-        .prepare(
-          "SELECT source_id FROM shorts WHERE profile_id = ? AND source_id IS NOT NULL"
-        )
-        .all(profile.id) as { source_id: string }[]
+    getAll<{ source_id: string | null }>(
+      qb
+        .selectFrom("shorts")
+        .select("source_id")
+        .where("profile_id", "=", profile.id)
+        .where("source_id", "is not", null)
     ).map((r) => r.source_id)
   );
 
@@ -168,9 +169,13 @@ export function downloadOne(
   title: string | null
 ): number | null {
   if (
-    db
-      .prepare("SELECT 1 FROM shorts WHERE profile_id = ? AND source_id = ?")
-      .get(profile.id, sourceId)
+    getOne(
+      qb
+        .selectFrom("shorts")
+        .select("id")
+        .where("profile_id", "=", profile.id)
+        .where("source_id", "=", sourceId)
+    )
   ) {
     return null; // already imported
   }

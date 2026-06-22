@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, PostCreatorRow, PostMediaRow } from "@/lib/db";
+import { qb, getOne, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { getPostRow } from "@/lib/posts";
 import { usernameTaken } from "@/lib/profiles";
@@ -30,9 +31,9 @@ export async function PATCH(
   // Resolve the target creator: an existing id, or find-or-create by username.
   let creator: PostCreatorRow | undefined;
   if (body?.creatorId) {
-    creator = db
-      .prepare("SELECT * FROM post_creators WHERE id = ?")
-      .get(Number(body.creatorId)) as PostCreatorRow | undefined;
+    creator = getOne<PostCreatorRow>(
+      qb.selectFrom("post_creators").selectAll().where("id", "=", Number(body.creatorId))
+    );
     if (!creator) {
       return NextResponse.json({ error: "Creator not found." }, { status: 404 });
     }
@@ -41,9 +42,9 @@ export async function PATCH(
     if (username.length < 2) {
       return NextResponse.json({ error: "Invalid username." }, { status: 400 });
     }
-    creator = db
-      .prepare("SELECT * FROM post_creators WHERE username = ?")
-      .get(username) as PostCreatorRow | undefined;
+    creator = getOne<PostCreatorRow>(
+      qb.selectFrom("post_creators").selectAll().where("username", "=", username)
+    );
     if (!creator) {
       // A username already used by a real user can't double as a creator handle.
       if (usernameTaken(username)) {
@@ -57,9 +58,9 @@ export async function PATCH(
           "INSERT INTO post_creators (username, display_name, source) VALUES (?, ?, 'manual')"
         )
         .run(username, username);
-      creator = db
-        .prepare("SELECT * FROM post_creators WHERE id = ?")
-        .get(Number(res.lastInsertRowid)) as PostCreatorRow;
+      creator = getOne<PostCreatorRow>(
+        qb.selectFrom("post_creators").selectAll().where("id", "=", Number(res.lastInsertRowid))
+      )!;
     }
   } else {
     return NextResponse.json({ error: "A target creator is required." }, { status: 400 });
@@ -69,9 +70,9 @@ export async function PATCH(
     return NextResponse.json({ ok: true, creatorId: creator.id });
   }
 
-  const media = db
-    .prepare("SELECT * FROM post_media WHERE post_id = ?")
-    .all(post.id) as PostMediaRow[];
+  const media = getAll<PostMediaRow>(
+    qb.selectFrom("post_media").selectAll().where("post_id", "=", post.id)
+  );
 
   try {
     db.transaction(() => {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { db, PostMediaRow, PostRow } from "@/lib/db";
+import { PostMediaRow, PostRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { setHandleAvatar } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
@@ -17,14 +18,14 @@ export async function POST(request: Request) {
   const userId = Number(session.sub);
 
   const body = await request.json().catch(() => ({}));
-  const media = db
-    .prepare("SELECT * FROM post_media WHERE id = ?")
-    .get(Number(body?.mediaId)) as PostMediaRow | undefined;
+  const media = getOne<PostMediaRow>(
+    qb.selectFrom("post_media").selectAll().where("id", "=", Number(body?.mediaId))
+  );
   if (!media) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const post = db
-    .prepare("SELECT * FROM posts WHERE id = ? AND is_deleted = 0")
-    .get(media.post_id) as PostRow | undefined;
+  const post = getOne<PostRow>(
+    qb.selectFrom("posts").selectAll().where("id", "=", media.post_id).where("is_deleted", "=", 0)
+  );
   if (!post) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const ownsAsUser = post.author_user_id === userId;
@@ -36,15 +37,15 @@ export async function POST(request: Request) {
   // The avatar belongs to the post's author, keyed by their handle.
   let handle: string;
   if (post.author_user_id) {
-    const u = db
-      .prepare("SELECT username FROM user_profiles WHERE user_id = ?")
-      .get(post.author_user_id) as { username: string } | undefined;
+    const u = getOne<{ username: string }>(
+      qb.selectFrom("user_profiles").select("username").where("user_id", "=", post.author_user_id)
+    );
     if (!u) return NextResponse.json({ error: "Not found" }, { status: 404 });
     handle = handleOf(u.username);
   } else {
-    const c = db
-      .prepare("SELECT username FROM post_creators WHERE id = ?")
-      .get(post.author_creator_id) as { username: string } | undefined;
+    const c = getOne<{ username: string }>(
+      qb.selectFrom("post_creators").select("username").where("id", "=", post.author_creator_id!)
+    );
     if (!c) return NextResponse.json({ error: "Not found" }, { status: 404 });
     handle = handleOf(c.username);
   }
