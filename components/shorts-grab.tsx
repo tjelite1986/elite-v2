@@ -19,6 +19,7 @@ export default function ShortsGrab() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
+  const [ytdlpCount, setYtdlpCount] = useState(0);
 
   const [single, setSingle] = useState<Single | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -26,6 +27,7 @@ export default function ShortsGrab() {
   const [channel, setChannel] = useState<Channel>("main");
   const [creator, setCreator] = useState("");
   const [web, setWeb] = useState(false);
+  const [quality, setQuality] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const [progress, setProgress] = useState<string | null>(null);
@@ -37,7 +39,10 @@ export default function ShortsGrab() {
   useEffect(() => {
     fetch("/api/shorts/grab/sites")
       .then((r) => r.json())
-      .then((d) => setSites(d.sites || []))
+      .then((d) => {
+        setSites(d.sites || []);
+        if (typeof d.ytdlp === "number") setYtdlpCount(d.ytdlp);
+      })
       .catch(() => {});
     return () => esRef.current?.close();
   }, []);
@@ -106,6 +111,7 @@ export default function ShortsGrab() {
       const qs = new URLSearchParams({ url: url.trim(), channel });
       if (creator.trim()) qs.set("creator", creator.trim());
       if (web) qs.set("web", "1");
+      if (quality) qs.set("quality", quality);
       const r = await fetch(`/api/shorts/grab/download?${qs.toString()}`);
       const d = await r.json();
       if (!d.ok) throw new Error(d.error || "Download failed");
@@ -149,6 +155,7 @@ export default function ShortsGrab() {
     });
     if (creator.trim()) qs.set("creator", creator.trim());
     if (web) qs.set("web", "1");
+    if (quality) qs.set("quality", quality);
 
     const es = new EventSource(`/api/shorts/grab/download-all?${qs.toString()}`);
     esRef.current = es;
@@ -241,6 +248,17 @@ export default function ShortsGrab() {
             />
             Web format
           </label>
+          <select
+            value={quality}
+            onChange={(e) => setQuality(e.target.value)}
+            title="Cap the download resolution (yt-dlp sites)"
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm outline-none focus:border-white/30"
+          >
+            <option value="">Best quality</option>
+            <option value="1080">1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+          </select>
         </div>
       )}
 
@@ -353,7 +371,8 @@ export default function ShortsGrab() {
               </span>
             ))}
             <span className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 ring-1 ring-white/10">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> + yt-dlp
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              + yt-dlp {ytdlpCount ? `(~${ytdlpCount} sites, incl. playlists/channels)` : "(many sites)"}
             </span>
           </div>
         </div>
