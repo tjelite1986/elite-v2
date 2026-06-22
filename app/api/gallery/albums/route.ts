@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { sql } from "kysely";
 import { db } from "@/lib/db";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -12,25 +14,26 @@ export async function GET() {
   }
   const userId = Number(session.sub);
 
-  const albums = db
-    .prepare(
-      `SELECT a.id, a.name, a.created_at,
-        (SELECT COUNT(*) FROM gallery_album_items ai
-           JOIN gallery_items gi ON gi.id = ai.item_id
-          WHERE ai.album_id = a.id AND gi.is_deleted = 0) AS item_count,
-        (SELECT ai.item_id FROM gallery_album_items ai
-           JOIN gallery_items gi ON gi.id = ai.item_id
-          WHERE ai.album_id = a.id AND gi.is_deleted = 0
-          ORDER BY gi.taken_at DESC LIMIT 1) AS cover_id,
-        (SELECT gi.media_version FROM gallery_album_items ai
-           JOIN gallery_items gi ON gi.id = ai.item_id
-          WHERE ai.album_id = a.id AND gi.is_deleted = 0
-          ORDER BY gi.taken_at DESC LIMIT 1) AS cover_version
-       FROM gallery_albums a
-       WHERE a.user_id = ?
-       ORDER BY a.created_at DESC`
-    )
-    .all(userId);
+  const albums = getAll(
+    qb
+      .selectFrom("gallery_albums as a")
+      .select([
+        "a.id",
+        "a.name",
+        "a.created_at",
+        sql<number>`(SELECT COUNT(*) FROM gallery_album_items ai JOIN gallery_items gi ON gi.id = ai.item_id WHERE ai.album_id = a.id AND gi.is_deleted = 0)`.as(
+          "item_count"
+        ),
+        sql<number | null>`(SELECT ai.item_id FROM gallery_album_items ai JOIN gallery_items gi ON gi.id = ai.item_id WHERE ai.album_id = a.id AND gi.is_deleted = 0 ORDER BY gi.taken_at DESC LIMIT 1)`.as(
+          "cover_id"
+        ),
+        sql<number | null>`(SELECT gi.media_version FROM gallery_album_items ai JOIN gallery_items gi ON gi.id = ai.item_id WHERE ai.album_id = a.id AND gi.is_deleted = 0 ORDER BY gi.taken_at DESC LIMIT 1)`.as(
+          "cover_version"
+        ),
+      ])
+      .where("a.user_id", "=", userId)
+      .orderBy("a.created_at", "desc")
+  );
 
   return NextResponse.json({ albums });
 }

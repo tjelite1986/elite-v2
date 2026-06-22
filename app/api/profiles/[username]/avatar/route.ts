@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { getHandleAvatar } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
@@ -22,12 +22,12 @@ export async function GET(
   const avatarKey =
     getHandleAvatar(handleOf(username)) ??
     (
-      (db
-        .prepare("SELECT avatar_key FROM user_profiles WHERE username = ?")
-        .get(username) as { avatar_key: string | null } | undefined) ??
-      (db
-        .prepare("SELECT avatar_key FROM post_creators WHERE username = ?")
-        .get(username) as { avatar_key: string | null } | undefined)
+      getOne<{ avatar_key: string | null }>(
+        qb.selectFrom("user_profiles").select("avatar_key").where("username", "=", username)
+      ) ??
+      getOne<{ avatar_key: string | null }>(
+        qb.selectFrom("post_creators").select("avatar_key").where("username", "=", username)
+      )
     )?.avatar_key;
 
   if (!avatarKey) return new NextResponse("Not found", { status: 404 });

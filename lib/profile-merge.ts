@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { qb, getOne, getAll } from "./kysely";
 import { handleOf } from "./directory";
 
 // Merge one mirrored profile into another, by handle. Files are never moved:
@@ -19,24 +20,30 @@ interface ShortRow {
   channel: string;
 }
 
+// Reads use the typed Kysely builder. The merge itself (below) stays raw SQL:
+// it runs inside a db.transaction() with SQLite-specific UPDATE OR IGNORE and a
+// dynamic-table helper — none of which a compile-only query builder helps with.
 function userExists(handle: string): boolean {
-  const rows = db.prepare("SELECT username FROM user_profiles").all() as {
-    username: string;
-  }[];
+  const rows = getAll<{ username: string }>(
+    qb.selectFrom("user_profiles").select("username")
+  );
   return rows.some((r) => handleOf(r.username) === handle);
 }
 
 function creatorByHandle(handle: string): CreatorRow | undefined {
-  return db
-    .prepare("SELECT id, username FROM post_creators WHERE username = ?")
-    .get(handle) as CreatorRow | undefined;
+  return getOne<CreatorRow>(
+    qb
+      .selectFrom("post_creators")
+      .select(["id", "username"])
+      .where("username", "=", handle)
+  );
 }
 
 function shortsByHandle(handle: string): Record<string, ShortRow> {
   const out: Record<string, ShortRow> = {};
-  const rows = db
-    .prepare("SELECT id, name, channel FROM short_profiles")
-    .all() as ShortRow[];
+  const rows = getAll<ShortRow>(
+    qb.selectFrom("short_profiles").select(["id", "name", "channel"])
+  );
   for (const r of rows) if (handleOf(r.name) === handle) out[r.channel] = r;
   return out;
 }

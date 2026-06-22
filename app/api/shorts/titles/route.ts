@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { db, ShortTitleStateRow } from "@/lib/db";
+import { ShortTitleStateRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +16,9 @@ export async function GET() {
   }
 
   const state =
-    (db
-      .prepare("SELECT * FROM short_title_state WHERE id = 1")
-      .get() as ShortTitleStateRow | undefined) ?? {
+    getOne<ShortTitleStateRow>(
+      qb.selectFrom("short_title_state").selectAll().where("id", "=", 1)
+    ) ?? {
       id: 1,
       status: "idle" as const,
       started_at: null,

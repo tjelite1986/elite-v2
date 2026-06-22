@@ -1,0 +1,16 @@
+# App Store update checker (oneshot). Install on the host (not auto-installed):
+#   sudo cp scripts/systemd/elitev2-app-updates.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now elitev2-app-updates.timer
+# Set APP_UPDATE_SECRET (and optionally APP_UPDATE_PULL=1) in the environment.
+[Unit]
+Description=Elite v2 App Store update check
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=APP_UPDATE_URL=https://elitev2.mecloud.win
+Environment=APP_UPDATE_SOURCE=all
+# Environment=APP_UPDATE_SECRET=changeme
+# Environment=APP_UPDATE_PULL=1
+ExecStart=/usr/bin/node /home/thomas/code/elite-v2/scripts/check-app-updates.mjs
+User=thomas

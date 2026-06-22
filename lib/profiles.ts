@@ -1,8 +1,13 @@
 import { db, UserProfileRow } from "./db";
+import { qb, getOne } from "./kysely";
 
 // Shared public-profile layer (username/avatar/bio), 1:1 with users. The posts
 // module attributes by these instead of splitting the email; other modules can
 // adopt it later.
+//
+// Reads go through the typed Kysely builder; writes stay on raw better-sqlite3
+// (single obvious write path — INSERT/UPDATE/upsert, incl. ON CONFLICT and
+// dynamic column sets, where a query builder adds no safety).
 
 const USERNAME_RE = /^[a-z0-9._]{2,30}$/;
 
@@ -18,29 +23,33 @@ export function slugifyUsername(base: string, fallbackId: number): string {
 }
 
 export function getProfileByUserId(userId: number): UserProfileRow | undefined {
-  return db
-    .prepare("SELECT * FROM user_profiles WHERE user_id = ?")
-    .get(userId) as UserProfileRow | undefined;
+  return getOne<UserProfileRow>(
+    qb.selectFrom("user_profiles").selectAll().where("user_id", "=", userId)
+  );
 }
 
 export function getProfileByUsername(
   username: string
 ): UserProfileRow | undefined {
-  return db
-    .prepare("SELECT * FROM user_profiles WHERE username = ?")
-    .get(username.toLowerCase()) as UserProfileRow | undefined;
+  return getOne<UserProfileRow>(
+    qb
+      .selectFrom("user_profiles")
+      .selectAll()
+      .where("username", "=", username.toLowerCase())
+  );
 }
 
 // True if the username is already taken by a user OR a creator (the two share a
 // handle namespace so @name is unambiguous across the feed).
 export function usernameTaken(username: string, exceptUserId?: number): boolean {
-  const u = db
-    .prepare("SELECT user_id FROM user_profiles WHERE username = ?")
-    .get(username.toLowerCase()) as { user_id: number } | undefined;
+  const handle = username.toLowerCase();
+  const u = getOne<{ user_id: number }>(
+    qb.selectFrom("user_profiles").select("user_id").where("username", "=", handle)
+  );
   if (u && u.user_id !== exceptUserId) return true;
-  const c = db
-    .prepare("SELECT id FROM post_creators WHERE username = ?")
-    .get(username.toLowerCase());
+  const c = getOne(
+    qb.selectFrom("post_creators").select("id").where("username", "=", handle)
+  );
   return Boolean(c);
 }
 
@@ -121,9 +130,12 @@ export function setHandleAvatar(handle: string, avatarKey: string): void {
 }
 
 export function getHandleAvatar(handle: string): string | null {
-  const row = db
-    .prepare("SELECT avatar_key FROM handle_avatars WHERE handle = ?")
-    .get(handle) as { avatar_key: string } | undefined;
+  const row = getOne<{ avatar_key: string }>(
+    qb
+      .selectFrom("handle_avatars")
+      .select("avatar_key")
+      .where("handle", "=", handle)
+  );
   return row?.avatar_key ?? null;
 }
 
@@ -144,24 +156,30 @@ export interface ProfileExtras {
 }
 
 export function getProfileExtras(handle: string): ProfileExtras | null {
-  const row = db
-    .prepare(
-      `SELECT bio, links_json, banner_key, instagram_handle, ig_auto_poll,
-              ig_last_synced_at, ig_last_sync_error, ig_syncing
-         FROM profile_extras WHERE handle = ?`
-    )
-    .get(handle) as
-    | {
-        bio: string | null;
-        links_json: string | null;
-        banner_key: string | null;
-        instagram_handle: string | null;
-        ig_auto_poll: number;
-        ig_last_synced_at: string | null;
-        ig_last_sync_error: string | null;
-        ig_syncing: number;
-      }
-    | undefined;
+  const row = getOne<{
+    bio: string | null;
+    links_json: string | null;
+    banner_key: string | null;
+    instagram_handle: string | null;
+    ig_auto_poll: number;
+    ig_last_synced_at: string | null;
+    ig_last_sync_error: string | null;
+    ig_syncing: number;
+  }>(
+    qb
+      .selectFrom("profile_extras")
+      .select([
+        "bio",
+        "links_json",
+        "banner_key",
+        "instagram_handle",
+        "ig_auto_poll",
+        "ig_last_synced_at",
+        "ig_last_sync_error",
+        "ig_syncing",
+      ])
+      .where("handle", "=", handle)
+  );
   if (!row) return null;
   let links: ProfileLink[] = [];
   try {
@@ -249,9 +267,12 @@ export function setProfileInstagram(
 // Viewing still requires the PIN cookie; this only controls whether adult
 // content is woven into general browsing.
 export function getShowAdultOutside(userId: number): boolean {
-  const row = db
-    .prepare("SELECT show_adult_outside FROM user_profiles WHERE user_id = ?")
-    .get(userId) as { show_adult_outside: number } | undefined;
+  const row = getOne<{ show_adult_outside: number }>(
+    qb
+      .selectFrom("user_profiles")
+      .select("show_adult_outside")
+      .where("user_id", "=", userId)
+  );
   return Boolean(row?.show_adult_outside);
 }
 

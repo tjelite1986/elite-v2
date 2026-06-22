@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db, ShortProfileRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getShort } from "@/lib/shorts";
 import { fetchOriginalTitle } from "@/lib/shorts-source";
 
@@ -28,9 +29,12 @@ export async function POST(
   }
 
   const profile = short.profile_id
-    ? (db
-        .prepare("SELECT * FROM short_profiles WHERE id = ?")
-        .get(short.profile_id) as ShortProfileRow | undefined)
+    ? getOne<ShortProfileRow>(
+        qb
+          .selectFrom("short_profiles")
+          .selectAll()
+          .where("id", "=", short.profile_id)
+      )
     : undefined;
 
   const title = await fetchOriginalTitle(profile?.source_ref, short.source_id);

@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 
 export const dynamic = "force-dynamic";
 
 function ownsPlaylist(id: number, userId: number): boolean {
-  return !!db
-    .prepare("SELECT 1 FROM short_playlists WHERE id = ? AND user_id = ?")
-    .get(id, userId);
+  return !!getOne(
+    qb
+      .selectFrom("short_playlists")
+      .select("id")
+      .where("id", "=", id)
+      .where("user_id", "=", userId)
+  );
 }
 
 // Add a clip to the playlist.
@@ -29,7 +34,9 @@ export async function POST(
   if (!shortId) {
     return NextResponse.json({ error: "shortId is required." }, { status: 400 });
   }
-  const exists = db.prepare("SELECT 1 FROM shorts WHERE id = ? AND is_deleted = 0").get(shortId);
+  const exists = getOne(
+    qb.selectFrom("shorts").select("id").where("id", "=", shortId).where("is_deleted", "=", 0)
+  );
   if (!exists) {
     return NextResponse.json({ error: "Clip not found." }, { status: 404 });
   }

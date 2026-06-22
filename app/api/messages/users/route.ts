@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "kysely";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 
 interface ConversationRow {
@@ -20,32 +21,31 @@ export async function GET() {
   const meId = Number(session.sub);
 
   // All other users, with the latest message in the pair and unread count.
-  const rows = db
-    .prepare(
-      `SELECT
-         u.id,
-         u.email,
-         u.last_seen,
-         (SELECT m.body FROM messages m
-            WHERE (m.sender_id = @me AND m.recipient_id = u.id)
-               OR (m.sender_id = u.id AND m.recipient_id = @me)
-            ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_body,
-         (SELECT m.attachment_type FROM messages m
-            WHERE (m.sender_id = @me AND m.recipient_id = u.id)
-               OR (m.sender_id = u.id AND m.recipient_id = @me)
-            ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_attachment,
-         (SELECT m.created_at FROM messages m
-            WHERE (m.sender_id = @me AND m.recipient_id = u.id)
-               OR (m.sender_id = u.id AND m.recipient_id = @me)
-            ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_at,
-         (SELECT COUNT(*) FROM messages m
-            WHERE m.sender_id = u.id AND m.recipient_id = @me
-              AND m.read_at IS NULL) AS unread
-       FROM users u
-       WHERE u.id != @me
-       ORDER BY last_at DESC, u.email ASC`
-    )
-    .all({ me: meId }) as ConversationRow[];
+  const pair = sql`(m.sender_id = ${meId} AND m.recipient_id = u.id) OR (m.sender_id = u.id AND m.recipient_id = ${meId})`;
+  const rows = getAll<ConversationRow>(
+    qb
+      .selectFrom("users as u")
+      .select([
+        "u.id",
+        "u.email",
+        "u.last_seen",
+        sql<string | null>`(SELECT m.body FROM messages m WHERE ${pair} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`.as(
+          "last_body"
+        ),
+        sql<string | null>`(SELECT m.attachment_type FROM messages m WHERE ${pair} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`.as(
+          "last_attachment"
+        ),
+        sql<string | null>`(SELECT m.created_at FROM messages m WHERE ${pair} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`.as(
+          "last_at"
+        ),
+        sql<number>`(SELECT COUNT(*) FROM messages m WHERE m.sender_id = u.id AND m.recipient_id = ${meId} AND m.read_at IS NULL)`.as(
+          "unread"
+        ),
+      ])
+      .where("u.id", "!=", meId)
+      .orderBy(sql`last_at desc`)
+      .orderBy("u.email")
+  );
 
   return NextResponse.json({ users: rows });
 }

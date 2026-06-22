@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { db } from "./db";
+import { qb, getOne, getAll } from "./kysely";
 import { handleOf } from "./directory";
 import { setProfileInstagram } from "./profiles";
 import { storeAvatar } from "./posts-storage";
@@ -183,13 +184,13 @@ async function applyToPeople(
   const handle = handleOf(targetHandle);
   if (!handle) return;
   try {
-    const isUser = db
-      .prepare("SELECT 1 FROM user_profiles WHERE username = ?")
-      .get(handle);
+    const isUser = getOne(
+      qb.selectFrom("user_profiles").select("user_id").where("username", "=", handle)
+    );
     if (!isUser) {
-      const creator = db
-        .prepare("SELECT id FROM post_creators WHERE username = ?")
-        .get(handle) as { id: number } | undefined;
+      const creator = getOne<{ id: number }>(
+        qb.selectFrom("post_creators").select("id").where("username", "=", handle)
+      );
       if (creator) {
         db.prepare(
           "UPDATE post_creators SET display_name = COALESCE(?, display_name), bio = COALESCE(?, bio) WHERE id = ?"
@@ -222,9 +223,9 @@ async function applyToPeople(
 // Merge IG bio links into profile_extras.links_json without dropping curated
 // ones (dedup by URL, http(s) only, capped at 10).
 function mergeProfileLinks(handle: string, urls: string[]): void {
-  const row = db
-    .prepare("SELECT links_json FROM profile_extras WHERE handle = ?")
-    .get(handle) as { links_json: string | null } | undefined;
+  const row = getOne<{ links_json: string | null }>(
+    qb.selectFrom("profile_extras").select("links_json").where("handle", "=", handle)
+  );
   let links: { label: string; url: string }[] = [];
   try {
     const parsed = row?.links_json ? JSON.parse(row.links_json) : [];
@@ -274,15 +275,19 @@ export function autoConnectInstagram(limit = 40): {
   connected: number;
   remaining: number;
 } {
-  const rows = db
-    .prepare(
-      `SELECT pc.username AS handle
-         FROM post_creators pc
-         LEFT JOIN profile_extras pe ON pe.handle = pc.username
-        WHERE (pe.instagram_handle IS NULL OR pe.instagram_handle = '')
-        ORDER BY pc.username`
-    )
-    .all() as { handle: string }[];
+  const rows = getAll<{ handle: string }>(
+    qb
+      .selectFrom("post_creators as pc")
+      .leftJoin("profile_extras as pe", "pe.handle", "pc.username")
+      .select("pc.username as handle")
+      .where((eb) =>
+        eb.or([
+          eb("pe.instagram_handle", "is", null),
+          eb("pe.instagram_handle", "=", ""),
+        ])
+      )
+      .orderBy("pc.username")
+  );
   const candidates = rows
     .map((r) => r.handle)
     .filter((h) => /^[a-z0-9._]{1,30}$/.test(h));

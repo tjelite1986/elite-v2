@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { qb, getOne, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { has18Access } from "@/lib/shorts-gate";
 import { getPostRow } from "@/lib/posts";
@@ -23,16 +24,20 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const comments = db
-    .prepare(
-      `SELECT c.id, c.body, c.created_at,
-              up.username AS author_username, up.avatar_key AS author_avatar_key
-         FROM post_comments c
-         LEFT JOIN user_profiles up ON up.user_id = c.user_id
-        WHERE c.post_id = ?
-        ORDER BY c.id ASC`
-    )
-    .all(Number(params.id));
+  const comments = getAll(
+    qb
+      .selectFrom("post_comments as c")
+      .leftJoin("user_profiles as up", "up.user_id", "c.user_id")
+      .select([
+        "c.id",
+        "c.body",
+        "c.created_at",
+        "up.username as author_username",
+        "up.avatar_key as author_avatar_key",
+      ])
+      .where("c.post_id", "=", Number(params.id))
+      .orderBy("c.id")
+  );
   return NextResponse.json({ comments });
 }
 
@@ -70,14 +75,18 @@ export async function POST(
     });
   }
 
-  const comment = db
-    .prepare(
-      `SELECT c.id, c.body, c.created_at,
-              up.username AS author_username, up.avatar_key AS author_avatar_key
-         FROM post_comments c
-         LEFT JOIN user_profiles up ON up.user_id = c.user_id
-        WHERE c.id = ?`
-    )
-    .get(commentId);
+  const comment = getOne(
+    qb
+      .selectFrom("post_comments as c")
+      .leftJoin("user_profiles as up", "up.user_id", "c.user_id")
+      .select([
+        "c.id",
+        "c.body",
+        "c.created_at",
+        "up.username as author_username",
+        "up.avatar_key as author_avatar_key",
+      ])
+      .where("c.id", "=", commentId)
+  );
   return NextResponse.json({ ok: true, comment });
 }

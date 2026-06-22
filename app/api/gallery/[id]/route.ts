@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
 import { db, GalleryItemRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 function getOwned(id: number, userId: number): GalleryItemRow | undefined {
-  return db
-    .prepare("SELECT * FROM gallery_items WHERE id = ? AND user_id = ?")
-    .get(id, userId) as GalleryItemRow | undefined;
+  return getOne<GalleryItemRow>(
+    qb
+      .selectFrom("gallery_items")
+      .selectAll()
+      .where("id", "=", id)
+      .where("user_id", "=", userId)
+  );
 }
 
 // Full details for one item (for the info panel).

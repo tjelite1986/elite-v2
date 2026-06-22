@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 
 export const dynamic = "force-dynamic";
 
@@ -12,9 +13,13 @@ interface PlaylistRow {
 }
 
 function ownedPlaylist(id: number, userId: number): PlaylistRow | undefined {
-  return db
-    .prepare("SELECT * FROM short_playlists WHERE id = ? AND user_id = ?")
-    .get(id, userId) as PlaylistRow | undefined;
+  return getOne<PlaylistRow>(
+    qb
+      .selectFrom("short_playlists")
+      .selectAll()
+      .where("id", "=", id)
+      .where("user_id", "=", userId)
+  );
 }
 
 export async function GET(
@@ -28,11 +33,13 @@ export async function GET(
   const pl = ownedPlaylist(Number(params.id), Number(session.sub));
   if (!pl) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const count = (
-    db
-      .prepare("SELECT COUNT(*) AS n FROM short_playlist_items WHERE playlist_id = ?")
-      .get(pl.id) as { n: number }
-  ).n;
+  const count =
+    getOne<{ n: number }>(
+      qb
+        .selectFrom("short_playlist_items")
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .where("playlist_id", "=", pl.id)
+    )?.n ?? 0;
 
   return NextResponse.json({ playlist: { id: pl.id, name: pl.name, item_count: count } });
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, InviteRequestRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { getUserByEmail } from "@/lib/auth";
 import { generateUniqueCode, expiresAtFromDays } from "@/lib/codes";
@@ -12,9 +13,9 @@ async function requireAdmin() {
 }
 
 function getRequest(id: number): InviteRequestRow | undefined {
-  return db
-    .prepare("SELECT * FROM invite_requests WHERE id = ?")
-    .get(id) as InviteRequestRow | undefined;
+  return getOne<InviteRequestRow>(
+    qb.selectFrom("invite_requests").selectAll().where("id", "=", id)
+  );
 }
 
 // Approve a request: generate a code, email it, mark the request approved.

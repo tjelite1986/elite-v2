@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, MessageRow } from "@/lib/db";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession, getUserById } from "@/lib/auth";
 
 export async function GET(
@@ -24,14 +25,25 @@ export async function GET(
      WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL`
   ).run(otherId, meId);
 
-  const messages = db
-    .prepare(
-      `SELECT * FROM messages
-       WHERE (sender_id = @me AND recipient_id = @other)
-          OR (sender_id = @other AND recipient_id = @me)
-       ORDER BY created_at ASC, id ASC`
-    )
-    .all({ me: meId, other: otherId }) as MessageRow[];
+  const messages = getAll<MessageRow>(
+    qb
+      .selectFrom("messages")
+      .selectAll()
+      .where((eb) =>
+        eb.or([
+          eb.and([
+            eb("sender_id", "=", meId),
+            eb("recipient_id", "=", otherId),
+          ]),
+          eb.and([
+            eb("sender_id", "=", otherId),
+            eb("recipient_id", "=", meId),
+          ]),
+        ])
+      )
+      .orderBy("created_at")
+      .orderBy("id")
+  );
 
   return NextResponse.json({
     messages,

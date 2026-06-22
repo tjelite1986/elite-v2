@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { db, ShortRow, ShortProfileRow } from "@/lib/db";
+import { ShortRow, ShortProfileRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { setHandleAvatar } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
@@ -18,9 +19,9 @@ export async function POST(request: Request) {
   const userId = Number(session.sub);
 
   const body = await request.json().catch(() => ({}));
-  const short = db
-    .prepare("SELECT * FROM shorts WHERE id = ? AND is_deleted = 0")
-    .get(Number(body?.shortId)) as ShortRow | undefined;
+  const short = getOne<ShortRow>(
+    qb.selectFrom("shorts").selectAll().where("id", "=", Number(body?.shortId)).where("is_deleted", "=", 0)
+  );
   if (!short) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!short.poster_key) {
     return NextResponse.json({ error: "This clip has no poster yet." }, { status: 400 });
@@ -32,18 +33,18 @@ export async function POST(request: Request) {
     if (short.uploader_id !== userId && session.role !== "admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const u = db
-      .prepare("SELECT username FROM user_profiles WHERE user_id = ?")
-      .get(short.uploader_id) as { username: string } | undefined;
+    const u = getOne<{ username: string }>(
+      qb.selectFrom("user_profiles").select("username").where("user_id", "=", short.uploader_id)
+    );
     if (!u) return NextResponse.json({ error: "Not found" }, { status: 404 });
     handle = handleOf(u.username);
   } else if (short.profile_id) {
     if (session.role !== "admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    const p = db
-      .prepare("SELECT * FROM short_profiles WHERE id = ?")
-      .get(short.profile_id) as ShortProfileRow | undefined;
+    const p = getOne<ShortProfileRow>(
+      qb.selectFrom("short_profiles").selectAll().where("id", "=", short.profile_id)
+    );
     if (!p) return NextResponse.json({ error: "Not found" }, { status: 404 });
     handle = handleOf(p.name);
   } else {

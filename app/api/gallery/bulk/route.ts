@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db, GalleryItemRow } from "@/lib/db";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { deleteMediaFiles } from "@/lib/gallery-storage";
 
@@ -29,14 +30,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No items selected." }, { status: 400 });
   }
 
-  const placeholders = ids.map(() => "?").join(",");
   // Only ever touch rows owned by this user.
-  const owned = db
-    .prepare(
-      `SELECT id, storage_key FROM gallery_items
-       WHERE user_id = ? AND id IN (${placeholders})`
-    )
-    .all(userId, ...ids) as Pick<GalleryItemRow, "id" | "storage_key">[];
+  const owned = getAll<Pick<GalleryItemRow, "id" | "storage_key">>(
+    qb
+      .selectFrom("gallery_items")
+      .select(["id", "storage_key"])
+      .where("user_id", "=", userId)
+      .where("id", "in", ids)
+  );
 
   const ownedIds = owned.map((r) => r.id);
   if (ownedIds.length === 0) {

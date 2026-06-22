@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { canAccessChannel, getShort } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
@@ -24,9 +25,13 @@ export async function POST(
     return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
 
-  const existing = db
-    .prepare("SELECT 1 FROM short_likes WHERE short_id = ? AND user_id = ?")
-    .get(short.id, userId);
+  const existing = getOne(
+    qb
+      .selectFrom("short_likes")
+      .select("short_id")
+      .where("short_id", "=", short.id)
+      .where("user_id", "=", userId)
+  );
 
   if (existing) {
     db.prepare("DELETE FROM short_likes WHERE short_id = ? AND user_id = ?").run(
@@ -39,11 +44,13 @@ export async function POST(
     ).run(short.id, userId);
   }
 
-  const count = (
-    db
-      .prepare("SELECT COUNT(*) AS n FROM short_likes WHERE short_id = ?")
-      .get(short.id) as { n: number }
-  ).n;
+  const count =
+    getOne<{ n: number }>(
+      qb
+        .selectFrom("short_likes")
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .where("short_id", "=", short.id)
+    )?.n ?? 0;
 
   return NextResponse.json({ ok: true, liked: !existing, like_count: count });
 }

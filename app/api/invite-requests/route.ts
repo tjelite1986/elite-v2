@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getUserByEmail } from "@/lib/auth";
 import { sendInviteRequestNotification } from "@/lib/mail";
 
@@ -26,11 +27,13 @@ export async function POST(request: Request) {
   }
 
   // Collapse repeated pending requests from the same address.
-  const existing = db
-    .prepare(
-      "SELECT id FROM invite_requests WHERE email = ? AND status = 'pending'"
-    )
-    .get(email);
+  const existing = getOne(
+    qb
+      .selectFrom("invite_requests")
+      .select("id")
+      .where("email", "=", email)
+      .where("status", "=", "pending")
+  );
 
   if (!existing) {
     db.prepare(

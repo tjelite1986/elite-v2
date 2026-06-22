@@ -9,6 +9,7 @@ const TABS = [
   { label: "Explore", href: "/shorts/explore" },
   { label: "Profiles", href: "/shorts/profiles" },
   { label: "Playlists", href: "/shorts/playlists" },
+  { label: "Grab", href: "/shorts/grab" },
   { label: "Settings", href: "/shorts/settings" },
 ];
 
@@ -17,6 +18,7 @@ function activeHref(pathname: string): string {
   if (pathname.startsWith("/shorts/profiles") || pathname.startsWith("/shorts/profile"))
     return "/shorts/profiles";
   if (pathname.startsWith("/shorts/playlists")) return "/shorts/playlists";
+  if (pathname.startsWith("/shorts/grab")) return "/shorts/grab";
   if (
     pathname.startsWith("/shorts/settings") ||
     pathname.startsWith("/shorts/upload") ||

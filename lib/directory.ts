@@ -1,4 +1,5 @@
-import { db } from "./db";
+import { sql } from "kysely";
+import { qb, getOne, getAll } from "./kysely";
 import { getProfileExtras, ProfileLink } from "./profiles";
 
 // Cross-section "people" directory: merges the three identity tables
@@ -84,34 +85,42 @@ export function resolvePerson(
 ): ResolvedPerson | null {
   const h = handleOf(handle);
 
-  const user = db
-    .prepare(
-      "SELECT user_id, username, display_name, bio FROM user_profiles WHERE username = ?"
-    )
-    .get(h) as
-    | { user_id: number; username: string; display_name: string | null; bio: string | null }
-    | undefined;
+  const user = getOne<{
+    user_id: number;
+    username: string;
+    display_name: string | null;
+    bio: string | null;
+  }>(
+    qb
+      .selectFrom("user_profiles")
+      .select(["user_id", "username", "display_name", "bio"])
+      .where("username", "=", h)
+  );
 
-  const creator = db
-    .prepare(
-      "SELECT id, username, display_name, bio FROM post_creators WHERE username = ?"
-    )
-    .get(h) as
-    | { id: number; username: string; display_name: string | null; bio: string | null }
-    | undefined;
+  const creator = getOne<{
+    id: number;
+    username: string;
+    display_name: string | null;
+    bio: string | null;
+  }>(
+    qb
+      .selectFrom("post_creators")
+      .select(["id", "username", "display_name", "bio"])
+      .where("username", "=", h)
+  );
 
-  const shorts = db
-    .prepare(
-      "SELECT id, name, channel, auto_poll, source_type, source_ref FROM short_profiles"
-    )
-    .all() as {
+  const shorts = getAll<{
     id: number;
     name: string;
     channel: string;
     auto_poll: number;
     source_type: string;
     source_ref: string;
-  }[];
+  }>(
+    qb
+      .selectFrom("short_profiles")
+      .select(["id", "name", "channel", "auto_poll", "source_type", "source_ref"])
+  );
   let shortsMainId: number | null = null;
   let shorts18Id: number | null = null;
   // Poll/download settings make sense only for a pollable source (not 'manual').
@@ -138,20 +147,33 @@ export function resolvePerson(
     return null;
   }
 
-  const count = (sql: string, ...args: unknown[]) =>
-    (db.prepare(sql).get(...args) as { c: number }).c;
+  const countPosts = (
+    col: "author_user_id" | "author_creator_id",
+    id: number
+  ): number =>
+    getOne<{ c: number }>(
+      qb
+        .selectFrom("posts")
+        .select((eb) => eb.fn.countAll<number>().as("c"))
+        .where(col, "=", id)
+        .where("is_deleted", "=", 0)
+    )?.c ?? 0;
 
   const photos =
-    (user ? count("SELECT COUNT(*) c FROM posts WHERE author_user_id = ? AND is_deleted = 0", user.user_id) : 0) +
-    (creator ? count("SELECT COUNT(*) c FROM posts WHERE author_creator_id = ? AND is_deleted = 0", creator.id) : 0);
+    (user ? countPosts("author_user_id", user.user_id) : 0) +
+    (creator ? countPosts("author_creator_id", creator.id) : 0);
 
-  const clipCount = (id: number | null) =>
+  const clipCount = (id: number | null): number =>
     id === null
       ? 0
-      : count(
-          "SELECT COUNT(*) c FROM shorts WHERE profile_id = ? AND is_deleted = 0 AND status = 'ready'",
-          id
-        );
+      : getOne<{ c: number }>(
+          qb
+            .selectFrom("shorts")
+            .select((eb) => eb.fn.countAll<number>().as("c"))
+            .where("profile_id", "=", id)
+            .where("is_deleted", "=", 0)
+            .where("status", "=", "ready")
+        )?.c ?? 0;
 
   // Following state for the primary follow target (user > creator > shorts, so a
   // video-only creator is still followable).
@@ -167,13 +189,14 @@ export function resolvePerson(
   const viewerFollows =
     followType !== null &&
     followId !== null &&
-    Boolean(
-      db
-        .prepare(
-          "SELECT 1 FROM follows WHERE follower_id = ? AND target_type = ? AND target_id = ?"
-        )
-        .get(viewerId, followType, followId)
-    );
+    getOne(
+      qb
+        .selectFrom("follows")
+        .select("follower_id")
+        .where("follower_id", "=", viewerId)
+        .where("target_type", "=", followType)
+        .where("target_id", "=", followId)
+    ) !== undefined;
 
   // Handle-scoped extras (bio/links/banner) override the legacy per-table bio.
   const extras = getProfileExtras(h);
@@ -221,21 +244,27 @@ export function getPeople(
     return p;
   };
 
+  // 18+ posts are excluded from counts unless include18 (decided at build time).
+  const adultFilter = include18 ? sql`` : sql` AND p.is_adult = 0`;
+
   // Real users — always listed, photo count = their own posts.
-  const users = db
-    .prepare(
-      `SELECT up.user_id, up.username, up.display_name,
-              (SELECT COUNT(*) FROM posts p
-                WHERE p.author_user_id = up.user_id AND p.is_deleted = 0
-                  AND (@include18 = 1 OR p.is_adult = 0)) AS photos
-         FROM user_profiles up`
-    )
-    .all({ include18: include18 ? 1 : 0 }) as {
+  const users = getAll<{
     user_id: number;
     username: string;
     display_name: string | null;
     photos: number;
-  }[];
+  }>(
+    qb
+      .selectFrom("user_profiles as up")
+      .select([
+        "up.user_id",
+        "up.username",
+        "up.display_name",
+        sql<number>`(SELECT COUNT(*) FROM posts p WHERE p.author_user_id = up.user_id AND p.is_deleted = 0${adultFilter})`.as(
+          "photos"
+        ),
+      ])
+  );
   for (const u of users) {
     const p = get(handleOf(u.username));
     p.handle = u.username;
@@ -246,19 +275,21 @@ export function getPeople(
   }
 
   // Mirrored photo creators.
-  const creators = db
-    .prepare(
-      `SELECT pc.username, pc.display_name,
-              (SELECT COUNT(*) FROM posts p
-                WHERE p.author_creator_id = pc.id AND p.is_deleted = 0
-                  AND (@include18 = 1 OR p.is_adult = 0)) AS photos
-         FROM post_creators pc`
-    )
-    .all({ include18: include18 ? 1 : 0 }) as {
+  const creators = getAll<{
     username: string;
     display_name: string | null;
     photos: number;
-  }[];
+  }>(
+    qb
+      .selectFrom("post_creators as pc")
+      .select([
+        "pc.username",
+        "pc.display_name",
+        sql<number>`(SELECT COUNT(*) FROM posts p WHERE p.author_creator_id = pc.id AND p.is_deleted = 0${adultFilter})`.as(
+          "photos"
+        ),
+      ])
+  );
   for (const c of creators) {
     const p = get(handleOf(c.username));
     if (!p.userId) {
@@ -269,14 +300,23 @@ export function getPeople(
   }
 
   // Mirrored video creators (shorts), split by channel.
-  const shorts = db
-    .prepare(
-      `SELECT sp.id, sp.name, sp.channel,
-              (SELECT COUNT(*) FROM shorts s
-                WHERE s.profile_id = sp.id AND s.is_deleted = 0 AND s.status = 'ready') AS clips
-         FROM short_profiles sp`
-    )
-    .all() as { id: number; name: string; channel: string; clips: number }[];
+  const shorts = getAll<{
+    id: number;
+    name: string;
+    channel: string;
+    clips: number;
+  }>(
+    qb
+      .selectFrom("short_profiles as sp")
+      .select([
+        "sp.id",
+        "sp.name",
+        "sp.channel",
+        sql<number>`(SELECT COUNT(*) FROM shorts s WHERE s.profile_id = sp.id AND s.is_deleted = 0 AND s.status = 'ready')`.as(
+          "clips"
+        ),
+      ])
+  );
   for (const s of shorts) {
     const p = get(handleOf(s.name));
     if (!p.displayName) p.displayName = s.name;

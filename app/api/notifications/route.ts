@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 
 interface Notification {
@@ -22,21 +23,25 @@ export async function GET() {
 
   const notifications: Notification[] = [];
 
-  const unreadMessages = db
-    .prepare(
-      `SELECT m.sender_id AS senderId, u.email AS email,
-              COUNT(*) AS cnt, MAX(m.created_at) AS lastAt
-       FROM messages m
-       JOIN users u ON u.id = m.sender_id
-       WHERE m.recipient_id = ? AND m.read_at IS NULL
-       GROUP BY m.sender_id`
-    )
-    .all(userId) as {
+  const unreadMessages = getAll<{
     senderId: number;
     email: string;
     cnt: number;
     lastAt: string;
-  }[];
+  }>(
+    qb
+      .selectFrom("messages as m")
+      .innerJoin("users as u", "u.id", "m.sender_id")
+      .select((eb) => [
+        "m.sender_id as senderId",
+        "u.email as email",
+        eb.fn.countAll<number>().as("cnt"),
+        eb.fn.max("m.created_at").as("lastAt"),
+      ])
+      .where("m.recipient_id", "=", userId)
+      .where("m.read_at", "is", null)
+      .groupBy("m.sender_id")
+  );
 
   for (const m of unreadMessages) {
     notifications.push({
@@ -49,14 +54,13 @@ export async function GET() {
   }
 
   if (session.role === "admin") {
-    const pending = db
-      .prepare(
-        `SELECT id, email, created_at AS createdAt
-         FROM invite_requests
-         WHERE status = 'pending'
-         ORDER BY created_at DESC`
-      )
-      .all() as { id: number; email: string; createdAt: string }[];
+    const pending = getAll<{ id: number; email: string; createdAt: string }>(
+      qb
+        .selectFrom("invite_requests")
+        .select(["id", "email", "created_at as createdAt"])
+        .where("status", "=", "pending")
+        .orderBy("created_at", "desc")
+    );
 
     for (const r of pending) {
       notifications.push({
@@ -70,22 +74,28 @@ export async function GET() {
   }
 
   // Unread posts-module notifications (likes/comments/follows).
-  const postNotifs = db
-    .prepare(
-      `SELECT n.id, n.type, n.post_id AS postId, n.created_at AS createdAt,
-              up.username AS actor
-         FROM notifications n
-         LEFT JOIN user_profiles up ON up.user_id = n.actor_user_id
-        WHERE n.user_id = ? AND n.read_at IS NULL
-        ORDER BY n.id DESC LIMIT 50`
-    )
-    .all(userId) as {
+  const postNotifs = getAll<{
     id: number;
     type: string;
     postId: number | null;
     createdAt: string;
     actor: string | null;
-  }[];
+  }>(
+    qb
+      .selectFrom("notifications as n")
+      .leftJoin("user_profiles as up", "up.user_id", "n.actor_user_id")
+      .select([
+        "n.id",
+        "n.type",
+        "n.post_id as postId",
+        "n.created_at as createdAt",
+        "up.username as actor",
+      ])
+      .where("n.user_id", "=", userId)
+      .where("n.read_at", "is", null)
+      .orderBy("n.id", "desc")
+      .limit(50)
+  );
 
   const POST_ACTION: Record<string, string> = {
     like: "liked your post",

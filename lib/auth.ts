@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
-import { db, UserRow } from "./db";
+import { UserRow } from "./db";
+import { qb, getOne } from "./kysely";
 import { SESSION_COOKIE, verifySessionToken, SessionPayload } from "./session";
 
 // Server-side helper: read the current session from the request cookies.
@@ -11,13 +12,13 @@ export async function getSession(): Promise<SessionPayload | null> {
 }
 
 export function getUserById(id: number): UserRow | undefined {
-  return db.prepare("SELECT * FROM users WHERE id = ?").get(id) as
-    | UserRow
-    | undefined;
+  return getOne<UserRow>(
+    qb.selectFrom("users").selectAll().where("id", "=", id)
+  );
 }
 
 export function getUserByEmail(email: string): UserRow | undefined {
-  return db
-    .prepare("SELECT * FROM users WHERE email = ?")
-    .get(email.toLowerCase()) as UserRow | undefined;
+  return getOne<UserRow>(
+    qb.selectFrom("users").selectAll().where("email", "=", email.toLowerCase())
+  );
 }

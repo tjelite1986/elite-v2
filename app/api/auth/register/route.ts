@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { db, CodeRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { isCodeExpired } from "@/lib/codes";
 import { getUserByEmail } from "@/lib/auth";
 import { hashPassword } from "@/lib/password";
@@ -46,9 +47,9 @@ export async function POST(request: Request) {
   }
 
   const normalizedCode = String(code).trim().toUpperCase();
-  const codeRow = db
-    .prepare("SELECT * FROM registration_codes WHERE code = ?")
-    .get(normalizedCode) as CodeRow | undefined;
+  const codeRow = getOne<CodeRow>(
+    qb.selectFrom("registration_codes").selectAll().where("code", "=", normalizedCode)
+  );
 
   if (!codeRow) {
     return NextResponse.json(

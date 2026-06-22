@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
 import { db, GalleryItemRow } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import {
   originalPathFor,
@@ -26,9 +27,13 @@ export async function POST(
   }
   const userId = Number(session.sub);
 
-  const item = db
-    .prepare("SELECT * FROM gallery_items WHERE id = ? AND user_id = ?")
-    .get(Number(params.id), userId) as GalleryItemRow | undefined;
+  const item = getOne<GalleryItemRow>(
+    qb
+      .selectFrom("gallery_items")
+      .selectAll()
+      .where("id", "=", Number(params.id))
+      .where("user_id", "=", userId)
+  );
   if (!item) {
     return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
