@@ -135,6 +135,12 @@ function downloadProfile(localHandle, igUsername) {
     `1-${rangeUpper}`,
     "--download-archive",
     gdArchive,
+    // Space out HTTP requests (randomized) so a multi-profile run stays under
+    // Instagram's rate limit instead of tripping "Please wait a few minutes".
+    "--sleep-request",
+    "2.0-5.0",
+    "--retries",
+    "2",
     // Write a <file>.json sidecar per item (caption, shortcode, date, tags) so
     // import-posts can set the post caption + hashtags and group carousels.
     "--write-metadata",
@@ -197,10 +203,17 @@ const setResult = db.prepare(
   "UPDATE profile_extras SET ig_syncing = 0, ig_last_synced_at = datetime('now'), ig_last_sync_error = ? WHERE handle = ?"
 );
 
+// Synchronous sleep (no async refactor needed) — used to breathe between
+// profiles so a whole-batch auto-poll run doesn't hammer Instagram.
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 let totalAdded = 0;
 const results = [];
 
-for (const t of targets) {
+for (const [i, t] of targets.entries()) {
+  if (i > 0) sleepMs(4000 + Math.floor(Math.random() * 4000)); // 4–8s between profiles
   setSyncing.run(t.handle);
   log(`sync ${t.handle} <- instagram.com/${t.instagram_handle} (mode=${mode})`);
   let r;
