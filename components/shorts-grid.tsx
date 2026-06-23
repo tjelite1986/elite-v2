@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Play, Heart, Pencil, Trash2, FolderInput, X, Plus, Check } from "lucide-react";
+import { Play, Heart, Pencil, Trash2, FolderInput, X, Plus, Check, Lock } from "lucide-react";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
 
 interface PickerProfile {
@@ -19,6 +19,7 @@ interface GridShort {
   like_count: number;
   profile_name: string | null;
   category: string;
+  is_private?: boolean;
 }
 
 // Responsive poster-thumbnail grid used by Explore, profile pages and playlists.
@@ -172,10 +173,17 @@ export default function ShortsGrid({
                 </div>
               );
               const overlay = (
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[11px] text-white">
-                  <Heart size={12} className="fill-white/90" />
-                  {s.like_count}
-                </div>
+                <>
+                  {s.is_private && (
+                    <div className="pointer-events-none absolute left-1 top-1 rounded bg-black/65 p-1 text-amber-300">
+                      <Lock size={12} />
+                    </div>
+                  )}
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[11px] text-white">
+                    <Heart size={12} className="fill-white/90" />
+                    {s.like_count}
+                  </div>
+                </>
               );
               return onSelect ? (
                 <button onClick={() => onSelect(s.id)} className="block h-full w-full">

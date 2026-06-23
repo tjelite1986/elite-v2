@@ -15,6 +15,7 @@ export default async function ShortsPage({
       channel="main"
       focusId={focus && !isNaN(focus) ? focus : undefined}
       isAdmin={session?.role === "admin"}
+      viewerId={Number(session?.sub) || 0}
     />
   );
 }

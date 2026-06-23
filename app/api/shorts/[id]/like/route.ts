@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
-import { canAccessChannel, getShort } from "@/lib/shorts";
+import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +19,9 @@ export async function POST(
 
   const short = getShort(Number(params.id));
   if (!short) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!canViewShort(short, userId, session.role === "admin")) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   if (!(await canAccessChannel(short.channel))) {

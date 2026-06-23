@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
-import { canAccessChannel, getShort } from "@/lib/shorts";
+import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
 import { videoPathFor } from "@/lib/shorts-storage";
 import { videoMimeFor } from "@/lib/gallery-storage";
 
@@ -20,6 +20,11 @@ export async function GET(
 
   const short = getShort(Number(params.id));
   if (!short) return new NextResponse("Not found", { status: 404 });
+  // Private clips are owner-only (admins exempt) — 404 (not 403) so a private
+  // clip's existence isn't revealed to others.
+  if (!canViewShort(short, Number(session.sub), session.role === "admin")) {
+    return new NextResponse("Not found", { status: 404 });
+  }
   if (!(await canAccessChannel(short.channel))) {
     return new NextResponse("Forbidden", { status: 403 });
   }

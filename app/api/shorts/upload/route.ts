@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { qb, getOne } from "@/lib/kysely";
 import { canAccessChannel, parseChannel } from "@/lib/shorts";
-import { storeShortUpload } from "@/lib/shorts-storage";
+import { storeShortUpload, userUploadSubfolder } from "@/lib/shorts-storage";
 import { getExt } from "@/lib/gallery-storage";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,8 @@ export async function POST(request: Request) {
   const file = form.get("file");
   const channel = parseChannel(String(form.get("channel") || "main"));
   const caption = String(form.get("caption") || "").trim().slice(0, 2000);
+  // New uploads are PRIVATE by default — only "public" shares to everyone.
+  const isPrivate = String(form.get("visibility") || "private") === "public" ? 0 : 1;
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
@@ -34,8 +37,18 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Each user's clips live under their own on-disk folder (<channel>/u_<user>/).
+    const me = getOne<{ username: string }>(
+      qb.selectFrom("user_profiles").select("username").where("user_id", "=", userId)
+    );
     const buffer = Buffer.from(await file.arrayBuffer());
-    const stored = await storeShortUpload(channel, file.name, file.type, buffer);
+    const stored = await storeShortUpload(
+      channel,
+      file.name,
+      file.type,
+      buffer,
+      userUploadSubfolder(userId, me?.username)
+    );
 
     const status = WEB_PLAYABLE.has(getExt(file.name)) ? "ready" : "pending";
 
@@ -43,8 +56,8 @@ export async function POST(request: Request) {
       .prepare(
         `INSERT INTO shorts
            (channel, uploader_id, caption, storage_key, poster_key, mime_type,
-            width, height, duration, size_bytes, source, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?)`
+            width, height, duration, size_bytes, source, status, is_private)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?)`
       )
       .run(
         channel,
@@ -57,7 +70,8 @@ export async function POST(request: Request) {
         stored.height,
         stored.duration,
         stored.sizeBytes,
-        status
+        status,
+        isPrivate
       );
 
     return NextResponse.json({ ok: true, id: Number(result.lastInsertRowid) });

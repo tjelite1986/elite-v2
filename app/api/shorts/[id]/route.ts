@@ -38,20 +38,24 @@ export async function PATCH(
   return NextResponse.json({ ok: true, caption });
 }
 
-// Delete a clip (admin only): soft-delete the row, remove the files from disk,
-// and drop it from any duplicate-scan group.
+// Delete a clip (the uploader of their own clip, or an admin): soft-delete the
+// row, remove the files from disk, and drop it from any duplicate-scan group.
 export async function DELETE(
   _request: Request,
   { params }: { params: { id: string } }
 ) {
-  const auth = await requireAdmin();
-  if ("error" in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const short = getShort(Number(params.id));
   if (!short) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const isOwner = short.uploader_id === Number(session.sub);
+  if (session.role !== "admin" && !isOwner) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   deleteShortFiles(short.channel, short.storage_key, short.poster_key);

@@ -18,9 +18,31 @@ import {
   Image as ImageIcon,
   Minimize2,
   Type,
+  FastForward,
+  Rewind,
+  Globe,
+  Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
+
+// Player interaction tuning.
+const SEEK_SECONDS = 10; // double-tap skip distance
+const SEEK_ZONE = 0.35; // outer-third tap = seek, middle = like
+const DOUBLE_TAP_MS = 220; // window to detect a second tap
+const LONG_PRESS_MS = 550; // hold to toggle the clean view
+const BURST_MS = 700; // like-heart animation
+const SEEK_HINT_MS = 600; // seek indicator linger
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+
+// Seconds → "m:ss".
+function fmtTime(s: number): string {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
 
 export interface FeedShort {
   id: number;
@@ -40,6 +62,7 @@ export interface FeedShort {
   viewer_liked: boolean;
   viewer_saved: boolean;
   has_poster: boolean;
+  is_private: boolean;
 }
 
 interface Comment {
@@ -82,6 +105,7 @@ export default function ShortCard({
   active,
   muted,
   onToggleMuted,
+  viewerId,
   categoryEditable = false,
   isAdmin = false,
   chromeHidden = false,
@@ -91,6 +115,8 @@ export default function ShortCard({
   active: boolean;
   muted: boolean;
   onToggleMuted: () => void;
+  // The current user's id, to decide if they own this clip (visibility toggle).
+  viewerId: number;
   // Admins in the 18+ section get a category button to sort the clip in place.
   categoryEditable?: boolean;
   // Admins get a "Cover" button to set the thumbnail from the current frame.
@@ -102,7 +128,10 @@ export default function ShortCard({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [seekHint, setSeekHint] = useState<string | null>(null);
+  const [duration, setDuration] = useState(0);
+  // Double-tap seek direction (+1 forward / -1 back), shown briefly then cleared.
+  const [seekHint, setSeekHint] = useState<1 | -1 | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
   const scrubbing = useRef(false);
 
@@ -119,6 +148,9 @@ export default function ShortCard({
   const [category, setCategory] = useState(short.category);
   const [coverMsg, setCoverMsg] = useState<string | null>(null);
   const [caption, setCaption] = useState(short.caption);
+  const [isPrivate, setIsPrivate] = useState(short.is_private);
+  // The uploader of a clip (and admins) can flip its public/private visibility.
+  const isOwner = short.uploader_id != null && short.uploader_id === viewerId;
 
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -132,7 +164,7 @@ export default function ShortCard({
     longPressTimer.current = setTimeout(() => {
       longPressed.current = true;
       onToggleChrome?.();
-    }, 550);
+    }, LONG_PRESS_MS);
   };
   const cancelLongPress = () => {
     if (longPressTimer.current) {
@@ -192,6 +224,22 @@ export default function ShortCard({
     setTimeout(() => setCoverMsg(null), 2500);
   };
 
+  // Owner/admin: flip this clip between public and private.
+  const toggleVisibility = async () => {
+    const next = !isPrivate;
+    setIsPrivate(next); // optimistic
+    try {
+      const res = await fetch(`/api/shorts/${short.id}/visibility`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isPrivate: next }),
+      });
+      if (!res.ok) setIsPrivate(!next); // revert on failure
+    } catch {
+      setIsPrivate(!next);
+    }
+  };
+
   // Drive playback from the active flag: the in-view card plays, all others
   // pause and rewind so they restart cleanly when scrolled back to.
   useEffect(() => {
@@ -234,17 +282,18 @@ export default function ShortCard({
 
   const triggerBurst = () => {
     setBurst(true);
-    setTimeout(() => setBurst(false), 700);
+    setTimeout(() => setBurst(false), BURST_MS);
   };
 
-  // Jump the playhead by a number of seconds, clamped, with a brief on-screen hint.
-  const seek = (delta: number) => {
+  // Jump the playhead by a signed number of seconds, clamped, with a brief
+  // directional on-screen hint.
+  const seek = (deltaSeconds: number) => {
     const v = videoRef.current;
     if (!v || !v.duration) return;
-    v.currentTime = Math.min(v.duration, Math.max(0, v.currentTime + delta));
-    if (v.duration) setProgress((v.currentTime / v.duration) * 100);
-    setSeekHint(delta > 0 ? `+${delta}s` : `${delta}s`);
-    setTimeout(() => setSeekHint(null), 500);
+    v.currentTime = clamp(v.currentTime + deltaSeconds, 0, v.duration);
+    setProgress((v.currentTime / v.duration) * 100);
+    setSeekHint(deltaSeconds > 0 ? 1 : -1);
+    setTimeout(() => setSeekHint(null), SEEK_HINT_MS);
   };
 
   const onTap = (e: React.MouseEvent) => {
@@ -260,8 +309,8 @@ export default function ShortCard({
       tapTimer.current = null;
       const rect = e.currentTarget.getBoundingClientRect();
       const frac = rect.width ? (e.clientX - rect.left) / rect.width : 0.5;
-      if (frac > 0.65) seek(10);
-      else if (frac < 0.35) seek(-10);
+      if (frac > 1 - SEEK_ZONE) seek(SEEK_SECONDS);
+      else if (frac < SEEK_ZONE) seek(-SEEK_SECONDS);
       else toggleLike(true);
       return;
     }
@@ -271,7 +320,7 @@ export default function ShortCard({
       if (!v) return;
       if (v.paused) v.play().catch(() => {});
       else v.pause();
-    }, 220);
+    }, DOUBLE_TAP_MS);
   };
 
   // Draggable timeline: scrub the playhead from the pointer's x position.
@@ -287,6 +336,7 @@ export default function ShortCard({
   const onScrubDown = (e: React.PointerEvent) => {
     e.stopPropagation();
     scrubbing.current = true;
+    setIsScrubbing(true);
     e.currentTarget.setPointerCapture?.(e.pointerId);
     seekToClientX(e.clientX);
   };
@@ -298,6 +348,7 @@ export default function ShortCard({
   const onScrubUp = (e: React.PointerEvent) => {
     if (!scrubbing.current) return;
     scrubbing.current = false;
+    setIsScrubbing(false);
     e.stopPropagation();
   };
 
@@ -321,6 +372,7 @@ export default function ShortCard({
         onPointerLeave={cancelLongPress}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
         onTimeUpdate={(e) => {
           const v = e.currentTarget;
           if (v.duration) setProgress((v.currentTime / v.duration) * 100);
@@ -334,6 +386,13 @@ export default function ShortCard({
         </div>
       )}
 
+      {/* Private badge (only the owner/admin can see a private clip at all) */}
+      {!chromeHidden && isPrivate && (isOwner || isAdmin) && (
+        <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-amber-300 backdrop-blur-sm">
+          <Lock size={12} /> Private
+        </div>
+      )}
+
       {/* Double-tap like burst */}
       {burst && (
         <Heart
@@ -342,40 +401,69 @@ export default function ShortCard({
         />
       )}
 
-      {/* Double-tap seek hint */}
+      {/* Double-tap seek hint — on the side that was tapped */}
       {seekHint && (
-        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/70 px-4 py-2 text-lg font-bold text-white">
-          {seekHint}
+        <div
+          className={cn(
+            "pointer-events-none absolute top-1/2 flex -translate-y-1/2 flex-col items-center gap-1 rounded-2xl bg-black/55 px-5 py-3 text-white backdrop-blur-sm",
+            seekHint > 0 ? "right-[12%]" : "left-[12%]"
+          )}
+        >
+          {seekHint > 0 ? <FastForward size={28} className="fill-white" /> : <Rewind size={28} className="fill-white" />}
+          <span className="text-sm font-semibold tabular-nums">
+            {seekHint > 0 ? `+${SEEK_SECONDS}` : `-${SEEK_SECONDS}`}s
+          </span>
         </div>
       )}
 
       {/* Paused indicator */}
       {!playing && active && (
-        <button
-          onClick={onTap}
+        <div
           className="pointer-events-none absolute inset-0 flex items-center justify-center"
           aria-hidden
         >
-          <Play size={64} className="fill-white/80 text-white/80 drop-shadow-lg" />
-        </button>
+          <span className="flex h-20 w-20 items-center justify-center rounded-full bg-black/35 backdrop-blur-sm">
+            <Play size={40} className="ml-1 fill-white text-white drop-shadow-lg" />
+          </span>
+        </div>
+      )}
+
+      {/* Bottom scrim so the caption + timeline stay legible over bright video */}
+      {!chromeHidden && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
       )}
 
       {/* Draggable timeline (scrub by dragging the handle) */}
       {!chromeHidden && (
         <div
-          className="absolute bottom-0 left-0 right-0 z-20 cursor-pointer touch-none px-3 pb-2 pt-3"
+          className="absolute bottom-0 left-0 right-0 z-20 cursor-pointer touch-none px-3 pb-2.5 pt-4"
           onPointerDown={onScrubDown}
           onPointerMove={onScrubMove}
           onPointerUp={onScrubUp}
           onPointerCancel={onScrubUp}
         >
-          <div ref={barRef} className="relative h-1 w-full rounded-full bg-white/25">
+          {/* Time readout while scrubbing */}
+          {isScrubbing && duration > 0 && (
+            <div className="pointer-events-none absolute -top-7 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold tabular-nums text-white">
+              {fmtTime((progress / 100) * duration)} / {fmtTime(duration)}
+            </div>
+          )}
+          <div
+            ref={barRef}
+            className={cn(
+              "relative w-full rounded-full bg-white/25 transition-[height]",
+              isScrubbing ? "h-1.5" : "h-1"
+            )}
+          >
             <div
               className="h-full rounded-full bg-white"
               style={{ width: `${progress}%` }}
             />
             <div
-              className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-md"
+              className={cn(
+                "absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-md transition-[height,width]",
+                isScrubbing ? "h-5 w-5 ring-2 ring-white/40" : "h-3.5 w-3.5"
+              )}
               style={{ left: `${progress}%` }}
             />
           </div>
@@ -415,6 +503,19 @@ export default function ShortCard({
           label="Share"
           onClick={() => setShowShare(true)}
         />
+        {(isOwner || isAdmin) && (
+          <RailButton
+            icon={
+              isPrivate ? (
+                <Lock size={22} className="text-amber-400" />
+              ) : (
+                <Globe size={22} />
+              )
+            }
+            label={isPrivate ? "Private" : "Public"}
+            onClick={toggleVisibility}
+          />
+        )}
         {categoryEditable && (
           <RailButton
             icon={<Tag size={22} />}

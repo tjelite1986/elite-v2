@@ -11,11 +11,14 @@ export default function ShortsFeed({
   playlistId,
   category,
   isAdmin = false,
+  viewerId,
   basePath = "/shorts",
 }: {
   channel: "main" | "18plus";
   focusId?: number;
   isAdmin?: boolean;
+  // The current user's id, threaded to each card for the owner visibility toggle.
+  viewerId: number;
   // Section base path, so the 18+ section's empty-state link stays in /shorts18.
   basePath?: string;
   // When set, the feed is scoped to a single auto-poll profile and the global
@@ -186,6 +189,7 @@ export default function ShortsFeed({
             active={activeId === short.id}
             muted={muted}
             onToggleMuted={() => setMuted((m) => !m)}
+            viewerId={viewerId}
             categoryEditable={isAdmin && channel === "18plus"}
             isAdmin={isAdmin}
             chromeHidden={chromeHidden}
