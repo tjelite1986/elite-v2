@@ -53,3 +53,10 @@ body.privacy-blur-pii [data-pii] {
   filter: blur(10px) !important;
   user-select: none;
 }
+
+/* Immersive shorts ("Hide UI"): hide the global nav chrome (top menu bar,
+   Shorts/18+ tabs, category chips) for a true fullscreen. Set by shorts-feed.tsx;
+   long-pressing a clip clears it. */
+body.shorts-immersive [data-immersive-hide] {
+  display: none !important;
+}
