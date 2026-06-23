@@ -22,6 +22,11 @@ import path from "node:path";
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const SHORTS_ROOT = process.env.SHORTS_ROOT || "/shorts-store";
+// Per-user uploads live under PROFILE_ROOT/u_<user>/shorts/<channel>/... — their
+// storage_key is self-describing (matches isUploadKey), so resolve those there
+// instead of under the shared SHORTS_ROOT/<channel> creator layout.
+const PROFILE_ROOT = process.env.PROFILE_ROOT || "/profile-store";
+const isUploadKey = (key) => /^u_[^/]+\/shorts\//.test(key);
 const LOCK = "/tmp/elitev2-shorts-transcode.lock";
 
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
@@ -169,7 +174,7 @@ let processed = 0;
 let failed = 0;
 
 for (const row of rows) {
-  const dir = channelDir(row.channel);
+  const dir = isUploadKey(row.storage_key) ? PROFILE_ROOT : channelDir(row.channel);
   const src = path.join(dir, row.storage_key);
   const uuid = row.storage_key.replace(/\.[^.]+$/, "");
   const dstKey = `${uuid}.web.mp4`;
@@ -259,7 +264,7 @@ const noPoster = db
   .all();
 
 for (const row of noPoster) {
-  const dir = channelDir(row.channel);
+  const dir = isUploadKey(row.storage_key) ? PROFILE_ROOT : channelDir(row.channel);
   const src = path.join(dir, row.storage_key);
   if (!fs.existsSync(src)) continue;
   const base = row.storage_key.replace(/\.[^.]+$/, "");
