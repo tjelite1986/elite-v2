@@ -1,11 +1,16 @@
 "use client";
 
 import * as React from "react";
+import { Eye, EyeOff } from "lucide-react";
 
 export interface AuthCardField {
   name: string;
   type: string;
   placeholder: string;
+  // Optional input transform applied on every change (e.g. auto-format the
+  // registration code to UPPERCASE XXXX-XXXX).
+  format?: (value: string) => string;
+  maxLength?: number;
 }
 
 interface AuthCardProps {
@@ -35,6 +40,8 @@ export const AuthCard: React.FC<AuthCardProps> = ({
   );
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  // Per-password-field reveal toggle.
+  const [shown, setShown] = React.useState<Record<string, boolean>>({});
 
   const handleChange = (name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }));
@@ -77,16 +84,43 @@ export const AuthCard: React.FC<AuthCardProps> = ({
         {/* Fields */}
         <div className="flex flex-col w-full gap-4">
           <div className="w-full flex flex-col gap-3">
-            {fields.map((field) => (
-              <input
-                key={field.name}
-                placeholder={field.placeholder}
-                type={field.type}
-                value={values[field.name] ?? ""}
-                className="w-full px-5 py-3 rounded-xl bg-white/10 text-white placeholder-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-                onChange={(e) => handleChange(field.name, e.target.value)}
-              />
-            ))}
+            {fields.map((field) => {
+              const isPassword = field.type === "password";
+              const inputType = isPassword && shown[field.name] ? "text" : field.type;
+              return (
+                <div key={field.name} className="relative">
+                  <input
+                    placeholder={field.placeholder}
+                    type={inputType}
+                    value={values[field.name] ?? ""}
+                    maxLength={field.maxLength}
+                    autoCapitalize={field.format ? "characters" : undefined}
+                    className={`w-full px-5 py-3 rounded-xl bg-white/10 text-white placeholder-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 ${
+                      isPassword ? "pr-12" : ""
+                    }`}
+                    onChange={(e) =>
+                      handleChange(
+                        field.name,
+                        field.format ? field.format(e.target.value) : e.target.value
+                      )
+                    }
+                  />
+                  {isPassword && (
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      onClick={() =>
+                        setShown((s) => ({ ...s, [field.name]: !s[field.name] }))
+                      }
+                      aria-label={shown[field.name] ? "Hide password" : "Show password"}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 transition hover:text-white"
+                    >
+                      {shown[field.name] ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
             {error && (
               <div className="text-sm text-red-400 text-left">{error}</div>
             )}

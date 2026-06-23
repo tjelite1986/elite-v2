@@ -5,6 +5,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthCard } from "@/components/ui/modern-stunning-sign-in";
 
+// Registration codes are UPPERCASE XXXX-XXXX (lib/codes.ts). As the user types,
+// force uppercase, drop anything that isn't a code char, and auto-insert the
+// dash after the 4th character (e.g. GTFD-JKLO).
+function formatCode(value: string): string {
+  const a = value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  return a.length > 4 ? `${a.slice(0, 4)}-${a.slice(4)}` : a;
+}
+
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -12,7 +20,7 @@ function RegisterForm() {
   const prefilledEmail = searchParams.get("email") || "";
 
   const initialValues: Record<string, string> = {};
-  if (prefilledCode) initialValues.code = prefilledCode;
+  if (prefilledCode) initialValues.code = formatCode(prefilledCode);
   if (prefilledEmail) initialValues.email = prefilledEmail;
 
   return (
@@ -24,7 +32,13 @@ function RegisterForm() {
         { name: "email", type: "email", placeholder: "Email" },
         { name: "password", type: "password", placeholder: "Password (min 8 chars)" },
         { name: "confirmPassword", type: "password", placeholder: "Confirm password" },
-        { name: "code", type: "text", placeholder: "Registration code" },
+        {
+          name: "code",
+          type: "text",
+          placeholder: "Registration code (e.g. GTFD-JKLO)",
+          format: formatCode,
+          maxLength: 9,
+        },
       ]}
       onSubmit={async (values) => {
         if (values.password !== values.confirmPassword) {
