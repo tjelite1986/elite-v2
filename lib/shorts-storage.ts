@@ -24,6 +24,17 @@ const POSTER_MAX = 720;
 // User uploads have no auto-poll profile, so they land in this subfolder.
 export const UPLOADS_SUBDIR = "_uploads";
 
+// Per-user upload folder so each account's clips live under their own dir
+// (<channel>/u_<user>/...), browsable + separable on disk. Falls back to the
+// numeric id when the user has no username yet.
+export function userUploadSubfolder(
+  userId: number,
+  username?: string | null
+): string {
+  const slug = username ? profileSlug(username) : "unknown";
+  return `u_${slug && slug !== "unknown" ? slug : userId}`;
+}
+
 export function channelDir(channel: ShortChannel): string {
   return path.join(SHORTS_ROOT, channel === "18plus" ? "18plus" : "main");
 }

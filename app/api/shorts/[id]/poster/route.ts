@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { canAccessChannel, getShort } from "@/lib/shorts";
+import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
 import { posterPathFor, setCustomPoster } from "@/lib/shorts-storage";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,9 @@ export async function GET(
 
   const short = getShort(Number(params.id));
   if (!short || !short.poster_key) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+  if (!canViewShort(short, Number(session.sub), session.role === "admin")) {
     return new NextResponse("Not found", { status: 404 });
   }
   if (!(await canAccessChannel(short.channel))) {

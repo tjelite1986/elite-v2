@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
+import { canViewShort, getShort } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
 
@@ -34,10 +35,8 @@ export async function POST(
   if (!shortId) {
     return NextResponse.json({ error: "shortId is required." }, { status: 400 });
   }
-  const exists = getOne(
-    qb.selectFrom("shorts").select("id").where("id", "=", shortId).where("is_deleted", "=", 0)
-  );
-  if (!exists) {
+  const short = getShort(shortId);
+  if (!short || !canViewShort(short, Number(session.sub), session.role === "admin")) {
     return NextResponse.json({ error: "Clip not found." }, { status: 404 });
   }
 

@@ -32,6 +32,7 @@ export default async function PlaylistWatchPage({
       playlistId={pl.id}
       focusId={focus && !isNaN(focus) ? focus : undefined}
       isAdmin={session.role === "admin"}
+      viewerId={Number(session?.sub) || 0}
     />
   );
 }

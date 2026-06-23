@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { UploadCloud, X } from "lucide-react";
+import { UploadCloud, X, Lock, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function ShortsUpload({
@@ -23,6 +23,7 @@ export default function ShortsUpload({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
   const [channel, setChannel] = useState<"main" | "18plus">(defaultChannel);
+  const [visibility, setVisibility] = useState<"private" | "public">("private");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,6 +43,7 @@ export default function ShortsUpload({
       form.append("file", file);
       form.append("caption", caption);
       form.append("channel", channel);
+      form.append("visibility", visibility);
       const res = await fetch("/api/shorts/upload", {
         method: "POST",
         body: form,
@@ -133,6 +135,34 @@ export default function ShortsUpload({
           ))}
         </div>
         )}
+
+        {/* Visibility — who can see this clip */}
+        <div>
+          <div className="flex gap-2">
+            {([
+              { v: "private", label: "Private", icon: <Lock size={15} /> },
+              { v: "public", label: "Public", icon: <Globe size={15} /> },
+            ] as const).map((o) => (
+              <button
+                key={o.v}
+                type="button"
+                onClick={() => setVisibility(o.v)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition",
+                  visibility === o.v ? "bg-white text-black" : "bg-white/10 text-white/70"
+                )}
+              >
+                {o.icon}
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 px-1 text-xs text-white/45">
+            {visibility === "private"
+              ? "Only you can see this clip."
+              : "Everyone can see this clip in the feed."}
+          </p>
+        </div>
 
         {error && <p className="text-sm text-rose-400">{error}</p>}
 

@@ -136,6 +136,8 @@ function migrate(db: Database.Database) {
       source TEXT NOT NULL DEFAULT 'upload',
       source_id TEXT,
       status TEXT NOT NULL DEFAULT 'ready',
+      -- 0 = public (everyone on the channel), 1 = private (only the uploader + admins).
+      is_private INTEGER NOT NULL DEFAULT 0,
       is_deleted INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -508,6 +510,14 @@ function migrate(db: Database.Database) {
   if (shortColumns.length > 0 && !shortColumns.includes("category")) {
     db.exec(
       "ALTER TABLE shorts ADD COLUMN category TEXT NOT NULL DEFAULT 'uncategorized'"
+    );
+  }
+  // Per-clip visibility: 0 = public (everyone on the channel), 1 = private (only
+  // the uploader, plus admins). Default 0 so existing/imported/polled clips stay
+  // public; new user uploads default to private in the upload route.
+  if (shortColumns.length > 0 && !shortColumns.includes("is_private")) {
+    db.exec(
+      "ALTER TABLE shorts ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0"
     );
   }
   db.exec(
@@ -918,6 +928,7 @@ export interface ShortRow {
   source: "upload" | "poll" | "import";
   source_id: string | null;
   status: "ready" | "pending" | "failed";
+  is_private: number;
   is_deleted: number;
   created_at: string;
 }

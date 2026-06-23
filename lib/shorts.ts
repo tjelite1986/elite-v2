@@ -25,6 +25,18 @@ export function getShort(id: number): ShortRow | undefined {
   );
 }
 
+// Per-clip visibility: a private clip is only visible to its uploader (and to
+// admins, who moderate). Public clips are visible to everyone on the channel.
+// Apply this in EVERY read path that serves a clip by id — feed/grids go through
+// getFeed (below), single-clip routes load via getShort and must call this.
+export function canViewShort(
+  short: Pick<ShortRow, "is_private" | "uploader_id">,
+  viewerId: number,
+  isAdmin: boolean
+): boolean {
+  return short.is_private === 0 || short.uploader_id === viewerId || isAdmin;
+}
+
 export interface FeedShort {
   id: number;
   channel: ShortChannel;
@@ -43,6 +55,7 @@ export interface FeedShort {
   viewer_liked: boolean;
   viewer_saved: boolean;
   has_poster: boolean;
+  is_private: boolean;
 }
 
 interface FeedRow extends ShortRow {
@@ -66,7 +79,12 @@ export function getFeed(
   limit = 10,
   profileId: number | null = null,
   playlistId: number | null = null,
-  category: ShortCategory | null = null
+  category: ShortCategory | null = null,
+  // Privacy: non-admins only see public clips + their own private ones. Admins
+  // see everything. `mineOnly` scopes the feed to the viewer's own uploads (the
+  // "Mine" view), where both public and private of theirs are wanted.
+  isAdmin = false,
+  mineOnly = false
 ): { items: FeedShort[]; nextCursor: number | null } {
   // Structure (joins, filters, ordering, pagination) is built with the typed
   // builder. The correlated count/exists columns stay as sql`` fragments —
@@ -87,6 +105,7 @@ export function getFeed(
       "s.duration",
       "s.created_at",
       "s.poster_key",
+      "s.is_private",
       "u.email as uploader_email",
       "p.name as profile_name",
       sql<number>`(SELECT COUNT(*) FROM short_likes l WHERE l.short_id = s.id)`.as(
@@ -104,6 +123,14 @@ export function getFeed(
     ])
     .where("s.is_deleted", "=", 0)
     .where("s.status", "=", "ready")
+    // Privacy filter: hide others' private clips. Admins and the "Mine" view skip
+    // it (admins see all; Mine is the viewer's own clips, public + private).
+    .$if(!isAdmin && !mineOnly, (q) =>
+      q.where((eb) =>
+        eb.or([eb("s.is_private", "=", 0), eb("s.uploader_id", "=", viewerId)])
+      )
+    )
+    .$if(mineOnly, (q) => q.where("s.uploader_id", "=", viewerId))
     // Dynamic filters: conditional .where() replaces the (@x IS NULL OR ...) trick.
     .$if(profileId !== null, (q) => q.where("s.profile_id", "=", profileId!))
     .$if(profileId === null && playlistId === null, (q) =>
@@ -147,6 +174,7 @@ export function getFeed(
     viewer_liked: Boolean(r.viewer_liked),
     viewer_saved: Boolean(r.viewer_saved),
     has_poster: Boolean(r.poster_key),
+    is_private: Boolean(r.is_private),
   }));
 
   const nextCursor = hasMore ? page[page.length - 1].id : null;

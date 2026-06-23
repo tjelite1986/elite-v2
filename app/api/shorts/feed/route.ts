@@ -27,6 +27,9 @@ export async function GET(request: Request) {
   const limit = limitRaw && limitRaw > 0 ? Math.min(limitRaw, 40) : 10;
   // Optional 18+ category filter for channel-scoped browsing.
   const category = parseCategory(url.searchParams.get("category"));
+  // "Mine" view: only the viewer's own uploads (public + private).
+  const mineOnly = url.searchParams.get("mine") === "1";
+  const isAdmin = session.role === "admin";
 
   // Profile-scoped feed: derive the channel from the profile so 18+ gating still
   // applies. Channel-scoped feed: use the requested channel.
@@ -50,7 +53,9 @@ export async function GET(request: Request) {
     limit,
     profileId,
     playlistId,
-    category
+    category,
+    isAdmin,
+    mineOnly
   );
 
   return NextResponse.json({ items, nextCursor });

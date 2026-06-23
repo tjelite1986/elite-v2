@@ -30,6 +30,7 @@ export default async function Shorts18Page({
         category={category ?? undefined}
         focusId={focus && !isNaN(focus) ? focus : undefined}
         isAdmin={session?.role === "admin"}
+        viewerId={Number(session?.sub) || 0}
       />
     </>
   );

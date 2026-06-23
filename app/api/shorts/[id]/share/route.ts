@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession, getUserById } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { canAccessChannel, getShort } from "@/lib/shorts";
+import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,17 @@ export async function POST(
   const short = getShort(Number(params.id));
   if (!short) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!canViewShort(short, meId, session.role === "admin")) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // A private clip can't be played by the recipient (the media routes block it),
+  // so sharing it would be a dead attachment — require it be public first.
+  if (short.is_private) {
+    return NextResponse.json(
+      { error: "This clip is private — make it public to share." },
+      { status: 400 }
+    );
   }
   if (!(await canAccessChannel(short.channel))) {
     return NextResponse.json({ error: "Locked" }, { status: 403 });

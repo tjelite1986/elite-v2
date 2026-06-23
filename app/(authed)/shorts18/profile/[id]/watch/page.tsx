@@ -28,6 +28,7 @@ export default async function Profile18WatchPage({
       profileId={profile.id}
       focusId={focus && !isNaN(focus) ? focus : undefined}
       isAdmin={session.role === "admin"}
+      viewerId={Number(session?.sub) || 0}
     />
   );
 }

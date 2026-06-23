@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { label: "Videos", href: "/shorts18" },
   { label: "Explore", href: "/shorts18/explore" },
+  { label: "Mine", href: "/shorts18/mine" },
   { label: "Profiles", href: "/shorts18/profiles" },
   { label: "Playlists", href: "/shorts18/playlists" },
   { label: "Settings", href: "/shorts18/settings" },
@@ -16,6 +17,7 @@ const TABS = [
 
 function activeHref(pathname: string): string {
   if (pathname.startsWith("/shorts18/explore")) return "/shorts18/explore";
+  if (pathname.startsWith("/shorts18/mine")) return "/shorts18/mine";
   if (
     pathname.startsWith("/shorts18/profiles") ||
     pathname.startsWith("/shorts18/profile")
