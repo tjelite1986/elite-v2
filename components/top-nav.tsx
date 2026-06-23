@@ -63,7 +63,10 @@ export default function TopNav({ email, role }: TopNavProps) {
   };
 
   return (
-    <div className="fixed left-1/2 top-3 z-50 w-[95%] max-w-6xl -translate-x-1/2">
+    <div
+      data-immersive-hide
+      className="fixed left-1/2 top-3 z-50 w-[95%] max-w-6xl -translate-x-1/2"
+    >
       <MacOSMenuBar
         appName="Elite"
         appAction="dashboard"

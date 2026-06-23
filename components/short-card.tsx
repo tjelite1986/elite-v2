@@ -102,6 +102,9 @@ export default function ShortCard({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [seekHint, setSeekHint] = useState<string | null>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const scrubbing = useRef(false);
 
   const [liked, setLiked] = useState(short.viewer_liked);
   const [likeCount, setLikeCount] = useState(short.like_count);
@@ -234,17 +237,32 @@ export default function ShortCard({
     setTimeout(() => setBurst(false), 700);
   };
 
-  const onTap = () => {
+  // Jump the playhead by a number of seconds, clamped, with a brief on-screen hint.
+  const seek = (delta: number) => {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    v.currentTime = Math.min(v.duration, Math.max(0, v.currentTime + delta));
+    if (v.duration) setProgress((v.currentTime / v.duration) * 100);
+    setSeekHint(delta > 0 ? `+${delta}s` : `${delta}s`);
+    setTimeout(() => setSeekHint(null), 500);
+  };
+
+  const onTap = (e: React.MouseEvent) => {
     // A long-press just toggled the chrome — swallow the trailing click.
     if (longPressed.current) {
       longPressed.current = false;
       return;
     }
-    // Defer single-tap (play/pause) so a quick second tap becomes a like.
+    // Second tap within the window: zone decides — left third rewinds, right
+    // third skips forward, middle keeps the double-tap-to-like.
     if (tapTimer.current) {
       clearTimeout(tapTimer.current);
       tapTimer.current = null;
-      toggleLike(true);
+      const rect = e.currentTarget.getBoundingClientRect();
+      const frac = rect.width ? (e.clientX - rect.left) / rect.width : 0.5;
+      if (frac > 0.65) seek(10);
+      else if (frac < 0.35) seek(-10);
+      else toggleLike(true);
       return;
     }
     tapTimer.current = setTimeout(() => {
@@ -254,6 +272,33 @@ export default function ShortCard({
       if (v.paused) v.play().catch(() => {});
       else v.pause();
     }, 220);
+  };
+
+  // Draggable timeline: scrub the playhead from the pointer's x position.
+  const seekToClientX = (clientX: number) => {
+    const bar = barRef.current;
+    const v = videoRef.current;
+    if (!bar || !v || !v.duration) return;
+    const rect = bar.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    v.currentTime = frac * v.duration;
+    setProgress(frac * 100);
+  };
+  const onScrubDown = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    scrubbing.current = true;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    seekToClientX(e.clientX);
+  };
+  const onScrubMove = (e: React.PointerEvent) => {
+    if (!scrubbing.current) return;
+    e.stopPropagation();
+    seekToClientX(e.clientX);
+  };
+  const onScrubUp = (e: React.PointerEvent) => {
+    if (!scrubbing.current) return;
+    scrubbing.current = false;
+    e.stopPropagation();
   };
 
   return (
@@ -297,6 +342,13 @@ export default function ShortCard({
         />
       )}
 
+      {/* Double-tap seek hint */}
+      {seekHint && (
+        <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/70 px-4 py-2 text-lg font-bold text-white">
+          {seekHint}
+        </div>
+      )}
+
       {/* Paused indicator */}
       {!playing && active && (
         <button
@@ -308,13 +360,25 @@ export default function ShortCard({
         </button>
       )}
 
-      {/* Progress bar */}
+      {/* Draggable timeline (scrub by dragging the handle) */}
       {!chromeHidden && (
-        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/15">
-          <div
-            className="h-full bg-white transition-[width] duration-150"
-            style={{ width: `${progress}%` }}
-          />
+        <div
+          className="absolute bottom-0 left-0 right-0 z-20 cursor-pointer touch-none px-3 pb-2 pt-3"
+          onPointerDown={onScrubDown}
+          onPointerMove={onScrubMove}
+          onPointerUp={onScrubUp}
+          onPointerCancel={onScrubUp}
+        >
+          <div ref={barRef} className="relative h-1 w-full rounded-full bg-white/25">
+            <div
+              className="h-full rounded-full bg-white"
+              style={{ width: `${progress}%` }}
+            />
+            <div
+              className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-md"
+              style={{ left: `${progress}%` }}
+            />
+          </div>
         </div>
       )}
 

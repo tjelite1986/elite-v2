@@ -17,7 +17,10 @@ export default async function Shorts18Page({
   const category = parseCategory(searchParams?.cat);
   return (
     <>
-      <div className="fixed left-1/2 top-[5.75rem] z-30 max-w-[96vw] -translate-x-1/2">
+      <div
+        data-immersive-hide
+        className="fixed left-1/2 top-[5.75rem] z-30 max-w-[96vw] -translate-x-1/2"
+      >
         <ShortsCategoryChips className="rounded-full bg-black/50 px-2 py-1 backdrop-blur ring-1 ring-white/10" />
       </div>
       <ShortsFeed

@@ -45,6 +45,14 @@ export default function ShortsFeed({
     setChromeHidden(localStorage.getItem("shorts:chromeHidden") === "1");
   }, []);
 
+  // In the clean view, flag the body so the global nav chrome (top menu bar,
+  // Shorts/18+ tabs, category chips) hides too — a true fullscreen, not just a
+  // bare clip. Cleared on exit and when leaving the feed.
+  useEffect(() => {
+    document.body.classList.toggle("shorts-immersive", chromeHidden);
+    return () => document.body.classList.remove("shorts-immersive");
+  }, [chromeHidden]);
+
   const toggleChrome = useCallback(() => {
     setChromeHidden((prev) => {
       const next = !prev;
@@ -52,9 +60,38 @@ export default function ShortsFeed({
       if (next) {
         setHint(true);
         setTimeout(() => setHint(false), 2500);
+        // Go true device-fullscreen too (hides the browser's address/system
+        // bars). Needs the tap as a user gesture; best-effort + unsupported on
+        // iOS for non-video elements, where the CSS immersive view still applies.
+        document.documentElement.requestFullscreen?.().catch(() => {});
+      } else if (document.fullscreenElement) {
+        document.exitFullscreen?.().catch(() => {});
       }
       return next;
     });
+  }, []);
+
+  // If the user leaves fullscreen via the system (back gesture / Esc), restore
+  // the chrome so the state stays in sync.
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement) {
+        setChromeHidden((prev) => {
+          if (!prev) return prev;
+          localStorage.setItem("shorts:chromeHidden", "0");
+          return false;
+        });
+      }
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
+  }, []);
+
+  // Leave fullscreen if the feed unmounts (e.g. navigating away) while active.
+  useEffect(() => {
+    return () => {
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    };
   }, []);
 
   const load = useCallback(async () => {
@@ -136,7 +173,11 @@ export default function ShortsFeed({
   return (
     <div
       ref={containerRef}
-      className="relative h-[calc(100dvh-3.5rem)] w-full snap-y snap-mandatory overflow-y-scroll bg-black"
+      className={
+        chromeHidden
+          ? "fixed inset-0 z-30 w-full snap-y snap-mandatory overflow-y-scroll bg-black"
+          : "relative h-[calc(100dvh-3.5rem)] w-full snap-y snap-mandatory overflow-y-scroll bg-black"
+      }
     >
       {items.map((short) => (
         <div key={short.id} data-short-id={short.id} className="h-full w-full">

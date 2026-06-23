@@ -35,7 +35,10 @@ export default function Shorts18Tabs() {
   const active = activeHref(pathname);
 
   return (
-    <div className="fixed left-1/2 top-14 z-40 max-w-[96vw] -translate-x-1/2 overflow-x-auto">
+    <div
+      data-immersive-hide
+      className="fixed left-1/2 top-14 z-40 max-w-[96vw] -translate-x-1/2 overflow-x-auto"
+    >
       <div className="flex items-center gap-0.5 rounded-full bg-black/50 p-1 text-[13px] backdrop-blur ring-1 ring-rose-500/30">
         <span className="ml-1 mr-1 rounded-full bg-rose-500/20 px-2 py-1 text-[11px] font-semibold uppercase text-rose-300">
           18+
