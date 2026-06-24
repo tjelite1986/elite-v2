@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Trash2 } from "lucide-react";
 import { InviteDialog } from "@/components/ui/invite-dialog";
+import UserImportButton from "@/components/user-import-button";
 
 interface CodeItem {
   id: number;
@@ -229,6 +230,9 @@ export default function AdminPage() {
             Invite via email
           </button>
         </div>
+
+        {/* Per-user folder import */}
+        <UserImportButton />
 
         {/* Desktop: table */}
         <div className="hidden overflow-hidden rounded-2xl border border-white/10 md:block">
