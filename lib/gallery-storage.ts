@@ -5,16 +5,46 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import exifr from "exifr";
+import { getProfileByUserId } from "./profiles";
 
-// Gallery media root. Defaults under the data volume, but in production it's a
-// bind-mounted host folder on the 4TB drive (GALLERY_ROOT) — like elite — so the
-// originals/thumbs/previews live in a real, browsable directory.
+// Gallery media now lives PER USER under PROFILE_ROOT, mirroring shorts:
+//   <PROFILE_ROOT>/u_<username>/gallery/{originals/<yyyy>/<mm>,thumbs,previews}/
+// so an admin can browse or clear everything one account owns in one place. The
+// old central GALLERY_ROOT/{originals,thumbs,previews}/<userId>/ layout is kept
+// as a read-only fallback, so any file not yet migrated still resolves.
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const STORAGE_ROOT = process.env.GALLERY_ROOT || path.join(DATA_DIR, "gallery");
+const PROFILE_ROOT =
+  process.env.PROFILE_ROOT || path.join(DATA_DIR, "profile");
 
+// Legacy central roots (pre-per-user). Resolvers fall back to these on read.
 export const ORIGINALS_DIR = path.join(STORAGE_ROOT, "originals");
 export const THUMBS_DIR = path.join(STORAGE_ROOT, "thumbs");
 export const PREVIEWS_DIR = path.join(STORAGE_ROOT, "previews");
+
+// Per-user home folder name (e.g. "u_anna"), using the same filesystem-safe slug
+// rule as lib/shorts-storage.ts. Falls back to the numeric id when the account
+// has no username. Kept here (not imported from shorts-storage) to avoid a cycle:
+// shorts-storage already imports from this module.
+function userGalleryRoot(userId: number): string {
+  const username = getProfileByUserId(userId)?.username || null;
+  const slug = (username || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 64);
+  return path.join(PROFILE_ROOT, `u_${slug || userId}`, "gallery");
+}
+
+function userOriginalsDir(userId: number): string {
+  return path.join(userGalleryRoot(userId), "originals");
+}
+function userThumbsDir(userId: number): string {
+  return path.join(userGalleryRoot(userId), "thumbs");
+}
+function userPreviewsDir(userId: number): string {
+  return path.join(userGalleryRoot(userId), "previews");
+}
 
 const THUMB_MAX = 480;
 const PREVIEW_MAX = 1600;
@@ -111,9 +141,9 @@ export function planIngest(
   const mm = String(takenAt.getUTCMonth() + 1).padStart(2, "0");
   const uuid = randomUUID();
 
-  const originalsDir = path.join(ORIGINALS_DIR, String(userId), yyyy, mm);
-  const thumbsDir = path.join(THUMBS_DIR, String(userId));
-  const previewsDir = path.join(PREVIEWS_DIR, String(userId));
+  const originalsDir = path.join(userOriginalsDir(userId), yyyy, mm);
+  const thumbsDir = userThumbsDir(userId);
+  const previewsDir = userPreviewsDir(userId);
   ensureDir(originalsDir);
   ensureDir(thumbsDir);
   ensureDir(previewsDir);
@@ -126,18 +156,29 @@ export function planIngest(
   };
 }
 
+// Prefer the per-user path; fall back to the legacy central path on read so any
+// not-yet-migrated file still resolves. New writes always go to the per-user path.
 export function originalPathFor(userId: number, storageKey: string): string {
-  return path.join(ORIGINALS_DIR, String(userId), storageKey);
+  const p = path.join(userOriginalsDir(userId), storageKey);
+  if (fs.existsSync(p)) return p;
+  const legacy = path.join(ORIGINALS_DIR, String(userId), storageKey);
+  return fs.existsSync(legacy) ? legacy : p;
 }
 
 export function thumbPathFor(userId: number, storageKey: string): string {
   const uuid = path.basename(storageKey).replace(/\.[^.]+$/, "");
-  return path.join(THUMBS_DIR, String(userId), `${uuid}.jpg`);
+  const p = path.join(userThumbsDir(userId), `${uuid}.jpg`);
+  if (fs.existsSync(p)) return p;
+  const legacy = path.join(THUMBS_DIR, String(userId), `${uuid}.jpg`);
+  return fs.existsSync(legacy) ? legacy : p;
 }
 
 export function previewPathFor(userId: number, storageKey: string): string {
   const uuid = path.basename(storageKey).replace(/\.[^.]+$/, "");
-  return path.join(PREVIEWS_DIR, String(userId), `${uuid}.jpg`);
+  const p = path.join(userPreviewsDir(userId), `${uuid}.jpg`);
+  if (fs.existsSync(p)) return p;
+  const legacy = path.join(PREVIEWS_DIR, String(userId), `${uuid}.jpg`);
+  return fs.existsSync(legacy) ? legacy : p;
 }
 
 export interface ExifMeta {
