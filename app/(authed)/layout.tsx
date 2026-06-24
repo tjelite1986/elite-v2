@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
+import { ensureUserProfile } from "@/lib/profiles";
 import TopNav from "@/components/top-nav";
 import WebSocketProvider from "@/components/ws-provider";
 import PrivacyControls from "@/components/PrivacyControls";
@@ -15,6 +16,11 @@ export default async function AuthedLayout({
   const session = await getSession();
   if (!session) redirect("/login");
 
+  // Own handle for the top-nav "Profile" entry — it links to the unified
+  // /people/<username> profile (same page anyone else sees), so there's a single
+  // profile surface. ensureUserProfile guarantees the row exists.
+  const { username } = ensureUserProfile(Number(session.sub), session.email);
+
   return (
     <WebSocketProvider>
       <div
@@ -24,7 +30,7 @@ export default async function AuthedLayout({
             "radial-gradient(circle at 50% -10%, #20202a 0%, #121212 60%)",
         }}
       >
-        <TopNav email={session.email} role={session.role} />
+        <TopNav email={session.email} role={session.role} username={username} />
         <div className="pt-14">{children}</div>
         <PrivacyControls />
       </div>
