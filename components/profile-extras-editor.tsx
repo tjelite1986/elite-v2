@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Plus, Trash2, Image as ImageIcon } from "lucide-react";
+import PostAvatar from "@/components/post-avatar";
 import type { ProfileLink } from "@/lib/profiles";
 
 // Edit a profile's cross-section extras: cover banner, bio, labeled links, and
@@ -27,6 +28,8 @@ export default function ProfileExtrasEditor({
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
+  const avatarRef = useRef<HTMLInputElement>(null);
+  const [avatarBust, setAvatarBust] = useState(0);
   const [bio, setBio] = useState(initialBio);
   const [location, setLocation] = useState(initialLocation);
   const [links, setLinks] = useState<ProfileLink[]>(
@@ -54,6 +57,25 @@ export default function ProfileExtrasEditor({
     setLinks((ls) => ls.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)));
   const addLink = () => setLinks((ls) => [...ls, { label: "", url: "" }]);
   const removeLink = (i: number) => setLinks((ls) => ls.filter((_, idx) => idx !== i));
+
+  const uploadAvatar = async (file: File) => {
+    setBusy(true);
+    setError(null);
+    const fd = new FormData();
+    fd.set("file", file);
+    const res = await fetch(`/api/profiles/${encodeURIComponent(handle)}/avatar`, {
+      method: "POST",
+      body: fd,
+    });
+    if (res.ok) {
+      setAvatarBust(Date.now());
+      router.refresh();
+    } else {
+      const d = await res.json().catch(() => ({}));
+      setError(d.error || "Could not upload avatar.");
+    }
+    setBusy(false);
+  };
 
   const uploadBanner = async (file: File) => {
     setBusy(true);
@@ -109,6 +131,34 @@ export default function ProfileExtrasEditor({
 
   return (
     <div className="space-y-6">
+      {/* Avatar */}
+      <div>
+        <span className="mb-1 block text-xs font-medium text-white/50">Profile picture</span>
+        <div className="flex items-center gap-4">
+          <PostAvatar
+            key={avatarBust}
+            username={handle}
+            size={72}
+            className="text-xl"
+            version={avatarBust}
+          />
+          <input
+            ref={avatarRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => e.target.files?.[0] && uploadAvatar(e.target.files[0])}
+          />
+          <button
+            onClick={() => avatarRef.current?.click()}
+            disabled={busy}
+            className="rounded-full bg-white/10 px-4 py-2 text-sm font-semibold transition hover:bg-white/15 disabled:opacity-50"
+          >
+            Change picture
+          </button>
+        </div>
+      </div>
+
       {/* Banner */}
       <div>
         <span className="mb-1 block text-xs font-medium text-white/50">Cover banner</span>
