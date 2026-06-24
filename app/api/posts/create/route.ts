@@ -4,6 +4,7 @@ import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { parseHashtags } from "@/lib/posts";
 import { storePostImage, authorSlug } from "@/lib/posts-storage";
+import { userHomeDir } from "@/lib/shorts-storage";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -39,11 +40,12 @@ export async function POST(request: Request) {
   }
 
   const slug = authorSlug(profile.username);
+  const userHome = userHomeDir(userId, profile.username);
   const stored: { storageKey: string; mimeType: string; width: number | null; height: number | null }[] = [];
   for (const file of files) {
     const buffer = Buffer.from(await file.arrayBuffer());
     try {
-      stored.push(await storePostImage(slug, file.name, file.type, buffer));
+      stored.push(await storePostImage(slug, file.name, file.type, buffer, userHome));
     } catch (err) {
       return NextResponse.json(
         { error: err instanceof Error ? err.message : "Could not process an image." },

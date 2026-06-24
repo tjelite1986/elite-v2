@@ -19,6 +19,18 @@ import {
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 export const POSTS_ROOT =
   process.env.POSTS_ROOT || path.join(DATA_DIR, "posts");
+// Per-user content home (shared with shorts/gallery). A user's OWN posts live
+// under <PROFILE_ROOT>/u_<user>/posts/, so everything one account owns sits in
+// one browsable place; mirrored creators keep the shared POSTS_ROOT layout.
+const PROFILE_ROOT = process.env.PROFILE_ROOT || path.join(DATA_DIR, "profile");
+
+// A post media key is SELF-DESCRIBING: a user-upload key looks like
+// "u_<user>/posts/<uuid>.jpg" and resolves under PROFILE_ROOT; every other key
+// (creators/imports/stories/avatars) resolves under POSTS_ROOT. So the path
+// resolvers below need no extra flag and a key survives independent of context.
+function isPostUploadKey(key: string): boolean {
+  return /^u_[^/]+\/posts\//.test(key);
+}
 
 export const AVATARS_SUBDIR = "avatars";
 export const BANNERS_SUBDIR = "banners";
@@ -47,9 +59,12 @@ function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-// Absolute path for a media key (relative to POSTS_ROOT, includes the subfolder).
+// Absolute path for a media key. User-upload keys (u_<user>/posts/…) resolve
+// under PROFILE_ROOT; all others under POSTS_ROOT.
 export function mediaPathFor(storageKey: string): string {
-  return path.join(POSTS_ROOT, storageKey);
+  return isPostUploadKey(storageKey)
+    ? path.join(PROFILE_ROOT, storageKey)
+    : path.join(POSTS_ROOT, storageKey);
 }
 
 // The grid thumbnail lives next to the display image as <uuid>_t.jpg.
@@ -75,18 +90,23 @@ export async function storePostImage(
   slug: string,
   filename: string,
   mime: string,
-  buffer: Buffer
+  buffer: Buffer,
+  // When set (e.g. "u_anna"), the image is a user's OWN post and is stored under
+  // <PROFILE_ROOT>/<userHome>/posts/ with a self-describing key. Omit for
+  // creators/imports, which stay under POSTS_ROOT/<slug>/.
+  userHome?: string | null
 ): Promise<StoredPostImage> {
   if (!isSupportedImage(filename, mime)) {
     throw new Error("Unsupported file type — images only");
   }
 
-  const dir = path.join(POSTS_ROOT, slug);
+  const rel = userHome ? `${userHome}/posts` : slug;
+  const dir = path.join(userHome ? PROFILE_ROOT : POSTS_ROOT, rel);
   ensureDir(dir);
 
   const source = isHeic(filename, mime) ? heicToJpeg(buffer) : buffer;
   const uuid = randomUUID();
-  const storageKey = `${slug}/${uuid}.jpg`;
+  const storageKey = `${rel}/${uuid}.jpg`;
   const displayPath = path.join(dir, `${uuid}.jpg`);
   const thumbPath = path.join(dir, `${uuid}_t.jpg`);
 

@@ -276,6 +276,7 @@ async function importPostsSection(
   res: ImportSummary
 ) {
   const slug = authorSlug(username ?? `u${userId}`);
+  const userHome = userHomeDir(userId, username);
   const insertPost = db.prepare(
     "INSERT INTO posts (author_user_id, caption) VALUES (?, ?)"
   );
@@ -304,7 +305,7 @@ async function importPostsSection(
       continue;
     }
     try {
-      const stored = await storePostImage(slug, item.name, "", buffer);
+      const stored = await storePostImage(slug, item.name, "", buffer, userHome);
       const postId = Number(insertPost.run(userId, caption).lastInsertRowid);
       insertMedia.run(
         postId,
