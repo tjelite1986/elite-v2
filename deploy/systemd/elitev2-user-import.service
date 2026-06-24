@@ -1,0 +1,18 @@
+[Unit]
+Description=Import every elite-v2 user's per-user _import drop tree
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=thomas
+Group=thomas
+# Drops arrive via Samba/SFTP owned by thomas; the container runs as uid 1001
+# and can't unlink them. As thomas (who owns them) make every per-user import
+# tree group/other-writable first so the container can consume the drops.
+ExecStartPre=-/bin/bash -c 'chmod -R a+rwX /mnt/4tb/elitev2/profile/u_*/_import 2>/dev/null || true'
+# Trigger the in-app importer (it reuses the gallery/posts/shorts TS pipelines).
+# The secret comes from the container's own env so it isn't duplicated here.
+ExecStart=/usr/bin/docker exec elitev2 sh -c 'curl -fsS -X POST http://127.0.0.1:3000/api/import/user-folders -H "x-import-secret: $IMPORT_CRON_SECRET"'
+Nice=18
+IOSchedulingClass=idle

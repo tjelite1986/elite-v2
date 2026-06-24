@@ -5,6 +5,8 @@ import { qb, getOne } from "@/lib/kysely";
 import { isCodeExpired } from "@/lib/codes";
 import { getUserByEmail } from "@/lib/auth";
 import { hashPassword } from "@/lib/password";
+import { ensureUserProfile } from "@/lib/profiles";
+import { ensureUserHome } from "@/lib/shorts-storage";
 import {
   createSessionToken,
   SESSION_COOKIE,
@@ -85,6 +87,17 @@ export async function POST(request: Request) {
   });
 
   const userId = createUserAndConsume();
+
+  // Provision the new account immediately: give it a public profile (username)
+  // and pre-create its per-user home folder + subfolders on disk, instead of
+  // creating them lazily on first upload. Best-effort — a filesystem hiccup must
+  // not fail an otherwise-successful registration.
+  try {
+    const profile = ensureUserProfile(userId, String(email).toLowerCase());
+    ensureUserHome(userId, profile.username);
+  } catch (err) {
+    console.error("Failed to provision home for new user", userId, err);
+  }
 
   const token = await createSessionToken({
     sub: String(userId),
