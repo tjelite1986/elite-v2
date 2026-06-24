@@ -23,6 +23,9 @@ export async function GET(request: Request) {
   const profileId = profileRaw && !isNaN(Number(profileRaw)) ? Number(profileRaw) : null;
   const playlistRaw = url.searchParams.get("playlist");
   const playlistId = playlistRaw && !isNaN(Number(playlistRaw)) ? Number(playlistRaw) : null;
+  // Person scope: union the owner's own uploads (uploader_id) with the profile.
+  const ownerRaw = url.searchParams.get("owner");
+  const ownerId = ownerRaw && !isNaN(Number(ownerRaw)) ? Number(ownerRaw) : null;
   const limitRaw = Number(url.searchParams.get("limit"));
   const limit = limitRaw && limitRaw > 0 ? Math.min(limitRaw, 40) : 10;
   // Optional 18+ category filter for channel-scoped browsing.
@@ -55,7 +58,8 @@ export async function GET(request: Request) {
     playlistId,
     category,
     isAdmin,
-    mineOnly
+    mineOnly,
+    ownerId
   );
 
   return NextResponse.json({ items, nextCursor });

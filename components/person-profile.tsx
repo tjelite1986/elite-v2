@@ -58,6 +58,26 @@ export default function PersonProfile({
   if (person.userId) personQuery.userId = String(person.userId);
   if (person.creatorId) personQuery.creatorId = String(person.creatorId);
 
+  // Shorts on a profile come from BOTH the creator profile (profile_id) AND the
+  // person's own uploads (uploader_id), so a user's uploaded/imported clips show
+  // here too — mirroring how posts union author_user_id/author_creator_id.
+  const shortsQuery = (channel: "main" | "18plus"): Record<string, string> => {
+    const profileId = channel === "18plus" ? person.shorts18Id : person.shortsMainId;
+    const q: Record<string, string> = { channel };
+    if (profileId) q.profile = String(profileId);
+    if (person.userId) q.owner = String(person.userId);
+    return q;
+  };
+  // A creator profile has a dedicated watch page; owner-only clips (no profile)
+  // open the immersive feed focused on the clip, like the "Mine" view.
+  const shortsHref = (channel: "main" | "18plus"): string => {
+    const profileId = channel === "18plus" ? person.shorts18Id : person.shortsMainId;
+    const base = channel === "18plus" ? "/shorts18" : "/shorts";
+    return profileId
+      ? `${base}/profile/${profileId}/watch?focus=`
+      : `${base}?focus=`;
+  };
+
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: "all", label: "All", show: true },
     { id: "photos", label: "Photos", show: person.photos > 0 },
@@ -248,20 +268,20 @@ export default function PersonProfile({
               <PostGrid query={personQuery} empty="No photos." onSelect={pickPhoto} />
             </Section>
           )}
-          {person.shortsMain > 0 && person.shortsMainId && (
+          {person.shortsMain > 0 && (
             <Section label="Shorts">
               <ShortsGrid
-                query={{ profile: String(person.shortsMainId) }}
+                query={shortsQuery("main")}
                 hrefPrefix="#"
                 empty="No shorts."
                 onSelect={pickShort}
               />
             </Section>
           )}
-          {person.shorts18 > 0 && person.shorts18Id && (
+          {person.shorts18 > 0 && (
             <Section label="18+">
               <ShortsGrid
-                query={{ profile: String(person.shorts18Id) }}
+                query={shortsQuery("18plus")}
                 hrefPrefix="#"
                 empty="No clips."
                 onSelect={pickShort}
@@ -297,20 +317,20 @@ export default function PersonProfile({
                   <PostGrid query={personQuery} empty="No photos." />
                 </Section>
               )}
-              {person.shortsMain > 0 && person.shortsMainId && (
+              {person.shortsMain > 0 && (
                 <Section label="Shorts" onMore={() => setTab("shorts")}>
                   <ShortsGrid
-                    query={{ profile: String(person.shortsMainId) }}
-                    hrefPrefix={`/shorts/profile/${person.shortsMainId}/watch?focus=`}
+                    query={shortsQuery("main")}
+                    hrefPrefix={shortsHref("main")}
                     empty="No shorts."
                   />
                 </Section>
               )}
-              {person.shorts18 > 0 && person.shorts18Id && (
+              {person.shorts18 > 0 && (
                 <Section label="18+" onMore={() => setTab("18plus")}>
                   <ShortsGrid
-                    query={{ profile: String(person.shorts18Id) }}
-                    hrefPrefix={`/shorts18/profile/${person.shorts18Id}/watch?focus=`}
+                    query={shortsQuery("18plus")}
+                    hrefPrefix={shortsHref("18plus")}
                     empty="No clips."
                   />
                 </Section>
@@ -320,18 +340,18 @@ export default function PersonProfile({
 
           {tab === "photos" && <PostFeed query={personQuery} empty="No photos yet." />}
 
-          {tab === "shorts" && person.shortsMainId && (
+          {tab === "shorts" && person.shortsMain > 0 && (
             <ShortsGrid
-              query={{ profile: String(person.shortsMainId) }}
-              hrefPrefix={`/shorts/profile/${person.shortsMainId}/watch?focus=`}
+              query={shortsQuery("main")}
+              hrefPrefix={shortsHref("main")}
               empty="No shorts yet."
             />
           )}
 
-          {tab === "18plus" && person.shorts18Id && (
+          {tab === "18plus" && person.shorts18 > 0 && (
             <ShortsGrid
-              query={{ profile: String(person.shorts18Id) }}
-              hrefPrefix={`/shorts18/profile/${person.shorts18Id}/watch?focus=`}
+              query={shortsQuery("18plus")}
+              hrefPrefix={shortsHref("18plus")}
               empty="No clips yet."
             />
           )}
