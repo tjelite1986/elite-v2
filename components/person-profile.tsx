@@ -32,7 +32,7 @@ import ProfileMergeButton from "@/components/profile-merge-button";
 import ProfileInstagramSync from "@/components/profile-instagram-sync";
 import type { ResolvedPerson } from "@/lib/directory";
 
-type Tab = "all" | "photos" | "shorts" | "18plus";
+type Tab = "profile" | "photos" | "shorts" | "18plus";
 
 function Stat({ value, label }: { value: number; label: string }) {
   return (
@@ -43,8 +43,9 @@ function Stat({ value, label }: { value: number; label: string }) {
   );
 }
 
-// Unified cross-section profile: header + tabs (All / Photos / Shorts / 18+)
-// pulling a person's content from every module they appear in.
+// Unified cross-section profile: header + tabs. The default "Profile" tab holds
+// all the profile info (bio/links/Instagram + a content overview); the other
+// tabs (Photos / Shorts / 18+) drill into a single section.
 export default function PersonProfile({
   person,
   isAdmin,
@@ -79,16 +80,22 @@ export default function PersonProfile({
   };
 
   const tabs: { id: Tab; label: string; show: boolean }[] = [
-    { id: "all", label: "All", show: true },
+    { id: "profile", label: "Profile", show: true },
     { id: "photos", label: "Photos", show: person.photos > 0 },
     { id: "shorts", label: "Shorts", show: person.shortsMain > 0 },
     { id: "18plus", label: "18+", show: person.shorts18 > 0 },
   ];
   const visible = tabs.filter((t) => t.show);
-  const [tab, setTab] = useState<Tab>("all");
+  const [tab, setTab] = useState<Tab>("profile");
   const [selecting, setSelecting] = useState(false);
   const [avatarBust, setAvatarBust] = useState(0);
   const [busy, setBusy] = useState(false);
+
+  const hasInfo =
+    Boolean(person.displayName && person.displayName !== person.handle) ||
+    Boolean(person.bio) ||
+    person.links.length > 0 ||
+    Boolean(person.instagramHandle);
 
   // Set the avatar from a chosen post image or clip poster, then leave select
   // mode and refresh so the new picture shows.
@@ -180,79 +187,6 @@ export default function PersonProfile({
         </div>
       </header>
 
-      {(person.displayName || person.bio || person.links.length > 0 || person.instagramHandle) && !selecting && (
-        <div className="mb-5">
-          {person.displayName && person.displayName !== person.handle && (
-            <div className="text-sm font-semibold">{person.displayName}</div>
-          )}
-          {person.bio && (
-            <p className="mt-0.5 whitespace-pre-wrap text-sm text-white/80">{person.bio}</p>
-          )}
-          {(person.links.length > 0 || person.instagramHandle) && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {person.instagramHandle && (
-                <a
-                  href={`https://www.instagram.com/${person.instagramHandle}/`}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-rose-300 transition hover:bg-white/15 hover:text-rose-200"
-                >
-                  <Camera size={12} />@{person.instagramHandle}
-                </a>
-              )}
-              {person.links.filter((l) => isHttpUrl(l.url)).map((l, i) => (
-                <a
-                  key={i}
-                  href={l.url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-rose-300 transition hover:bg-white/15 hover:text-rose-200"
-                >
-                  <LinkIcon size={12} />
-                  {linkLabel(l)}
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {canManage && person.instagramHandle && !selecting && (
-        <ProfileInstagramSync
-          handle={person.handle}
-          initial={{
-            instagramHandle: person.instagramHandle,
-            autoPoll: person.igAutoPoll,
-            syncing: person.igSyncing,
-            lastSyncedAt: person.igLastSyncedAt,
-            lastSyncError: person.igLastSyncError,
-          }}
-        />
-      )}
-
-      {isAdmin && !selecting && (
-        <ProfileShortsSettings
-          channels={[
-            ...(person.shortsMainId && person.shortsMainPollable
-              ? [{
-                  id: person.shortsMainId,
-                  channel: "main" as const,
-                  autoPoll: person.shortsMainAutoPoll,
-                  basePath: "/shorts",
-                }]
-              : []),
-            ...(person.shorts18Id && person.shorts18Pollable
-              ? [{
-                  id: person.shorts18Id,
-                  channel: "18plus" as const,
-                  autoPoll: person.shorts18AutoPoll,
-                  basePath: "/shorts18",
-                }]
-              : []),
-          ]}
-        />
-      )}
-
       {/* Select-a-profile-picture mode: scroll the real grids and tap any
           photo or clip. */}
       {selecting ? (
@@ -310,30 +244,117 @@ export default function PersonProfile({
             </div>
           )}
 
-          {tab === "all" && (
-            <div className="space-y-6">
-              {person.photos > 0 && (
-                <Section label="Photos" onMore={() => setTab("photos")}>
-                  <PostGrid query={personQuery} empty="No photos." />
-                </Section>
+          {/* Profile tab — all the info + a content overview. The landing tab. */}
+          {tab === "profile" && (
+            <div className="space-y-5">
+              {hasInfo && (
+                <div>
+                  {person.displayName && person.displayName !== person.handle && (
+                    <div className="text-sm font-semibold">{person.displayName}</div>
+                  )}
+                  {person.bio && (
+                    <p className="mt-0.5 whitespace-pre-wrap text-sm text-white/80">{person.bio}</p>
+                  )}
+                  {(person.links.length > 0 || person.instagramHandle) && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {person.instagramHandle && (
+                        <a
+                          href={`https://www.instagram.com/${person.instagramHandle}/`}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-rose-300 transition hover:bg-white/15 hover:text-rose-200"
+                        >
+                          <Camera size={12} />@{person.instagramHandle}
+                        </a>
+                      )}
+                      {person.links.filter((l) => isHttpUrl(l.url)).map((l, i) => (
+                        <a
+                          key={i}
+                          href={l.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="flex items-center gap-1 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-rose-300 transition hover:bg-white/15 hover:text-rose-200"
+                        >
+                          <LinkIcon size={12} />
+                          {linkLabel(l)}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
-              {person.shortsMain > 0 && (
-                <Section label="Shorts" onMore={() => setTab("shorts")}>
-                  <ShortsGrid
-                    query={shortsQuery("main")}
-                    hrefPrefix={shortsHref("main")}
-                    empty="No shorts."
-                  />
-                </Section>
+
+              {!hasInfo && (
+                <p className="text-sm text-white/40">
+                  {person.isOwn
+                    ? "Add a bio and links from Edit profile."
+                    : "No bio yet."}
+                </p>
               )}
-              {person.shorts18 > 0 && (
-                <Section label="18+" onMore={() => setTab("18plus")}>
-                  <ShortsGrid
-                    query={shortsQuery("18plus")}
-                    hrefPrefix={shortsHref("18plus")}
-                    empty="No clips."
-                  />
-                </Section>
+
+              {canManage && person.instagramHandle && (
+                <ProfileInstagramSync
+                  handle={person.handle}
+                  initial={{
+                    instagramHandle: person.instagramHandle,
+                    autoPoll: person.igAutoPoll,
+                    syncing: person.igSyncing,
+                    lastSyncedAt: person.igLastSyncedAt,
+                    lastSyncError: person.igLastSyncError,
+                  }}
+                />
+              )}
+
+              {isAdmin && (
+                <ProfileShortsSettings
+                  channels={[
+                    ...(person.shortsMainId && person.shortsMainPollable
+                      ? [{
+                          id: person.shortsMainId,
+                          channel: "main" as const,
+                          autoPoll: person.shortsMainAutoPoll,
+                          basePath: "/shorts",
+                        }]
+                      : []),
+                    ...(person.shorts18Id && person.shorts18Pollable
+                      ? [{
+                          id: person.shorts18Id,
+                          channel: "18plus" as const,
+                          autoPoll: person.shorts18AutoPoll,
+                          basePath: "/shorts18",
+                        }]
+                      : []),
+                  ]}
+                />
+              )}
+
+              {/* Content overview across sections, each linking to its own tab. */}
+              {(person.photos > 0 || person.shortsMain > 0 || person.shorts18 > 0) && (
+                <div className="space-y-6 pt-1">
+                  {person.photos > 0 && (
+                    <Section label="Photos" onMore={() => setTab("photos")}>
+                      <PostGrid query={personQuery} empty="No photos." />
+                    </Section>
+                  )}
+                  {person.shortsMain > 0 && (
+                    <Section label="Shorts" onMore={() => setTab("shorts")}>
+                      <ShortsGrid
+                        query={shortsQuery("main")}
+                        hrefPrefix={shortsHref("main")}
+                        empty="No shorts."
+                      />
+                    </Section>
+                  )}
+                  {person.shorts18 > 0 && (
+                    <Section label="18+" onMore={() => setTab("18plus")}>
+                      <ShortsGrid
+                        query={shortsQuery("18plus")}
+                        hrefPrefix={shortsHref("18plus")}
+                        empty="No clips."
+                      />
+                    </Section>
+                  )}
+                </div>
               )}
             </div>
           )}
