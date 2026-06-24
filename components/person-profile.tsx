@@ -328,34 +328,8 @@ export default function PersonProfile({
                 />
               )}
 
-              {/* Content overview across sections, each linking to its own tab. */}
-              {(person.photos > 0 || person.shortsMain > 0 || person.shorts18 > 0) && (
-                <div className="space-y-6 pt-1">
-                  {person.photos > 0 && (
-                    <Section label="Photos" onMore={() => setTab("photos")}>
-                      <PostGrid query={personQuery} empty="No photos." />
-                    </Section>
-                  )}
-                  {person.shortsMain > 0 && (
-                    <Section label="Shorts" onMore={() => setTab("shorts")}>
-                      <ShortsGrid
-                        query={shortsQuery("main")}
-                        hrefPrefix={shortsHref("main")}
-                        empty="No shorts."
-                      />
-                    </Section>
-                  )}
-                  {person.shorts18 > 0 && (
-                    <Section label="18+" onMore={() => setTab("18plus")}>
-                      <ShortsGrid
-                        query={shortsQuery("18plus")}
-                        hrefPrefix={shortsHref("18plus")}
-                        empty="No clips."
-                      />
-                    </Section>
-                  )}
-                </div>
-              )}
+              {/* Profile-info only — no content here. Photos/Shorts/18+ live in
+                  their own tabs. More profile fields get added to this tab. */}
             </div>
           )}
 
