@@ -439,6 +439,7 @@ function migrate(db: Database.Database) {
       handle TEXT PRIMARY KEY,
       bio TEXT,
       links_json TEXT,
+      location TEXT,
       banner_key TEXT,
       instagram_handle TEXT,
       ig_auto_poll INTEGER NOT NULL DEFAULT 0,
@@ -465,6 +466,8 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE profile_extras ADD COLUMN ig_last_sync_error TEXT");
     if (!cols.includes("ig_syncing"))
       db.exec("ALTER TABLE profile_extras ADD COLUMN ig_syncing INTEGER NOT NULL DEFAULT 0");
+    if (!cols.includes("location"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN location TEXT");
   }
 
   // Backfill last_seen for databases created before this column existed.

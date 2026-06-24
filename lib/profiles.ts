@@ -147,6 +147,7 @@ export interface ProfileLink {
 export interface ProfileExtras {
   bio: string | null;
   links: ProfileLink[];
+  location: string | null;
   banner_key: string | null;
   instagramHandle: string | null;
   igAutoPoll: boolean;
@@ -159,6 +160,7 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
   const row = getOne<{
     bio: string | null;
     links_json: string | null;
+    location: string | null;
     banner_key: string | null;
     instagram_handle: string | null;
     ig_auto_poll: number;
@@ -171,6 +173,7 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
       .select([
         "bio",
         "links_json",
+        "location",
         "banner_key",
         "instagram_handle",
         "ig_auto_poll",
@@ -195,6 +198,7 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
   return {
     bio: row.bio,
     links,
+    location: row.location,
     banner_key: row.banner_key,
     instagramHandle: row.instagram_handle,
     igAutoPoll: !!row.ig_auto_poll,
@@ -248,6 +252,11 @@ export function setProfileBioLinks(
 
 export function setProfileBanner(handle: string, bannerKey: string): void {
   upsertExtras(handle, { banner_key: bannerKey });
+}
+
+// Free-text location (e.g. "Stockholm, Sweden"). Empty clears it.
+export function setProfileLocation(handle: string, location: string | null): void {
+  upsertExtras(handle, { location: location?.trim().slice(0, 80) || null });
 }
 
 // Set (or clear) the Instagram source + auto-poll flag for a profile. The

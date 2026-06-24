@@ -3,7 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, Pencil, X, Link as LinkIcon } from "lucide-react";
+import { Camera, Pencil, X, Link as LinkIcon, MapPin, CalendarDays } from "lucide-react";
+
+// "Member since June 2026" from a sqlite datetime string.
+function memberSinceLabel(value: string): string {
+  const d = new Date(value.replace(" ", "T") + "Z");
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+}
 
 function isHttpUrl(url: string): boolean {
   try {
@@ -291,6 +298,33 @@ export default function PersonProfile({
                     : "No bio yet."}
                 </p>
               )}
+
+              {/* Location + member since */}
+              {(person.location || person.memberSince) && (
+                <div className="flex flex-col gap-1 text-sm text-white/60">
+                  {person.location && (
+                    <div className="flex items-center gap-1.5">
+                      <MapPin size={14} className="shrink-0" />
+                      <span>{person.location}</span>
+                    </div>
+                  )}
+                  {person.memberSince && (
+                    <div className="flex items-center gap-1.5">
+                      <CalendarDays size={14} className="shrink-0" />
+                      <span>Member since {memberSinceLabel(person.memberSince)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Statistics */}
+              <div className="flex flex-wrap justify-around gap-4 rounded-2xl bg-white/5 px-4 py-4">
+                <Stat value={person.followers} label="followers" />
+                <Stat value={person.following} label="following" />
+                <Stat value={person.photos} label="photos" />
+                <Stat value={person.shortsMain} label="shorts" />
+                {person.shorts18 > 0 && <Stat value={person.shorts18} label="18+" />}
+              </div>
 
               {canManage && person.instagramHandle && (
                 <ProfileInstagramSync

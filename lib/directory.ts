@@ -49,8 +49,16 @@ export interface ResolvedPerson {
   handle: string;
   displayName: string | null;
   bio: string | null;
+  location: string | null;
   links: ProfileLink[];
   hasBanner: boolean;
+  // Account join date (users.created_at) for real users; null for mirrored
+  // creators with no account.
+  memberSince: string | null;
+  // Follow counts: followers across all of this person's identities; following
+  // is meaningful only for real users (who can follow).
+  followers: number;
+  following: number;
   userId: number | null; // real user (1:1)
   creatorId: number | null; // photo creator
   isOwn: boolean;
@@ -222,15 +230,53 @@ export function resolvePerson(
         .where("target_id", "=", followId)
     ) !== undefined;
 
-  // Handle-scoped extras (bio/links/banner) override the legacy per-table bio.
+  // Handle-scoped extras (bio/links/banner/location) override the legacy bio.
   const extras = getProfileExtras(h);
+
+  // Account join date — only real users have one.
+  const memberSince = user
+    ? getOne<{ created_at: string }>(
+        qb.selectFrom("users").select("created_at").where("id", "=", user.user_id)
+      )?.created_at ?? null
+    : null;
+
+  // Followers: anyone following any of this person's identities. Following: only
+  // real users follow others.
+  const countFollowers = (
+    type: "user" | "creator" | "shorts",
+    id: number
+  ): number =>
+    getOne<{ c: number }>(
+      qb
+        .selectFrom("follows")
+        .select((eb) => eb.fn.countAll<number>().as("c"))
+        .where("target_type", "=", type)
+        .where("target_id", "=", id)
+    )?.c ?? 0;
+  let followers = 0;
+  if (user) followers += countFollowers("user", user.user_id);
+  if (creator) followers += countFollowers("creator", creator.id);
+  if (shortsMainId) followers += countFollowers("shorts", shortsMainId);
+  if (shorts18Id) followers += countFollowers("shorts", shorts18Id);
+  const following = user
+    ? getOne<{ c: number }>(
+        qb
+          .selectFrom("follows")
+          .select((eb) => eb.fn.countAll<number>().as("c"))
+          .where("follower_id", "=", user.user_id)
+      )?.c ?? 0
+    : 0;
 
   return {
     handle: user?.username || creator?.username || h,
     displayName: user?.display_name || creator?.display_name || null,
     bio: extras?.bio || user?.bio || creator?.bio || null,
+    location: extras?.location ?? null,
     links: extras?.links ?? [],
     hasBanner: Boolean(extras?.banner_key),
+    memberSince,
+    followers,
+    following,
     userId: user?.user_id ?? null,
     creatorId: creator?.id ?? null,
     isOwn: user?.user_id === viewerId,
