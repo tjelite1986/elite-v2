@@ -17,7 +17,7 @@ interface DirCache {
   total: number | null;
   scrollY: number;
 }
-const CACHE_KEY = "people-dir-v1";
+const CACHE_KEY = "people-dir-v2";
 
 function readCache(): DirCache | null {
   if (typeof window === "undefined") return null;
@@ -39,7 +39,10 @@ export default function PeopleDirectory() {
   const [q, setQ] = useState(cached?.q ?? "");
   const [items, setItems] = useState<PersonEntry[]>(cached?.items ?? []);
   const [offset, setOffset] = useState(cached?.offset ?? 0);
-  const [nextOffset, setNextOffset] = useState<number | null>(cached?.nextOffset ?? 0);
+  // Start null on a fresh mount so the infinite-scroll observer can't fire a
+  // load before the first fetch establishes real pagination — otherwise it
+  // appends page 0 on top of the initial load and duplicates everyone.
+  const [nextOffset, setNextOffset] = useState<number | null>(cached?.nextOffset ?? null);
   const [total, setTotal] = useState<number | null>(cached?.total ?? null);
   const [loading, setLoading] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -70,9 +73,17 @@ export default function PeopleDirectory() {
         const res = await fetch(url.toString());
         if (res.ok) {
           const d = await res.json();
-          setItems((prev) =>
-            reset ? d.items : [...prev, ...d.items]
-          );
+          // Dedupe by handle when appending: a re-fired observer or an
+          // overlapping page must never add a person already in the list
+          // (handles are the React keys and are unique per person).
+          setItems((prev) => {
+            if (reset) return d.items;
+            const seen = new Set(prev.map((x) => x.handle));
+            return [
+              ...prev,
+              ...d.items.filter((x: PersonEntry) => !seen.has(x.handle)),
+            ];
+          });
           setOffset(d.nextOffset ?? off);
           setNextOffset(d.nextOffset);
           setTotal(d.total);
@@ -95,7 +106,7 @@ export default function PeopleDirectory() {
     debounce.current = setTimeout(() => {
       setItems([]);
       setOffset(0);
-      setNextOffset(0);
+      setNextOffset(null);
       load(true);
     }, 250);
     return () => {
