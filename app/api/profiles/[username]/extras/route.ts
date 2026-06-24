@@ -3,7 +3,8 @@ import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import {
   getProfileExtras,
-  setProfileBioLinks,
+  setProfileBio,
+  setProfileLinks,
   setProfileBanner,
   setProfileInstagram,
   setProfileLocation,
@@ -26,7 +27,9 @@ async function authorize(handle: string) {
   return { error: "Forbidden", status: 403 as const };
 }
 
-// Update bio + labeled links.
+// Update any subset of a profile's extras. Each field is independent: only the
+// keys actually present in the body are written, so a partial update (e.g. just
+// `location`) leaves bio/links/Instagram untouched.
 export async function PATCH(
   request: Request,
   { params }: { params: { username: string } }
@@ -35,18 +38,21 @@ export async function PATCH(
   const auth = await authorize(handle);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const body = await request.json().catch(() => ({}));
-  const bio = typeof body?.bio === "string" ? body.bio : null;
-  const links = Array.isArray(body?.links) ? body.links : [];
-  setProfileBioLinks(handle, bio, links);
+  const body = (await request.json().catch(() => ({}))) ?? {};
 
-  if ("location" in (body ?? {})) {
+  if ("bio" in body) {
+    setProfileBio(handle, typeof body.bio === "string" ? body.bio : null);
+  }
+  if ("links" in body) {
+    setProfileLinks(handle, Array.isArray(body.links) ? body.links : []);
+  }
+  if ("location" in body) {
     setProfileLocation(handle, typeof body.location === "string" ? body.location : null);
   }
 
   // Optional Instagram source: a username/URL to pull media from, plus an
   // auto-poll flag. Empty/invalid input disconnects it.
-  if ("instagramHandle" in (body ?? {})) {
+  if ("instagramHandle" in body) {
     const ig = parseInstagramUsername(String(body.instagramHandle ?? ""));
     setProfileInstagram(handle, ig, Boolean(body?.igAutoPoll));
   }

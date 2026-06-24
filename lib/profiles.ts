@@ -234,20 +234,29 @@ function safeHttpUrl(raw: string): string | null {
   }
 }
 
-export function setProfileBioLinks(
-  handle: string,
-  bio: string | null,
-  links: ProfileLink[]
-): void {
+export function setProfileBio(handle: string, bio: string | null): void {
+  upsertExtras(handle, { bio: bio?.trim().slice(0, 500) || null });
+}
+
+export function setProfileLinks(handle: string, links: ProfileLink[]): void {
   const clean = (links || [])
     .filter((l) => l && typeof l.url === "string")
     .map((l) => ({ label: String(l.label || "").trim().slice(0, 40), url: safeHttpUrl(l.url) }))
     .filter((l): l is ProfileLink => l.url !== null)
     .slice(0, 10);
-  upsertExtras(handle, {
-    bio: bio?.trim().slice(0, 500) || null,
-    links_json: JSON.stringify(clean),
-  });
+  upsertExtras(handle, { links_json: JSON.stringify(clean) });
+}
+
+// Convenience: set bio + links together (e.g. from the profile editor, which
+// always submits both). The route uses the granular setters so a partial API
+// update touches only the fields actually present.
+export function setProfileBioLinks(
+  handle: string,
+  bio: string | null,
+  links: ProfileLink[]
+): void {
+  setProfileBio(handle, bio);
+  setProfileLinks(handle, links);
 }
 
 export function setProfileBanner(handle: string, bannerKey: string): void {
