@@ -84,7 +84,11 @@ export function getFeed(
   // see everything. `mineOnly` scopes the feed to the viewer's own uploads (the
   // "Mine" view), where both public and private of theirs are wanted.
   isAdmin = false,
-  mineOnly = false
+  mineOnly = false,
+  // Person scope: also include this user's own uploads (uploader_id), unioned
+  // with profileId — so a user's uploaded/imported clips show on their unified
+  // profile the same way posts union author_user_id. Privacy still applies.
+  ownerId: number | null = null
 ): { items: FeedShort[]; nextCursor: number | null } {
   // Structure (joins, filters, ordering, pagination) is built with the typed
   // builder. The correlated count/exists columns stay as sql`` fragments —
@@ -132,9 +136,25 @@ export function getFeed(
     )
     .$if(mineOnly, (q) => q.where("s.uploader_id", "=", viewerId))
     // Dynamic filters: conditional .where() replaces the (@x IS NULL OR ...) trick.
-    .$if(profileId !== null, (q) => q.where("s.profile_id", "=", profileId!))
-    .$if(profileId === null && playlistId === null, (q) =>
-      q.where("s.channel", "=", channel)
+    // Profile/owner scope: a clip belongs to the creator profile (profile_id) OR
+    // the person's own uploads (uploader_id) — unioned so a user's uploads show
+    // on their profile alongside the creator's imports.
+    .$if(profileId !== null || ownerId !== null, (q) =>
+      q.where((eb) =>
+        eb.or(
+          [
+            profileId !== null ? eb("s.profile_id", "=", profileId) : null,
+            ownerId !== null ? eb("s.uploader_id", "=", ownerId) : null,
+          ].filter((c): c is NonNullable<typeof c> => c !== null)
+        )
+      )
+    )
+    // Constrain the channel for plain channel browsing AND for owner scope (so an
+    // uploader's 18+ clips don't leak into their main grid). A creator-profile-only
+    // scope derives the channel from the profile, so it's skipped there.
+    .$if(
+      (profileId === null && playlistId === null) || ownerId !== null,
+      (q) => q.where("s.channel", "=", channel)
     )
     .$if(category !== null, (q) => q.where("s.category", "=", category!))
     .$if(playlistId !== null, (q) =>

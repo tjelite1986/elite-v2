@@ -163,17 +163,41 @@ export function resolvePerson(
     (user ? countPosts("author_user_id", user.user_id) : 0) +
     (creator ? countPosts("author_creator_id", creator.id) : 0);
 
-  const clipCount = (id: number | null): number =>
-    id === null
-      ? 0
-      : getOne<{ c: number }>(
-          qb
-            .selectFrom("shorts")
-            .select((eb) => eb.fn.countAll<number>().as("c"))
-            .where("profile_id", "=", id)
-            .where("is_deleted", "=", 0)
-            .where("status", "=", "ready")
-        )?.c ?? 0;
+  // Clips on a person's profile come from BOTH the creator profile (profile_id)
+  // AND the person's own uploads (uploader_id), so a user's uploaded/imported
+  // clips count here too — mirroring how posts union author_user_id. Privacy is
+  // applied so the badge matches what the feed renders (public + viewer's own).
+  const ownerId = user?.user_id ?? null;
+  const clipCount = (
+    profileId: number | null,
+    channel: "main" | "18plus"
+  ): number => {
+    if (profileId === null && ownerId === null) return 0;
+    return (
+      getOne<{ c: number }>(
+        qb
+          .selectFrom("shorts")
+          .select((eb) => eb.fn.countAll<number>().as("c"))
+          .where("channel", "=", channel)
+          .where("is_deleted", "=", 0)
+          .where("status", "=", "ready")
+          .where((eb) =>
+            eb.or(
+              [
+                profileId !== null ? eb("profile_id", "=", profileId) : null,
+                ownerId !== null ? eb("uploader_id", "=", ownerId) : null,
+              ].filter((c): c is NonNullable<typeof c> => c !== null)
+            )
+          )
+          .where((eb) =>
+            eb.or([
+              eb("is_private", "=", 0),
+              eb("uploader_id", "=", viewerId),
+            ])
+          )
+      )?.c ?? 0
+    );
+  };
 
   // Following state for the primary follow target (user > creator > shorts, so a
   // video-only creator is still followable).
@@ -215,11 +239,11 @@ export function resolvePerson(
     viewerFollows,
     photos,
     shortsMainId,
-    shortsMain: clipCount(shortsMainId),
+    shortsMain: clipCount(shortsMainId, "main"),
     shortsMainAutoPoll,
     shortsMainPollable,
     shorts18Id: include18 ? shorts18Id : null,
-    shorts18: include18 ? clipCount(shorts18Id) : 0,
+    shorts18: include18 ? clipCount(shorts18Id, "18plus") : 0,
     shorts18AutoPoll: include18 ? shorts18AutoPoll : false,
     shorts18Pollable: include18 ? shorts18Pollable : false,
     instagramHandle: extras?.instagramHandle ?? null,
