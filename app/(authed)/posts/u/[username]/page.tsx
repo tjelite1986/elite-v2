@@ -15,6 +15,7 @@ import {
 import PostAvatar from "@/components/post-avatar";
 import FollowButton from "@/components/follow-button";
 import PostGrid from "@/components/post-grid";
+import OwnPostsManager from "@/components/own-posts-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -96,12 +97,16 @@ export default async function PostsProfilePage({
         </div>
       )}
 
-      <PostGrid
-        query={type === "user"
-          ? { scope: "user", id: String(targetId) }
-          : { scope: "creator", id: String(targetId) }}
-        empty="No posts yet."
-      />
+      {isOwn ? (
+        <OwnPostsManager userId={targetId} />
+      ) : (
+        <PostGrid
+          query={type === "user"
+            ? { scope: "user", id: String(targetId) }
+            : { scope: "creator", id: String(targetId) }}
+          empty="No posts yet."
+        />
+      )}
     </div>
   );
 }

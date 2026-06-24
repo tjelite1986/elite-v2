@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Heart, MessageCircle, Copy } from "lucide-react";
+import { Heart, MessageCircle, Copy, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { FeedPost } from "@/lib/posts";
 
 // Square-thumbnail grid (Explore, profile pages, hashtags). Tapping a tile opens
@@ -11,12 +12,23 @@ export default function PostGrid({
   query,
   empty = "No posts yet.",
   onSelect,
+  select,
+  reloadKey = 0,
 }: {
   query: Record<string, string>;
   empty?: string;
   // Selection mode: when set, a tile calls onSelect(firstMediaId) instead of
   // linking to the post (used to pick a profile picture from the real feed).
   onSelect?: (mediaId: number) => void;
+  // Post-selection mode (combine into stack): when active, a tile toggles the
+  // post id in the selection set instead of navigating.
+  select?: {
+    active: boolean;
+    selected: Set<number>;
+    toggle: (postId: number) => void;
+  };
+  // Bump to force a fresh reload from the first page (e.g. after a merge).
+  reloadKey?: number;
 }) {
   const [items, setItems] = useState<FeedPost[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -49,10 +61,39 @@ export default function PostGrid({
     }
   }, [cursor, hasMore, loading, query]);
 
+  // Initial load, and a full reset+reload whenever reloadKey changes (so a merge
+  // immediately drops the emptied source posts and shows the new carousel).
   useEffect(() => {
-    load();
+    let cancelled = false;
+    setItems([]);
+    setCursor(null);
+    setHasMore(true);
+    setLoadedOnce(false);
+    setLoading(true);
+    (async () => {
+      try {
+        const url = new URL("/api/posts/feed", window.location.origin);
+        url.searchParams.set("limit", "24");
+        for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
+        const res = await fetch(url.toString());
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setItems(data.items as FeedPost[]);
+          setCursor(data.nextCursor);
+          setHasMore(data.nextCursor !== null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setLoadedOnce(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [reloadKey]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -98,6 +139,28 @@ export default function PostGrid({
             </>
           );
           const cls = "group relative aspect-square overflow-hidden bg-white/5";
+          if (select?.active) {
+            const checked = select.selected.has(p.id);
+            return (
+              <button
+                key={p.id}
+                onClick={() => select.toggle(p.id)}
+                className={cn(cls, checked && "ring-2 ring-inset ring-white")}
+              >
+                {inner}
+                <span
+                  className={cn(
+                    "absolute left-1.5 top-1.5 flex size-5 items-center justify-center rounded-full border-2 transition",
+                    checked
+                      ? "border-white bg-white text-black"
+                      : "border-white/80 bg-black/30"
+                  )}
+                >
+                  {checked && <Check size={12} strokeWidth={3} />}
+                </span>
+              </button>
+            );
+          }
           return onSelect ? (
             <button
               key={p.id}
