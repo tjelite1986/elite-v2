@@ -8,9 +8,10 @@ import NotificationBell from "@/components/ui/notification-bell";
 interface TopNavProps {
   email: string;
   role: "user" | "admin";
+  username: string;
 }
 
-export default function TopNav({ email, role }: TopNavProps) {
+export default function TopNav({ email, role, username }: TopNavProps) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -83,7 +84,7 @@ export default function TopNav({ email, role }: TopNavProps) {
               role={role}
               onLogout={logout}
               onAdmin={() => router.push("/admin")}
-              onProfile={() => router.push("/profile")}
+              onProfile={() => router.push(`/people/${username}`)}
               onSettings={() => router.push("/settings")}
             />
           </div>
