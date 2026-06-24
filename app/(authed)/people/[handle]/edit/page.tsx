@@ -41,6 +41,7 @@ export default async function EditProfilePage({
       <ProfileExtrasEditor
         handle={person.handle}
         initialBio={extras?.bio ?? person.bio ?? ""}
+        initialLocation={extras?.location ?? ""}
         initialLinks={person.links}
         hasBanner={person.hasBanner}
         initialInstagram={extras?.instagramHandle ?? ""}

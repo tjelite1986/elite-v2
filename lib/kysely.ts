@@ -77,6 +77,7 @@ interface ProfileExtraRow {
   handle: string;
   bio: string | null;
   links_json: string | null;
+  location: string | null;
   banner_key: string | null;
   updated_at: string;
   instagram_handle: string | null;

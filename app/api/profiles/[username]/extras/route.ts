@@ -6,6 +6,7 @@ import {
   setProfileBioLinks,
   setProfileBanner,
   setProfileInstagram,
+  setProfileLocation,
 } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
 import { parseInstagramUsername } from "@/lib/instagram";
@@ -38,6 +39,10 @@ export async function PATCH(
   const bio = typeof body?.bio === "string" ? body.bio : null;
   const links = Array.isArray(body?.links) ? body.links : [];
   setProfileBioLinks(handle, bio, links);
+
+  if ("location" in (body ?? {})) {
+    setProfileLocation(handle, typeof body.location === "string" ? body.location : null);
+  }
 
   // Optional Instagram source: a username/URL to pull media from, plus an
   // auto-poll flag. Empty/invalid input disconnects it.

@@ -11,6 +11,7 @@ import type { ProfileLink } from "@/lib/profiles";
 export default function ProfileExtrasEditor({
   handle,
   initialBio,
+  initialLocation,
   initialLinks,
   hasBanner,
   initialInstagram,
@@ -18,6 +19,7 @@ export default function ProfileExtrasEditor({
 }: {
   handle: string;
   initialBio: string;
+  initialLocation: string;
   initialLinks: ProfileLink[];
   hasBanner: boolean;
   initialInstagram: string;
@@ -26,6 +28,7 @@ export default function ProfileExtrasEditor({
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [bio, setBio] = useState(initialBio);
+  const [location, setLocation] = useState(initialLocation);
   const [links, setLinks] = useState<ProfileLink[]>(
     initialLinks.length ? initialLinks : []
   );
@@ -87,6 +90,7 @@ export default function ProfileExtrasEditor({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         bio,
+        location: location.trim(),
         links: clean,
         instagramHandle: instagram.trim(),
         igAutoPoll,
@@ -146,6 +150,18 @@ export default function ProfileExtrasEditor({
           rows={3}
           maxLength={500}
           className="w-full resize-none rounded-xl bg-white/10 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-white/30"
+        />
+      </label>
+
+      {/* Location */}
+      <label className="block">
+        <span className="mb-1 block text-xs font-medium text-white/50">Location</span>
+        <input
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          placeholder="e.g. Stockholm, Sweden"
+          maxLength={80}
+          className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
         />
       </label>
 
