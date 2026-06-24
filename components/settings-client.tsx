@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
 
 interface SettingsClientProps {
@@ -18,6 +19,8 @@ export default function SettingsClient({
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  // Per-field reveal toggle so the user can see what they type (matches login).
+  const [shown, setShown] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
@@ -106,6 +109,19 @@ export default function SettingsClient({
   const inputClass =
     "w-full rounded-xl bg-white/10 px-4 py-3 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400";
 
+  // Eye toggle that reveals/hides a given password field.
+  const eyeButton = (key: string) => (
+    <button
+      type="button"
+      tabIndex={-1}
+      onClick={() => setShown((s) => ({ ...s, [key]: !s[key] }))}
+      aria-label={shown[key] ? "Hide password" : "Show password"}
+      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 transition hover:text-white"
+    >
+      {shown[key] ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  );
+
   return (
     <main className="text-white px-8 pb-8 pt-6">
       <div className="mx-auto max-w-2xl">
@@ -123,30 +139,39 @@ export default function SettingsClient({
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 flex flex-col gap-3">
-            <input
-              type="password"
-              placeholder="Current password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              className={inputClass}
-            />
-            <input
-              type="password"
-              placeholder="New password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className={inputClass}
-            />
+            <div className="relative">
+              <input
+                type={shown.current ? "text" : "password"}
+                placeholder="Current password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className={`${inputClass} pr-12`}
+              />
+              {eyeButton("current")}
+            </div>
+            <div className="relative">
+              <input
+                type={shown.new ? "text" : "password"}
+                placeholder="New password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className={`${inputClass} pr-12`}
+              />
+              {eyeButton("new")}
+            </div>
             {newPassword && (
               <PasswordStrengthMeter password={newPassword} className="px-1" />
             )}
-            <input
-              type="password"
-              placeholder="Confirm new password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className={inputClass}
-            />
+            <div className="relative">
+              <input
+                type={shown.confirm ? "text" : "password"}
+                placeholder="Confirm new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className={`${inputClass} pr-12`}
+              />
+              {eyeButton("confirm")}
+            </div>
 
             {error && <div className="text-sm text-red-400">{error}</div>}
             {success && <div className="text-sm text-green-400">{success}</div>}
