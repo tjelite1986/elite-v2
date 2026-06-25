@@ -48,6 +48,9 @@ export async function GET(request: Request) {
   if (!(await canAccessChannel(channel))) {
     return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
+  // Whether this viewer may receive 18+ clips at all — gates the playlist /
+  // cross-channel scopes that don't constrain the channel themselves.
+  const allow18 = await canAccessChannel("18plus");
 
   const { items, nextCursor } = getFeed(
     channel,
@@ -59,7 +62,8 @@ export async function GET(request: Request) {
     category,
     isAdmin,
     mineOnly,
-    ownerId
+    ownerId,
+    allow18
   );
 
   return NextResponse.json({ items, nextCursor });

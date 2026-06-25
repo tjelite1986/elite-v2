@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
-import { canViewShort, getShort } from "@/lib/shorts";
+import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +38,11 @@ export async function POST(
   const short = getShort(shortId);
   if (!short || !canViewShort(short, Number(session.sub), session.role === "admin")) {
     return NextResponse.json({ error: "Clip not found." }, { status: 404 });
+  }
+  // Don't let a viewer stash an 18+ clip they can't access (the feed also gates
+  // 18+ at read time; this stops it ever entering the playlist).
+  if (!(await canAccessChannel(short.channel))) {
+    return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
 
   db.prepare(

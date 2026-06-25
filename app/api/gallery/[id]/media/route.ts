@@ -8,7 +8,10 @@ import {
   originalPathFor,
   thumbPathFor,
   previewPathFor,
+  isSupportedVideo,
+  videoMimeFor,
 } from "@/lib/gallery-storage";
+import { imageMimeFor } from "@/lib/posts-storage";
 import { canViewItem } from "@/lib/gallery-share";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +30,11 @@ export async function GET(
   const userId = Number(session.sub);
 
   const item = getOne<GalleryItemRow>(
-    qb.selectFrom("gallery_items").selectAll().where("id", "=", Number(params.id))
+    qb
+      .selectFrom("gallery_items")
+      .selectAll()
+      .where("id", "=", Number(params.id))
+      .where("is_deleted", "=", 0)
   );
   if (!item) {
     return new NextResponse("Not found", { status: 404 });
@@ -39,7 +46,9 @@ export async function GET(
 
   const url = new URL(request.url);
   const variant = url.searchParams.get("variant") || "thumb";
-  const isVideo = (item.mime_type || "").startsWith("video/");
+  // Decide media kind from the stored file extension, never the (client-supplied)
+  // mime_type — so a mislabeled upload can't steer how it's served.
+  const isVideo = isSupportedVideo(item.storage_key, "");
 
   // Thumb/preview are always the generated JPEG derivatives (a poster frame for
   // videos), so they're served the same way for both media types.
@@ -55,13 +64,18 @@ export async function GET(
       headers: {
         "Content-Type": "image/jpeg",
         "Cache-Control": "private, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   }
 
-  // Original.
+  // Original. Content-Type derived server-side from the extension (not the stored
+  // client mime), plus nosniff, so a mislabeled file can't be served as an
+  // executable type.
   const filePath = originalPathFor(ownerId, item.storage_key);
-  const contentType = item.mime_type || "application/octet-stream";
+  const contentType = isVideo
+    ? videoMimeFor(item.storage_key)
+    : imageMimeFor(item.storage_key);
   if (!fs.existsSync(filePath)) {
     return new NextResponse("Not found", { status: 404 });
   }
@@ -78,6 +92,7 @@ export async function GET(
   const headers: Record<string, string> = {
     "Content-Type": contentType,
     "Cache-Control": "private, max-age=86400",
+    "X-Content-Type-Options": "nosniff",
     "Content-Disposition": `attachment; filename="${item.filename.replace(/"/g, "")}"`,
   };
   return new NextResponse(fs.readFileSync(filePath), { headers });
@@ -96,6 +111,7 @@ function streamFile(
     "Content-Type": contentType,
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=86400",
+    "X-Content-Type-Options": "nosniff",
   };
   if (opts.attachment) {
     headers["Content-Disposition"] = `attachment; filename="${opts.attachment.replace(/"/g, "")}"`;
