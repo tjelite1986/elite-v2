@@ -1,0 +1,17 @@
+[Unit]
+Description=Remove elite-v2 shorts whose file is gone + empty playlists
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=thomas
+Group=thomas
+# Runs the in-app maintenance route inside the container (reuses the TS
+# path-resolution + DB logic, so it can't drift from the Settings buttons).
+# action:"all" with no channel filter cleans missing-file clips across every
+# profile, uploader and both channels, then purges the playlists they emptied.
+# The secret comes from the container's own env so it isn't duplicated here.
+ExecStart=/usr/bin/docker exec elitev2 sh -c 'curl -fsS -X POST "http://127.0.0.1:3000/api/shorts/maintenance?action=all" -H "x-import-secret: $IMPORT_CRON_SECRET"'
+Nice=18
+IOSchedulingClass=idle
