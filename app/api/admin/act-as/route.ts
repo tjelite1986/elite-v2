@@ -79,6 +79,19 @@ export async function POST(request: Request) {
   if (!target) {
     return NextResponse.json({ error: "Account not found." }, { status: 404 });
   }
+  // Restrict impersonation to the env content-owner buckets (public@/adults@) —
+  // the same allowlist the GET switcher exposes. Without this a real admin could
+  // act as ANY user and read their private content; this matches the documented
+  // design and limits blast radius.
+  const allowedTargets = [process.env.PUBLIC_EMAIL, process.env.ADULTS_EMAIL]
+    .filter((e): e is string => Boolean(e))
+    .map((e) => e.toLowerCase());
+  if (!allowedTargets.includes(target.email.toLowerCase())) {
+    return NextResponse.json(
+      { error: "Can only act as a content-owner account." },
+      { status: 403 }
+    );
+  }
   if (target.role === "admin") {
     return NextResponse.json(
       { error: "Cannot act as an admin account." },
