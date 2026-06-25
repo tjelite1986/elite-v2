@@ -3,7 +3,11 @@ import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { canAccessChannel, parseChannel } from "@/lib/shorts";
-import { storeShortUpload, userHomeDir } from "@/lib/shorts-storage";
+import {
+  storeShortUpload,
+  userHomeDir,
+  profileFromFilename,
+} from "@/lib/shorts-storage";
 import { getExt } from "@/lib/gallery-storage";
 
 export const dynamic = "force-dynamic";
@@ -43,13 +47,18 @@ export async function POST(request: Request) {
       qb.selectFrom("user_profiles").select("username").where("user_id", "=", userId)
     );
     const buffer = Buffer.from(await file.arrayBuffer());
+    // A "profilname_-_title.mp4" filename lands in that creator's subfolder;
+    // anything else falls back to a shared folder inside storeShortUpload, so a
+    // clip is never stored loose in the channel root.
+    const subdir = profileFromFilename(file.name) ?? undefined;
     const stored = await storeShortUpload(
       channel,
       userHomeDir(userId, me?.username),
       caption,
       file.name,
       file.type,
-      buffer
+      buffer,
+      subdir
     );
 
     const status = WEB_PLAYABLE.has(getExt(file.name)) ? "ready" : "pending";

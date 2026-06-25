@@ -3,7 +3,12 @@ import path from "node:path";
 import { db } from "./db";
 import type { ShortChannel } from "./db";
 import { qb, getOne } from "./kysely";
-import { PROFILE_ROOT, userHomeDir, storeShortUpload } from "./shorts-storage";
+import {
+  PROFILE_ROOT,
+  userHomeDir,
+  storeShortUpload,
+  profileFromFilename,
+} from "./shorts-storage";
 import { storePostImage, authorSlug } from "./posts-storage";
 import { ingestMedia } from "./gallery-ingest";
 import { getExt, isSupportedImage, isSupportedVideo } from "./gallery-storage";
@@ -220,6 +225,11 @@ async function importShortsSection(
       continue;
     }
     try {
+      // Subfolder precedence: an explicit collection (drop subfolder or
+      // "[bracket]" token) wins; otherwise a "profilname_-_title" filename lands
+      // in that creator's folder; otherwise storeShortUpload uses its shared
+      // fallback dir — so an imported clip is never stored loose either.
+      const subdir = collection ?? profileFromFilename(item.name) ?? undefined;
       const stored = await storeShortUpload(
         channel,
         userHomeDir(userId, username),
@@ -227,7 +237,7 @@ async function importShortsSection(
         item.name,
         "",
         buffer,
-        collection
+        subdir
       );
       const status = WEB_PLAYABLE.has(ext) ? "ready" : "pending";
       const shortId = Number(
