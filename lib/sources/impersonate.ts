@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import { ensureDir } from "../appstore-storage";
+import { safeHttpUrl } from "../url";
 
 const execFileAsync = promisify(execFile);
 
@@ -43,10 +44,14 @@ const IMPERSONATE_ARGS = [
 ];
 
 export async function impersonateFetch(url: string): Promise<string> {
+  // Reject non-http(s) URLs, and pass "--" so curl can never read a scraped URL
+  // that starts with "-" as a flag (argument injection).
+  const safe = safeHttpUrl(url);
+  if (!safe) throw new Error("Refusing to fetch non-http(s) URL");
   try {
     const { stdout } = await execFileAsync(
       CURL_BIN,
-      [...IMPERSONATE_ARGS, "-sL", "--max-time", "30", url],
+      [...IMPERSONATE_ARGS, "-sL", "--max-time", "30", "--", safe],
       { maxBuffer: 16 * 1024 * 1024, timeout: 35000, encoding: "utf8" }
     );
     return stdout;
@@ -60,11 +65,13 @@ export async function impersonateDownload(
   url: string,
   destAbs: string
 ): Promise<number> {
+  const safe = safeHttpUrl(url);
+  if (!safe) return 0;
   try {
     ensureDir(path.dirname(destAbs));
     await execFileAsync(
       CURL_BIN,
-      [...IMPERSONATE_ARGS, "-sL", "--max-time", "60", "-o", destAbs, url],
+      [...IMPERSONATE_ARGS, "-sL", "--max-time", "60", "-o", destAbs, "--", safe],
       { timeout: 65000, maxBuffer: 1024 }
     );
     return fs.existsSync(destAbs) ? fs.statSync(destAbs).size : 0;
