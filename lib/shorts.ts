@@ -88,7 +88,11 @@ export function getFeed(
   // Person scope: also include this user's own uploads (uploader_id), unioned
   // with profileId — so a user's uploaded/imported clips show on their unified
   // profile the same way posts union author_user_id. Privacy still applies.
-  ownerId: number | null = null
+  ownerId: number | null = null,
+  // 18+ access: when false (and not admin), 18plus clips are excluded from EVERY
+  // scope — including playlists, which otherwise skip the channel filter and
+  // would leak adult clips to a viewer who hasn't unlocked the PIN.
+  allow18 = false
 ): { items: FeedShort[]; nextCursor: number | null } {
   // Structure (joins, filters, ordering, pagination) is built with the typed
   // builder. The correlated count/exists columns stay as sql`` fragments —
@@ -127,6 +131,10 @@ export function getFeed(
     ])
     .where("s.is_deleted", "=", 0)
     .where("s.status", "=", "ready")
+    // 18+ gate (defense in depth): a viewer who hasn't unlocked the adult channel
+    // never receives 18plus clips through ANY scope. This closes the playlist
+    // scope, which skips the per-scope channel filter below. Admins see all.
+    .$if(!allow18 && !isAdmin, (q) => q.where("s.channel", "!=", "18plus"))
     // Privacy filter: hide others' private clips. Admins and the "Mine" view skip
     // it (admins see all; Mine is the viewer's own clips, public + private).
     .$if(!isAdmin && !mineOnly, (q) =>
