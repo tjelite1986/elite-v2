@@ -31,11 +31,12 @@ export async function GET(
   const abs = resolveAppFile(app.source, version.apk_key);
   if (!abs) return new NextResponse("Not found", { status: 404 });
 
-  // Record that the user opened/downloaded the app (best effort).
+  // Record that the user opened/downloaded the app (best effort — a failed
+  // write must not block the download, but log it so it isn't lost silently).
   try {
     markOpened(Number(session.sub), app.id);
-  } catch {
-    /* ignore */
+  } catch (err) {
+    console.error("Failed to record app download", app.id, err);
   }
 
   const stat = fs.statSync(abs);
