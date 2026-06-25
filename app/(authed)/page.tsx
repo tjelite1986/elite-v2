@@ -123,7 +123,7 @@ export default async function Home() {
           </Link>
         </div>
         {recent.length > 0 ? (
-          <div className="grid grid-cols-4 gap-2 sm:grid-cols-8">
+          <div className="grid grid-cols-4 gap-3 sm:grid-cols-8">
             {recent.map((it) => (
               <Link
                 key={it.id}
