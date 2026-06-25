@@ -29,11 +29,14 @@ const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const POSTS_ROOT = process.env.POSTS_ROOT || "/posts-store";
 const IMPORT_DIR = process.env.POSTS_IMPORT_DIR || path.join(POSTS_ROOT, "_import");
-// Videos in a drop don't belong in the photo feed — route them to the main
-// shorts import folder (named for the creator) so the shorts importer makes a
-// clip under the same handle. The unified /people profile merges the two.
+// Videos in a drop don't belong in the photo feed — route them to the shorts
+// import folder (named for the creator) so the shorts importer makes a clip
+// under the same handle. The unified /people profile merges the two. The CHANNEL
+// follows the creator's is_adult flag (an adult creator's videos go to 18+, not
+// the SFW main feed).
 const SHORTS_ROOT = process.env.SHORTS_ROOT || "/shorts-store";
-const SHORTS_VIDEO_DROP = path.join(SHORTS_ROOT, "main", "_import");
+const shortsVideoDrop = (channel) =>
+  path.join(SHORTS_ROOT, channel === "18plus" ? "18plus" : "main", "_import");
 
 const IMG_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"]);
 const VIDEO_EXTS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
@@ -126,6 +129,16 @@ db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
 
 const findCreator = db.prepare("SELECT id FROM post_creators WHERE username = ?");
+const findCreatorAdult = db.prepare(
+  "SELECT is_adult FROM post_creators WHERE username = ?"
+);
+// A creator's videos go to the 18+ shorts channel when the creator is flagged
+// adult; otherwise the SFW main channel. Unknown creator (video-only drop, no
+// post_creator row yet) defaults to main — no regression on the old behaviour.
+function creatorChannel(username) {
+  const row = findCreatorAdult.get(username);
+  return row && row.is_adult ? "18plus" : "main";
+}
 const insertCreator = db.prepare(
   "INSERT INTO post_creators (username, display_name, source) VALUES (?, ?, 'import')"
 );
@@ -240,8 +253,9 @@ let videosRouted = 0;
 // Move a video out of the photo drop into the main shorts import folder, named
 // for the creator, so the shorts importer makes a clip under the same handle.
 function routeVideo(username, srcPath, originalName) {
-  fs.mkdirSync(SHORTS_VIDEO_DROP, { recursive: true });
-  const dest = path.join(SHORTS_VIDEO_DROP, `${username}_-_${path.basename(originalName)}`);
+  const dropDir = shortsVideoDrop(creatorChannel(username));
+  fs.mkdirSync(dropDir, { recursive: true });
+  const dest = path.join(dropDir, `${username}_-_${path.basename(originalName)}`);
   const sidecar = readSidecar(srcPath);
   try {
     fs.copyFileSync(srcPath, dest);

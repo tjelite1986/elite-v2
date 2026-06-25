@@ -244,15 +244,19 @@ if (totalAdded > 0) {
   } catch (err) {
     log(`import-posts failed: ${String(err.message || err).slice(0, 200)}`);
   }
-  try {
-    log("running import-shorts.mjs (main)");
-    execFileSync(node, [path.join(scriptsDir, "import-shorts.mjs")], {
-      stdio: "inherit",
-      timeout: 10 * 60 * 1000,
-      env: { ...process.env, IMPORT_CHANNEL: "main" },
-    });
-  } catch (err) {
-    log(`import-shorts failed: ${String(err.message || err).slice(0, 200)}`);
+  // import-posts routes each creator's videos into main/ or 18plus/ _import per
+  // the creator's is_adult flag, so run the shorts importer for BOTH channels.
+  for (const channel of ["main", "18plus"]) {
+    try {
+      log(`running import-shorts.mjs (${channel})`);
+      execFileSync(node, [path.join(scriptsDir, "import-shorts.mjs")], {
+        stdio: "inherit",
+        timeout: 10 * 60 * 1000,
+        env: { ...process.env, IMPORT_CHANNEL: channel },
+      });
+    } catch (err) {
+      log(`import-shorts (${channel}) failed: ${String(err.message || err).slice(0, 200)}`);
+    }
   }
 }
 
