@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
+import { Readable } from "node:stream";
 import { PostMediaRow, PostRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
@@ -37,9 +38,13 @@ export async function GET(
   const filePath = mediaPathFor(key);
   if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
 
-  return new NextResponse(fs.readFileSync(filePath), {
+  // Stream from disk instead of buffering the whole image into memory (matches
+  // the gallery media route); avoids RAM spikes on large uploads.
+  const stream = fs.createReadStream(filePath);
+  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
     headers: {
       "Content-Type": imageMimeFor(media.storage_key),
+      "Content-Length": String(fs.statSync(filePath).size),
       "X-Content-Type-Options": "nosniff",
       "Content-Disposition": "inline",
       "Cache-Control": "private, max-age=86400",
