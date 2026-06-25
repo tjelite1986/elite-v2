@@ -12,12 +12,5 @@ export default async function PeoplePage() {
   if (!session) redirect("/login");
   ensureUserProfile(Number(session.sub), session.email);
 
-  return (
-    <>
-      <h1 className="fixed left-1/2 top-14 z-40 -translate-x-1/2 text-sm font-semibold text-white/80">
-        People
-      </h1>
-      <PeopleDirectory />
-    </>
-  );
+  return <PeopleDirectory />;
 }
