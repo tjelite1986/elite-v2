@@ -60,9 +60,11 @@ export async function GET(
     if (!fs.existsSync(filePath)) {
       return new NextResponse("Not found", { status: 404 });
     }
-    return new NextResponse(fs.readFileSync(filePath), {
+    const stream = fs.createReadStream(filePath);
+    return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
       headers: {
         "Content-Type": "image/jpeg",
+        "Content-Length": String(fs.statSync(filePath).size),
         "Cache-Control": "private, max-age=86400",
         "X-Content-Type-Options": "nosniff",
       },
@@ -91,11 +93,13 @@ export async function GET(
 
   const headers: Record<string, string> = {
     "Content-Type": contentType,
+    "Content-Length": String(fs.statSync(filePath).size),
     "Cache-Control": "private, max-age=86400",
     "X-Content-Type-Options": "nosniff",
     "Content-Disposition": `attachment; filename="${item.filename.replace(/"/g, "")}"`,
   };
-  return new NextResponse(fs.readFileSync(filePath), { headers });
+  const stream = fs.createReadStream(filePath);
+  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, { headers });
 }
 
 // Stream a file with Range support (206 partial content). Used for video so the
