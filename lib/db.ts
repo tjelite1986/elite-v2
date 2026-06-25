@@ -19,7 +19,23 @@ function createDb(): Database.Database {
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  migrate(db);
+  // Wait for a busy DB instead of failing immediately.
+  db.pragma("busy_timeout = 5000");
+  // Serialize migrations across processes. `next build` collects page data in
+  // several worker processes, each of which opens the DB and runs migrate()
+  // against a fresh file; without a lock they race on `ALTER TABLE ADD COLUMN`
+  // ("duplicate column name"). BEGIN IMMEDIATE takes the write lock up front, so
+  // a second process waits (busy_timeout) and then reads the already-migrated
+  // schema, skipping the guarded ALTERs. Runtime reuses one connection, so this
+  // only matters at build time — but it's correct either way.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    migrate(db);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
   seedAdmin(db);
   seedContentOwners(db);
   seedAppStore(db);
