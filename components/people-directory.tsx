@@ -206,14 +206,14 @@ export default function PeopleDirectory() {
   }, [load, nextOffset]);
 
   return (
-    <div className="mx-auto max-w-2xl px-3 pb-24 pt-24 text-white">
+    <div className="mx-auto max-w-4xl px-3 pb-24 pt-24 text-white">
       <div className="mb-4 flex items-center gap-2 rounded-full bg-white/10 px-4 py-2.5">
-        <Search size={16} className="text-white/50" />
+        <Search size={16} className="text-white/70" />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search people"
-          className="w-full bg-transparent text-sm placeholder-white/40 focus:outline-none"
+          className="w-full bg-transparent text-sm placeholder-white/60 focus:outline-none"
         />
       </div>
 
@@ -225,7 +225,7 @@ export default function PeopleDirectory() {
           outgoing navigation scrolls the window to top), and block further scroll
           writes so it can't be clobbered while this page is still mounted. */}
       <div
-        className="space-y-1.5"
+        className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
         onClickCapture={() => {
           scrollYRef.current = window.scrollY;
           restoringRef.current = true;
@@ -279,7 +279,7 @@ function PersonRow({ person: p }: { person: PersonEntry }) {
             @{p.handle}
           </Link>
           {p.userId !== null && (
-            <span className="rounded-full bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-rose-300">
+            <span className="rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] font-semibold text-white/80">
               User
             </span>
           )}
