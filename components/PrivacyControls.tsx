@@ -927,7 +927,7 @@ export default function PrivacyControls() {
         className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center border ${
           enabled
             ? "bg-violet-600 border-violet-400 text-white"
-            : "bg-gray-900/90 border-gray-700 text-gray-300 hover:text-white"
+            : "bg-white/10 border-white/20 text-white/80 hover:bg-white/20 hover:text-white"
         }`}
         aria-label="Privacy controls"
         title={enabled ? "Privacy mode ON" : "Privacy mode"}

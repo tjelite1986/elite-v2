@@ -111,7 +111,7 @@ export default function NotificationBell() {
       >
         <Bell size={15} strokeWidth={2} />
         {count > 0 && (
-          <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-4 text-white">
+          <span className="absolute -right-1 -top-1 flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-4 text-white ring-2 ring-[#15151b]">
             {count > 99 ? "99+" : count}
           </span>
         )}

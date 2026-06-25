@@ -207,6 +207,7 @@ export default function PeopleDirectory() {
 
   return (
     <div className="mx-auto max-w-4xl px-3 pb-24 pt-24 text-white">
+      <h1 className="mb-4 text-2xl font-semibold tracking-tight">People</h1>
       <div className="mb-4 flex items-center gap-2 rounded-full bg-white/10 px-4 py-2.5">
         <Search size={16} className="text-white/70" />
         <input
