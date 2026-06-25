@@ -852,7 +852,7 @@ export default function GalleryClient() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*,video/*,.heic,.heif,.mp4,.mov,.m4v,.webm,.3gp,.avi,.mkv"
+        accept="*/*"
         multiple
         className="hidden"
         onChange={(e) => {

@@ -481,7 +481,7 @@ export default function StoreManage({ apps }: { apps: ManageApp[] }) {
                 <ImagePlus className="h-3 w-3" /> Icon
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="*/*"
                   className="hidden"
                   onChange={(e) => uploadIcon(a.id, e.target.files?.[0])}
                 />

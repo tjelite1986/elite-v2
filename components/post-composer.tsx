@@ -64,7 +64,7 @@ export default function PostComposer({ canFlagAdult }: { canFlagAdult: boolean }
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="*/*"
         multiple
         hidden
         onChange={(e) => addFiles(e.target.files)}

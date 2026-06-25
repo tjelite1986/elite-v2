@@ -49,7 +49,7 @@ export default function StoryRail({ myUsername }: { myUsername: string }) {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept="*/*"
         hidden
         onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
       />

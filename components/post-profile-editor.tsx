@@ -67,7 +67,7 @@ export default function PostProfileEditor({ initial }: { initial: Profile }) {
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="*/*"
           hidden
           onChange={(e) => e.target.files?.[0] && uploadAvatar(e.target.files[0])}
         />

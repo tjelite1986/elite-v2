@@ -145,7 +145,7 @@ export default function ProfileExtrasEditor({
           <input
             ref={avatarRef}
             type="file"
-            accept="image/*"
+            accept="*/*"
             hidden
             onChange={(e) => e.target.files?.[0] && uploadAvatar(e.target.files[0])}
           />
@@ -179,7 +179,7 @@ export default function ProfileExtrasEditor({
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="*/*"
           hidden
           onChange={(e) => e.target.files?.[0] && uploadBanner(e.target.files[0])}
         />

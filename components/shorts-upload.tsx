@@ -97,10 +97,18 @@ export default function ShortsUpload({
           </div>
         )}
 
+        {/*
+          accept="*\/*" on purpose: a media-only accept (video/*) makes Android
+          13+ open the restricted system photo picker, which only exposes
+          MediaStore (Google Photos + the camera folder). Allowing any type opens
+          the full file browser so the user can pick a video from Downloads, an
+          SD card, or any other folder. The server still rejects non-videos
+          (isSupportedVideo) and the preview below shows what was chosen.
+        */}
         <input
           ref={inputRef}
           type="file"
-          accept="video/*"
+          accept="*/*"
           className="hidden"
           onChange={(e) => pick(e.target.files?.[0] ?? null)}
         />
