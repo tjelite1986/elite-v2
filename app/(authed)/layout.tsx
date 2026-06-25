@@ -30,7 +30,13 @@ export default async function AuthedLayout({
             "radial-gradient(circle at 50% -10%, #20202a 0%, #121212 60%)",
         }}
       >
-        <TopNav email={session.email} role={session.role} username={username} />
+        <TopNav
+          email={session.email}
+          role={session.role}
+          username={username}
+          imp={session.imp ?? null}
+          isRealAdmin={session.role === "admin" && !session.imp}
+        />
         <div className="pt-14">{children}</div>
         <PrivacyControls />
       </div>

@@ -21,6 +21,7 @@ function createDb(): Database.Database {
   db.pragma("foreign_keys = ON");
   migrate(db);
   seedAdmin(db);
+  seedContentOwners(db);
   seedAppStore(db);
   return db;
 }
@@ -810,6 +811,33 @@ function seedAdmin(db: Database.Database) {
   ).run(email.toLowerCase(), hashPassword(password));
 }
 
+// Content-owner accounts (public@ / adults@): seeded from env like the admin so
+// they survive DB resets. Plain 'user' role on purpose — they are login/
+// maintenance buckets, never admin (also matters for the act-as guard). Profiles
+// + home folders are provisioned separately in provisionContentOwners(), since
+// that path reaches the DB through the module-level `db` export which isn't
+// assigned yet while createDb() runs.
+const CONTENT_OWNER_ENV: readonly [emailVar: string, passVar: string][] = [
+  ["PUBLIC_EMAIL", "PUBLIC_PASSWORD"],
+  ["ADULTS_EMAIL", "ADULTS_PASSWORD"],
+];
+
+function seedContentOwners(db: Database.Database) {
+  for (const [emailVar, passVar] of CONTENT_OWNER_ENV) {
+    const email = process.env[emailVar];
+    const password = process.env[passVar];
+    if (!email || !password) continue;
+    const existing = db
+      .prepare("SELECT id FROM users WHERE email = ?")
+      .get(email.toLowerCase());
+    if (existing) continue;
+    db.prepare(
+      "INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'user')"
+    ).run(email.toLowerCase(), hashPassword(password));
+  }
+}
+
+
 // Populate the App Store catalog from the on-disk archive the first time (when
 // the apps table is empty). Reads only small metadata files, never APK bytes, so
 // it is cheap. Idempotent: skips entirely once seeded. Admins can force a rescan
@@ -828,6 +856,21 @@ function seedAppStore(db: Database.Database) {
 
 export const db = globalForDb.db ?? createDb();
 if (process.env.NODE_ENV !== "production") globalForDb.db = db;
+
+// Deferred to the next tick so this module finishes evaluating first, then give
+// the seeded content owners their profile + home tree. Loaded via require() here
+// (lazily) so the db<->profiles<->kysely import cycle is already resolved by the
+// time seed-content-owners' top-level imports run. Idempotent per boot.
+setImmediate(() => {
+  import("./seed-content-owners")
+    .then((m) => m.provisionContentOwners())
+    .catch((err) =>
+      console.error(
+        "Content-owner provisioning failed:",
+        (err as Error)?.message
+      )
+    );
+});
 
 // --- Types ---
 export interface UserRow {

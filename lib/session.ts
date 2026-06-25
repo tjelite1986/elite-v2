@@ -7,6 +7,10 @@ export interface SessionPayload {
   sub: string; // user id as string
   email: string;
   role: "user" | "admin";
+  // Set only while an admin is acting AS another account (impersonation): the
+  // real admin behind the session, used to render the "acting as" banner and to
+  // return to admin. Lives inside the signed JWT, so it can't be forged.
+  imp?: { sub: string; email: string };
 }
 
 function getSecret(): Uint8Array {
@@ -18,7 +22,11 @@ function getSecret(): Uint8Array {
 }
 
 export async function createSessionToken(payload: SessionPayload): Promise<string> {
-  return new SignJWT({ email: payload.email, role: payload.role })
+  return new SignJWT({
+    email: payload.email,
+    role: payload.role,
+    ...(payload.imp ? { imp: payload.imp } : {}),
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
@@ -31,11 +39,25 @@ export async function verifySessionToken(
 ): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
-    return {
+    const result: SessionPayload = {
       sub: String(payload.sub),
       email: String(payload.email),
       role: (payload.role as "user" | "admin") ?? "user",
     };
+    // Accept `imp` only when well-formed, so a malformed claim can't break the
+    // banner / return-to-admin logic.
+    const imp = payload.imp as unknown;
+    if (
+      imp &&
+      typeof (imp as { sub?: unknown }).sub === "string" &&
+      typeof (imp as { email?: unknown }).email === "string"
+    ) {
+      result.imp = {
+        sub: (imp as { sub: string }).sub,
+        email: (imp as { email: string }).email,
+      };
+    }
+    return result;
   } catch {
     return null;
   }
