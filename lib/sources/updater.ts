@@ -59,10 +59,13 @@ export async function downloadAndPromote(
   );
   if (!app || !version || !version.download_url) return null;
 
-  const fileName =
+  const rawFileName =
     version.file_name ||
     version.download_url.split("/").pop()?.split("?")[0] ||
     `${app.slug}-${version.version}.apk`;
+  // basename() so the download target can never escape the app's storage dir,
+  // even if a source ever hands us a name with path separators.
+  const fileName = path.basename(rawFileName) || `${app.slug}-${version.version}.apk`;
   const destAbs = path.join(STORE_DIR, app.slug, version.version, fileName);
 
   const headers =
