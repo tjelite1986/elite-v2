@@ -7,6 +7,7 @@ import { qb, getOne, getAll } from "./kysely";
 import { handleOf } from "./directory";
 import { setProfileInstagram } from "./profiles";
 import { storeAvatar } from "./posts-storage";
+import { safeHttpUrl } from "./url";
 
 // Instagram cookie-based info-sync + media poll, driven per profile. A profile
 // stores its Instagram source (profile_extras.instagram_handle); syncing pulls
@@ -280,10 +281,15 @@ function mergeProfileLinks(handle: string, urls: string[]): void {
 }
 
 function downloadToBuffer(url: string): Buffer | null {
+  // Reject non-http(s) URLs and pass "--" so curl can't read a URL that starts
+  // with "-" as a flag (argument injection); the avatar URL comes from a remote
+  // API response, so treat it as untrusted.
+  const safe = safeHttpUrl(url);
+  if (!safe) return null;
   try {
     return execFileSync(
       "curl",
-      ["-s", "-L", "--max-time", "20", "-A", "Mozilla/5.0", url],
+      ["-s", "-L", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
       { maxBuffer: 32 * 1024 * 1024, timeout: 25_000 }
     );
   } catch {
