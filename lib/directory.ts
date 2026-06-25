@@ -382,7 +382,11 @@ export function getPeople(
         "sp.id",
         "sp.name",
         "sp.channel",
-        sql<number>`(SELECT COUNT(*) FROM shorts s WHERE s.profile_id = sp.id AND s.is_deleted = 0 AND s.status = 'ready')`.as(
+        // Count only PUBLIC clips in the directory list — it has no viewer
+        // context, so counting private clips would leak their existence to
+        // everyone. The accurate "public + viewer's own" count is shown on the
+        // profile page (resolvePerson, which is viewer-aware).
+        sql<number>`(SELECT COUNT(*) FROM shorts s WHERE s.profile_id = sp.id AND s.is_deleted = 0 AND s.status = 'ready' AND s.is_private = 0)`.as(
           "clips"
         ),
       ])
