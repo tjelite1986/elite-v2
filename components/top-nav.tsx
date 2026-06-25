@@ -4,14 +4,23 @@ import { usePathname, useRouter } from "next/navigation";
 import MacOSMenuBar from "@/components/ui/mac-os-menu-bar";
 import AccountMenu from "@/components/ui/account-menu";
 import NotificationBell from "@/components/ui/notification-bell";
+import ActAsControls from "@/components/ui/act-as-controls";
 
 interface TopNavProps {
   email: string;
   role: "user" | "admin";
   username: string;
+  imp: { email: string } | null;
+  isRealAdmin: boolean;
 }
 
-export default function TopNav({ email, role, username }: TopNavProps) {
+export default function TopNav({
+  email,
+  role,
+  username,
+  imp,
+  isRealAdmin,
+}: TopNavProps) {
   const router = useRouter();
   const pathname = usePathname();
 
@@ -77,6 +86,11 @@ export default function TopNav({ email, role, username }: TopNavProps) {
         onMenuAction={handleAction}
         rightSlot={
           <div className="flex items-center gap-1.5">
+            <ActAsControls
+              imp={imp}
+              actingAsEmail={email}
+              isRealAdmin={isRealAdmin}
+            />
             <NotificationBell />
             <AccountMenu
               compact
