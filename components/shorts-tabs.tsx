@@ -32,9 +32,11 @@ function activeHref(pathname: string): string {
 
 // Secondary tab bar for the Shorts section, floating just under the macOS menu
 // bar. Mirrors old elite's Videos / Explore / Profiles / Playlists tabs.
-export default function ShortsTabs() {
+export default function ShortsTabs({ canSettings = false }: { canSettings?: boolean }) {
   const pathname = usePathname();
   const active = activeHref(pathname);
+  // The Settings tab is admin-granted (shorts_settings permission); hide it otherwise.
+  const tabs = TABS.filter((t) => t.href !== "/shorts/settings" || canSettings);
 
   return (
     <div
@@ -42,7 +44,7 @@ export default function ShortsTabs() {
       className="fixed left-1/2 top-14 z-40 max-w-[96vw] -translate-x-1/2 overflow-x-auto"
     >
       <div className="flex items-center gap-0.5 rounded-full bg-black/50 p-1 text-[13px] backdrop-blur ring-1 ring-white/10">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <Link
             key={t.href}
             href={t.href}

@@ -32,9 +32,11 @@ function activeHref(pathname: string): string {
   return "/shorts18";
 }
 
-export default function Shorts18Tabs() {
+export default function Shorts18Tabs({ canSettings = false }: { canSettings?: boolean }) {
   const pathname = usePathname();
   const active = activeHref(pathname);
+  // The Settings tab is admin-granted (shorts18_settings permission); hide otherwise.
+  const tabs = TABS.filter((t) => t.href !== "/shorts18/settings" || canSettings);
 
   return (
     <div
@@ -45,7 +47,7 @@ export default function Shorts18Tabs() {
         <span className="ml-1 mr-1 rounded-full bg-rose-500/20 px-2 py-1 text-[11px] font-semibold uppercase text-rose-300">
           18+
         </span>
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <Link
             key={t.href}
             href={t.href}
