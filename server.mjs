@@ -4,6 +4,7 @@ import next from "next";
 import { WebSocketServer } from "ws";
 import { jwtVerify } from "jose";
 import Database from "better-sqlite3";
+import { startScheduler } from "./lib/jobs-runtime.mjs";
 
 const port = Number(process.env.PORT) || 3000;
 const hostname = process.env.HOSTNAME || "0.0.0.0";
@@ -169,4 +170,7 @@ server.on("upgrade", async (req, socket, head) => {
 
 server.listen(port, hostname, () => {
   console.log(`> Ready on http://${hostname}:${port} (custom server + ws)`);
+  // Start the background-job scheduler once the server is accepting requests
+  // (the http-triggered jobs loop back to it).
+  startScheduler();
 });

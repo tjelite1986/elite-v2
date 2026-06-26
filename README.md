@@ -42,7 +42,10 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
 - **Appearance** — per-user accent color and dark background themes, applied
   without a flash on load.
 - **Admin** — generate and manage registration codes, review invite requests,
-  manage the store catalog, and content-owner "act-as" impersonation.
+  manage the store catalog, content-owner "act-as" impersonation, and a
+  **Background jobs** panel to enable/schedule/run the import, polling,
+  transcoding and cleanup jobs (an in-app scheduler that replaces the host
+  systemd timers).
 - **Account** — profile, settings, password change, and account deletion.
 
 ## Tech stack
@@ -163,22 +166,47 @@ For just trying the app out, `npm run dev` is all you need.
 
 ### Background jobs (optional — only for a real server)
 
-The project also ships helper scripts in the `scripts/` folder for things like
-importing media, polling for new shorts, transcoding videos, cleaning up old
-stories, and checking for app updates.
+The app has helper jobs for things like importing media, polling for new shorts,
+transcoding videos, cleaning up old stories, and checking for app updates. They
+do **not** run on their own — you choose when (and whether) they run.
 
-**These do NOT run on their own.** Nothing happens automatically just because
-you started the app — the scripts only run when something triggers them. On the
-production server they're triggered on a schedule by **systemd timers** (the
-unit files in `deploy/systemd/` and `scripts/systemd/`). If you skip this, the
-app still works fully; you just won't get the automatic background imports and
-maintenance.
+For just trying the app out you can ignore them entirely; the app works fully
+without them.
 
-**If you don't need them:** ignore this section. You can run any script by hand
-whenever you want instead, e.g. `node scripts/transcode-shorts.mjs`.
+#### The easy way: the admin panel (recommended)
 
-**If you do want them to run automatically**, you have to install and enable the
-timers yourself — they are not set up for you. On a Linux host:
+The simplest option needs no terminal or config. Log in as an admin and open
+**Admin → Background jobs**. There you can, per job:
+
+- **Enable / disable** it — when enabled, the app runs it automatically on a
+  schedule.
+- **Set the interval** — e.g. every 5 minutes, every 6 hours.
+- **Run now** — trigger it once immediately and see the result.
+
+The scheduler runs inside the app server itself (no systemd, no editing files),
+and your choices are saved in the database, so they survive restarts. This is
+the recommended way for most setups.
+
+> **Note:** the in-app scheduler only ticks when the app runs via the production
+> server (`npm start` / the Docker image). In `npm run dev` the panel still works
+> and "Run now" still runs, but jobs won't fire automatically.
+
+A couple of jobs are intentionally **not** in the panel because they need
+host-level access the app process doesn't have — notably the per-user folder
+import (it has to fix file ownership on the host first). Those stay on systemd
+(below). You can still trigger user-folder import from **Admin → Per-user folder
+import**.
+
+#### The advanced way: systemd timers
+
+If you'd rather schedule the jobs at the operating-system level (so they run even
+if the app is restarted independently, with `journalctl` logging), the project
+ships systemd unit files in `deploy/systemd/` and `scripts/systemd/`.
+
+> **Don't enable the same job in both places** — pick the admin panel *or* a
+> systemd timer for a given job, otherwise it runs twice.
+
+Install and enable them yourself (they are not set up automatically):
 
 ```bash
 # Copy the timer + service files to systemd, then enable them.
