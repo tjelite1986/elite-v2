@@ -90,7 +90,7 @@ export default function AccountMenu({
             {role === "admin" && (
               <Menu.Item value="admin" className={itemClass}>
                 <ShieldCheck className="w-4 h-4" />
-                Registration codes
+                Admin
               </Menu.Item>
             )}
 
