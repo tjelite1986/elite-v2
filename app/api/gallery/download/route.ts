@@ -20,7 +20,13 @@ export async function POST(request: Request) {
   const userId = Number(session.sub);
   const body = await request.json().catch(() => ({}));
   const ids: number[] = Array.isArray(body.ids)
-    ? body.ids.map((n: unknown) => Number(n)).filter((n: number) => Number.isInteger(n))
+    ? Array.from(
+        new Set(
+          body.ids
+            .map((n: unknown) => Number(n))
+            .filter((n: number) => Number.isInteger(n))
+        )
+      )
     : [];
   if (ids.length === 0) {
     return NextResponse.json({ error: "No items selected." }, { status: 400 });
