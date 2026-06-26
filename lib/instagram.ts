@@ -18,6 +18,8 @@ import { safeHttpUrl } from "./url";
 const COOKIES_PATH =
   process.env.IG_COOKIES_PATH || "/instagram-store/cookies.txt";
 
+const GALLERY_DL = process.env.GALLERY_DL_BIN || "gallery-dl";
+
 // --- Cookie file ----------------------------------------------------------
 
 export function cookiesFilePath(): string {
@@ -85,20 +87,69 @@ function parseIgUser(json: Record<string, unknown>): IgUser {
   };
 }
 
-// Fetch one IG profile via Instaloader. null = request failed (rate-limit/
-// network); an object with exists:false = the account doesn't exist.
+// Fetch one IG profile. Tries Instaloader first; on failure falls back to
+// gallery-dl, because Instagram now 403-blocks Instaloader's graphql profile
+// query even with a valid session. null = couldn't fetch.
 function igUser(username: string): IgUser | null {
   const out = runIgPython(["user", username]);
-  if (!out) return null;
-  const last = out.trim().split("\n").pop();
-  if (!last) return null;
+  if (out) {
+    const last = out.trim().split("\n").pop();
+    if (last) {
+      try {
+        const d = JSON.parse(last) as Record<string, unknown>;
+        if (!d.error) return parseIgUser(d);
+      } catch {
+        /* fall through to gallery-dl */
+      }
+    }
+  }
+  return igUserViaGalleryDl(username);
+}
+
+// Fallback profile fetch via gallery-dl: it reaches the owner's name + avatar
+// through the posts feed (no graphql 403). Bio is profile-level and not in post
+// metadata, so it stays null (applyToPeople keeps the existing bio via COALESCE).
+function igUserViaGalleryDl(username: string): IgUser | null {
+  const url = `https://www.instagram.com/${encodeURIComponent(username)}/posts/`;
+  const args = ["-j", "--range", "1-1", "--cookies", COOKIES_PATH, url];
+  let out: string;
   try {
-    const d = JSON.parse(last) as Record<string, unknown>;
-    if (d.error) return null;
-    return parseIgUser(d);
+    out = execFileSync(GALLERY_DL, args, {
+      encoding: "utf8",
+      timeout: 120_000,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch (err) {
+    const e = err as { stdout?: string };
+    if (!e.stdout) return null;
+    out = String(e.stdout);
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(out);
   } catch {
     return null;
   }
+  if (!Array.isArray(data)) return null;
+  for (const entry of data) {
+    const meta = Array.isArray(entry) ? entry[entry.length - 1] : null;
+    if (!meta || typeof meta !== "object") continue;
+    const m = meta as Record<string, unknown>;
+    const name = (m.full_name ?? m.fullname) as string | undefined;
+    const pic = m.profile_pic_url as string | undefined;
+    if (name || pic) {
+      return {
+        exists: true,
+        username: (m.username as string) || username,
+        displayName: name || null,
+        bio: (m.biography as string) || null,
+        avatarUrl: pic || null,
+        postCount: null,
+        links: [],
+      };
+    }
+  }
+  return null;
 }
 
 // Cache the live login-check so the admin manage page polling this status
