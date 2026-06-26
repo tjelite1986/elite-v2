@@ -24,7 +24,7 @@ const FALLBACK_DIR = "uploads";
 const log = (m) => console.log(`[migrate-loose] ${m}`);
 
 // --- mirror lib/shorts-storage.ts (kept identical) ----------------------------
-const isUploadKey = (key) => /^u_[^/]+\/shorts\//.test(key);
+const isUploadKey = (key) => /^u_[^/]+\/(?:shorts18|shorts)\//.test(key);
 
 function profileSlug(name) {
   const slug = (name || "unknown")
