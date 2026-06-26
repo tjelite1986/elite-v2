@@ -236,6 +236,42 @@ Open each `.service` file, adjust those lines, then run the
 with `systemctl list-timers | grep elitev2`, and view a job's output with
 `journalctl -u elitev2-shorts-import.service`.
 
+### Importing your own media (drop folders)
+
+Each account has a drop tree under `IMPORT_ROOT`, kept separate from served
+storage:
+
+```
+<IMPORT_ROOT>/u_<username>/{gallery, posts, shorts, shorts18, books}/
+```
+
+Drop files into the matching section and the per-user importer ingests them for
+that account (`shorts` → main channel, `shorts18` → 18+, `books` → the shared
+library, attributed to you). Two ways to group and tag a file:
+
+- **Subfolder** — a file inside `gallery/holiday/` joins the "holiday" album.
+- **Filename tokens** — brackets are the delimiter (so the title may contain
+  dots):
+
+  ```
+  <title> [h_<tag>]...[f_<collection>][id_<dbid>].<ext>
+  ```
+
+  - `[h_tag]` — a hashtag, repeatable. Posts/gallery get real tags; shorts get
+    them appended to the caption.
+  - `[f_collection]` — the album (gallery) or playlist (shorts) to file it under.
+    A bare `[Collection]` (no prefix) still works for backward compatibility.
+  - `[id_n]` — the app's DB id; set automatically on stored files and used to
+    skip duplicates on re-import.
+
+  e.g. `vi äter på macdonalds [h_macdonalds][h_mat][f_foodtruck].mp4`
+
+A `<stem>.md` sidecar next to a file supplies its caption. Imported files are
+renamed to this canonical, self-describing form and moved into the account's
+served storage, so they round-trip — re-dropping a stored file is de-duplicated
+by its `[id_]`. Trigger a run from **Admin → Per-user folder import**, or let the
+`elitev2-user-import` timer do it.
+
 ## Configuration
 
 Configure via environment variables (e.g. an `.env` file — not committed):
@@ -254,11 +290,12 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 
 | Variable        | Description                                            |
 | --------------- | ----------------------------------------------------- |
-| `PROFILE_ROOT`  | Per-user content root (`u_<user>/…` for posts, shorts, gallery, imports). |
-| `GALLERY_ROOT`  | Gallery storage root (default: `<DATA_DIR>/gallery`).  |
-| `POSTS_ROOT`    | Posts media storage root.                              |
-| `SHORTS_ROOT`   | Shorts media storage root.                             |
-| `BOOKS_ROOT`    | Bookshelf storage root (EPUB / PDF / CBZ).             |
+| `PROFILE_ROOT`  | Per-user **served** content root: `u_<user>/{gallery,posts,shorts,shorts18,cookies}`. |
+| `IMPORT_ROOT`   | Top-level per-user **drop** tree (staging, kept separate from served storage): `u_<user>/{gallery,posts,shorts,shorts18,books}`. See [drop folders](#importing-your-own-media-drop-folders). |
+| `GALLERY_ROOT`  | Legacy central gallery root — read-only fallback for pre-per-user media. |
+| `POSTS_ROOT`    | Posts media for mirrored creators + avatars/banners (legacy bulk-import drop). |
+| `SHORTS_ROOT`   | Shorts media for mirrored creators / auto-poll (legacy bulk-import drop). |
+| `BOOKS_ROOT`    | **Shared** bookshelf storage (EPUB / PDF / CBZ) — one library for all users. |
 | `APPSTORE_ROOT` / `STORE_DIR` | App Store catalog / APK archive storage.|
 
 ### Email
@@ -278,7 +315,7 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 
 | Variable              | Description                                          |
 | --------------------- | --------------------------------------------------- |
-| `IMPORT_DIR` / `POSTS_IMPORT_DIR` / `SHORTS_IMPORT_DIR` | Directories scanned for bulk import. |
+| `IMPORT_DIR` / `POSTS_IMPORT_DIR` / `SHORTS_IMPORT_DIR` | Legacy *creator* bulk-import drop dirs (distinct from the per-user `IMPORT_ROOT` tree). |
 | `IMPORT_CRON_SECRET`  | Shared secret for import trigger endpoints.         |
 | `LADDA_URL`           | URL of the `ladda` media-grabber backend (shorts "Grab"). |
 | `IG_COOKIES_PATH` / `IG_SRC` | Instagram cookie file and source for sync.   |
