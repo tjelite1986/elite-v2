@@ -81,24 +81,29 @@ export function getSmartAlbum(userId: number, id: number): SmartAlbum | null {
 // Resolve a smart album's criteria to the matching (non-deleted) items, in the
 // same shape the gallery grid expects.
 export function resolveSmartItems(userId: number, criteria: SmartCriteria) {
+  // The JOIN (and its placeholder) appears BEFORE the WHERE clause in the SQL, so
+  // its bound value must come first in the args array. Keep join args separate.
+  const joinArgs: unknown[] = [];
+  let join = "";
+  if (criteria.tag) {
+    join = "JOIN gallery_tags gt ON gt.item_id = gi.id AND gt.tag = ?";
+    joinArgs.push(criteria.tag);
+  }
+
   const where: string[] = ["gi.user_id = ?", "gi.is_deleted = 0"];
-  const args: unknown[] = [userId];
+  const whereArgs: unknown[] = [userId];
   if (criteria.minRating) {
     where.push("gi.rating >= ?");
-    args.push(criteria.minRating);
+    whereArgs.push(criteria.minRating);
   }
   if (criteria.favorite) where.push("gi.is_favorite = 1");
   if (criteria.type === "video") where.push("gi.mime_type LIKE 'video/%'");
   if (criteria.gps) where.push("gi.latitude IS NOT NULL AND gi.longitude IS NOT NULL");
   if (criteria.year) {
     where.push("strftime('%Y', gi.taken_at) = ?");
-    args.push(String(criteria.year));
+    whereArgs.push(String(criteria.year));
   }
-  let join = "";
-  if (criteria.tag) {
-    join = "JOIN gallery_tags gt ON gt.item_id = gi.id AND gt.tag = ?";
-    args.push(criteria.tag);
-  }
+
   return db
     .prepare(
       `SELECT gi.id, gi.filename, gi.mime_type, gi.width, gi.height, gi.latitude,
@@ -108,5 +113,5 @@ export function resolveSmartItems(userId: number, criteria: SmartCriteria) {
        WHERE ${where.join(" AND ")}
        ORDER BY gi.taken_at DESC, gi.id DESC`
     )
-    .all(...args);
+    .all(...joinArgs, ...whereArgs);
 }

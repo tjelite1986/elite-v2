@@ -88,9 +88,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Recipient not found." }, { status: 404 });
   }
 
-  const replyTo = Number.isInteger(Number(reqBody.replyTo))
+  let replyTo = Number.isInteger(Number(reqBody.replyTo))
     ? Number(reqBody.replyTo)
     : null;
+  // Only allow replying to a message in THIS conversation — otherwise the reply
+  // preview would leak the body/sender of an unrelated DM (IDOR).
+  if (replyTo !== null) {
+    const inConvo = db
+      .prepare(
+        `SELECT 1 FROM messages WHERE id = ?
+           AND ((sender_id = ? AND recipient_id = ?)
+             OR (sender_id = ? AND recipient_id = ?))`
+      )
+      .get(replyTo, meId, Number(recipientId), Number(recipientId), meId);
+    if (!inConvo) replyTo = null;
+  }
   const result = db
     .prepare(
       `INSERT INTO messages (sender_id, recipient_id, body, attachment_type, attachment_data, reply_to)
