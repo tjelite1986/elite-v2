@@ -216,6 +216,39 @@ export async function storeBanner(
   return key;
 }
 
+// Rename a freshly stored post image (display + thumbnail) to a canonical,
+// self-describing basename "<stem>.jpg" within the same folder, so the file
+// round-trips through the importer. `newStem` is assembled by the caller; here we
+// only strip path-breaking characters. Returns the new storage_key; the caller
+// persists it. A real collision gets a short suffix.
+export function renamePostImageFiles(storageKey: string, newStem: string): string {
+  const dir = path.dirname(storageKey);
+  const safe =
+    newStem.replace(/[/:*?"<>| ]+/g, " ").replace(/\s+/g, " ").trim() || "post";
+  const keyFor = (stem: string) => (dir === "." ? `${stem}.jpg` : `${dir}/${stem}.jpg`);
+
+  const src = mediaPathFor(storageKey);
+  let finalStem = safe;
+  if (
+    fs.existsSync(mediaPathFor(keyFor(safe))) &&
+    path.resolve(src) !== path.resolve(mediaPathFor(keyFor(safe)))
+  ) {
+    finalStem = `${safe}_${randomUUID().slice(0, 8)}`;
+  }
+  const newKey = keyFor(finalStem);
+  fs.renameSync(src, mediaPathFor(newKey));
+
+  const srcThumb = mediaPathFor(thumbKeyFor(storageKey));
+  if (fs.existsSync(srcThumb)) {
+    try {
+      fs.renameSync(srcThumb, mediaPathFor(thumbKeyFor(newKey)));
+    } catch {
+      /* thumbnail is regenerable */
+    }
+  }
+  return newKey;
+}
+
 // Remove a post image's display + thumbnail (best effort).
 export function deletePostImageFiles(storageKey: string) {
   for (const p of [mediaPathFor(storageKey), mediaPathFor(thumbKeyFor(storageKey))]) {

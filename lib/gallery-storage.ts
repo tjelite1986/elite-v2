@@ -424,6 +424,47 @@ export function extractVideoPoster(filePath: string): Buffer {
   }
 }
 
+// Rename a freshly ingested gallery item's files (original + thumb + preview) to
+// a canonical, self-describing basename within its yyyy/mm folder, so the stored
+// file round-trips through the importer. The original keeps its extension; thumb
+// and preview are ".jpg". `newStem` is assembled by the caller; here we only strip
+// path-breaking characters. Returns the new storage_key. A real collision gets a
+// short suffix.
+export function renameGalleryFiles(
+  userId: number,
+  storageKey: string,
+  newStem: string
+): string {
+  const dir = path.dirname(storageKey); // "yyyy/mm"
+  const ext = getExt(storageKey);
+  const safe =
+    newStem.replace(/[/:*?"<>| ]+/g, " ").replace(/\s+/g, " ").trim() || "media";
+
+  const origDir = path.join(userOriginalsDir(userId), dir);
+  ensureDir(origDir);
+  let finalStem = safe;
+  const probe = path.join(origDir, `${safe}.${ext}`);
+  const srcOrig = originalPathFor(userId, storageKey);
+  if (fs.existsSync(probe) && path.resolve(srcOrig) !== path.resolve(probe)) {
+    finalStem = `${safe}_${randomUUID().slice(0, 8)}`;
+  }
+  fs.renameSync(srcOrig, path.join(origDir, `${finalStem}.${ext}`));
+
+  // Thumb + preview live flat in their dirs, keyed by the basename stem.
+  const moveDeriv = (oldPath: string, destDir: string) => {
+    if (!fs.existsSync(oldPath)) return;
+    try {
+      fs.renameSync(oldPath, path.join(destDir, `${finalStem}.jpg`));
+    } catch {
+      /* derivative is regenerable */
+    }
+  };
+  moveDeriv(thumbPathFor(userId, storageKey), userThumbsDir(userId));
+  moveDeriv(previewPathFor(userId, storageKey), userPreviewsDir(userId));
+
+  return `${dir}/${finalStem}.${ext}`;
+}
+
 export function deleteMediaFiles(userId: number, storageKey: string) {
   for (const p of [
     originalPathFor(userId, storageKey),

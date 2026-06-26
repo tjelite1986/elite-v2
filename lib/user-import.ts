@@ -4,23 +4,37 @@ import { db } from "./db";
 import type { ShortChannel } from "./db";
 import { qb, getOne } from "./kysely";
 import {
-  PROFILE_ROOT,
   userHomeDir,
   storeShortUpload,
   profileFromFilename,
+  renameShortFiles,
 } from "./shorts-storage";
-import { storePostImage, authorSlug } from "./posts-storage";
+import { IMPORT_ROOT } from "./storage-roots";
+import { storePostImage, authorSlug, renamePostImageFiles } from "./posts-storage";
 import { ingestMedia } from "./gallery-ingest";
-import { getExt, isSupportedImage, isSupportedVideo } from "./gallery-storage";
+import { ingestUpload } from "./books";
+import {
+  getExt,
+  isSupportedImage,
+  isSupportedVideo,
+  renameGalleryFiles,
+} from "./gallery-storage";
 import { getProfileByUserId } from "./profiles";
 import { parseHashtags } from "./posts";
+import {
+  parseImportName,
+  canonicalStem,
+  type ParsedImportName,
+} from "./import-naming";
 
-// Per-user folder import. Each account owns a drop tree under its home:
-//   <PROFILE_ROOT>/u_<user>/_import/
-//       shorts/main/      -> the user's own shorts on the main channel
-//       shorts/18plus/    -> the user's own shorts on the 18+ channel
-//       posts/            -> the user's own photo posts
-//       gallery/          -> the user's own gallery items
+// Per-user folder import. Each account owns a top-level drop tree, separate from
+// its served storage:
+//   <IMPORT_ROOT>/u_<user>/
+//       shorts/    -> the user's own shorts on the main channel
+//       shorts18/  -> the user's own shorts on the 18+ channel
+//       posts/     -> the user's own photo posts
+//       gallery/   -> the user's own gallery items
+//       books/     -> ingested into the SHARED book library (attributed to user)
 // A user groups content two ways, both yielding the same named collection:
 //   1. drop files inside a SUBFOLDER  -> the folder name is the collection,
 //   2. name a file  "<title> [<collection>].<ext>"  -> e.g.
@@ -50,20 +64,8 @@ interface DropItem {
   collection: string | null; // set when the file came from a subfolder
 }
 
-// "title [collection].ext" stem -> { title, collection }. The bracket is the
-// collection; everything before it is the title. No bracket -> whole stem is the
-// title and the file imports loose (collection null).
-export function parseTitleCollection(stem: string): {
-  title: string;
-  collection: string | null;
-} {
-  const m = stem.match(/^(.*?)\s*\[([^\]]+)\]\s*$/);
-  if (m) {
-    const collection = m[2].trim() || null;
-    return { title: m[1].trim() || collection || "", collection };
-  }
-  return { title: stem.trim(), collection: null };
-}
+// parseImportName / canonicalStem / ParsedImportName now live in ./import-naming
+// (shared with the interactive upload routes).
 
 // Split a filename into [stem, dotExt], treating ".web.mp4" as one extension so
 // already-transcoded clips keep their readable stem.
@@ -126,15 +128,12 @@ function readMdSidecar(fileAbs: string): {
   return { caption, sidecar };
 }
 
-// Resolve a file's collection + title: a subfolder name always wins as the
-// collection; otherwise it comes from the filename's [bracket] token.
-function resolve(item: DropItem): { title: string; collection: string | null } {
+// Resolve a file's metadata: a drop subfolder always wins as the collection;
+// otherwise collection/title/hashtags/id come from the filename's [bracket] tokens.
+function resolve(item: DropItem): ParsedImportName {
   const [stem] = splitExt(item.name);
-  const parsed = parseTitleCollection(stem);
-  return {
-    title: parsed.title,
-    collection: item.collection ?? parsed.collection,
-  };
+  const parsed = parseImportName(stem);
+  return { ...parsed, collection: item.collection ?? parsed.collection };
 }
 
 // Delete a consumed source. Returns false if the container can't unlink it (e.g.
@@ -202,6 +201,33 @@ function findOrCreateAlbum(userId: number, name: string): number {
   );
 }
 
+// Re-import dedup: a stored file's name carries [id_<id>]. If that owned row
+// still exists the dropped file is a redundant copy of content already in the
+// library, so the caller skips it. (Numeric id only — books dedup by slug.)
+function rowExists(
+  table: "shorts" | "posts" | "gallery_items",
+  ownerCol: "uploader_id" | "author_user_id" | "user_id",
+  id: number,
+  userId: number
+): boolean {
+  return Boolean(
+    db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND ${ownerCol} = ?`).get(id, userId)
+  );
+}
+
+// Shorts have no tag table, so [h_] hashtags ride along in the caption text
+// (visible + searchable). Appends only the tags not already present.
+function captionWithHashtags(
+  base: string | null,
+  hashtags: string[]
+): string | null {
+  if (!hashtags.length) return base;
+  const present = new Set(parseHashtags(base ?? ""));
+  const extra = hashtags.filter((t) => !present.has(t)).map((t) => `#${t}`);
+  if (!extra.length) return base;
+  return `${base ? `${base} ` : ""}${extra.join(" ")}`.trim();
+}
+
 // --- Section importers ---------------------------------------------------
 
 async function importShortsSection(
@@ -214,9 +240,17 @@ async function importShortsSection(
   for (const item of collectItems(dir)) {
     const ext = getExt(item.name);
     if (!isSupportedVideo(item.name, "")) continue;
-    const { title, collection } = resolve(item);
+    const parsed = resolve(item);
+    const { title, collection } = parsed;
     const md = readMdSidecar(item.abs);
-    const caption = md.caption ?? (title || null);
+    if (parsed.siteId && rowExists("shorts", "uploader_id", parsed.siteId, userId)) {
+      consume(item.abs);
+      if (md.sidecar) consume(md.sidecar);
+      res.skipped++;
+      res.details.push(`shorts/${channel} ${item.name}: already imported as #${parsed.siteId}`);
+      continue;
+    }
+    const caption = captionWithHashtags(md.caption ?? (title || null), parsed.hashtags);
     let buffer: Buffer;
     try {
       buffer = fs.readFileSync(item.abs);
@@ -268,6 +302,22 @@ async function importShortsSection(
           "INSERT OR IGNORE INTO short_playlist_items (playlist_id, short_id) VALUES (?, ?)"
         ).run(playlistId, shortId);
       }
+      // Rename to the canonical self-describing name now that we know the id.
+      try {
+        const renamed = renameShortFiles(
+          channel,
+          stored.storageKey,
+          stored.posterKey,
+          canonicalStem(parsed, shortId, "clip")
+        );
+        db.prepare("UPDATE shorts SET storage_key = ?, poster_key = ? WHERE id = ?").run(
+          renamed.storageKey,
+          renamed.posterKey,
+          shortId
+        );
+      } catch {
+        /* keep the original stored name if the rename fails */
+      }
       consume(item.abs);
       if (md.sidecar) consume(md.sidecar);
       res.imported++;
@@ -304,8 +354,15 @@ async function importPostsSection(
   for (const item of collectItems(dir)) {
     if (!isSupportedImage(item.name, "")) continue;
     const [stem] = splitExt(item.name);
-    const parsed = parseTitleCollection(stem);
+    const parsed = parseImportName(stem);
     const md = readMdSidecar(item.abs);
+    if (parsed.siteId && rowExists("posts", "author_user_id", parsed.siteId, userId)) {
+      consume(item.abs);
+      if (md.sidecar) consume(md.sidecar);
+      res.skipped++;
+      res.details.push(`posts ${item.name}: already imported as #${parsed.siteId}`);
+      continue;
+    }
     const caption = md.caption ?? (parsed.collection ? parsed.title || null : null);
     let buffer: Buffer;
     try {
@@ -317,16 +374,18 @@ async function importPostsSection(
     try {
       const stored = await storePostImage(slug, item.name, "", buffer, userHome);
       const postId = Number(insertPost.run(userId, caption).lastInsertRowid);
-      insertMedia.run(
-        postId,
-        stored.storageKey,
-        "image/jpeg",
-        stored.width,
-        stored.height
-      );
-      if (caption) {
-        for (const tag of parseHashtags(caption)) insertHashtag.run(postId, tag);
+      // Rename to a site-relevant self-describing name now that we know the id.
+      let mediaKey = stored.storageKey;
+      try {
+        mediaKey = renamePostImageFiles(stored.storageKey, canonicalStem(parsed, postId, "post"));
+      } catch {
+        /* keep the original stored name if the rename fails */
       }
+      insertMedia.run(postId, mediaKey, "image/jpeg", stored.width, stored.height);
+      // Hashtags from the caption AND the filename's [h_] tokens.
+      const tags = new Set<string>(parsed.hashtags);
+      if (caption) for (const t of parseHashtags(caption)) tags.add(t);
+      for (const tag of Array.from(tags)) insertHashtag.run(postId, tag);
       consume(item.abs);
       if (md.sidecar) consume(md.sidecar);
       res.imported++;
@@ -345,7 +404,14 @@ async function importGallerySection(
 ) {
   for (const item of collectItems(dir)) {
     if (!isSupportedImage(item.name, "") && !isSupportedVideo(item.name, "")) continue;
-    const { title, collection } = resolve(item);
+    const parsed = resolve(item);
+    const { title, collection } = parsed;
+    if (parsed.siteId && rowExists("gallery_items", "user_id", parsed.siteId, userId)) {
+      consume(item.abs);
+      res.skipped++;
+      res.details.push(`gallery ${item.name}: already imported as #${parsed.siteId}`);
+      continue;
+    }
     const [, ext] = splitExt(item.name);
     // Store under a clean name (drop the [collection] token) but keep the title.
     const storeName = `${title || "media"}${ext}`;
@@ -370,11 +436,76 @@ async function importGallerySection(
           "INSERT OR IGNORE INTO gallery_album_items (album_id, item_id) VALUES (?, ?)"
         ).run(albumId, id);
       }
+      // Rename the uuid file to the canonical self-describing name (keeps yyyy/mm).
+      try {
+        const cur = getOne<{ storage_key: string }>(
+          qb.selectFrom("gallery_items").select("storage_key").where("id", "=", id)
+        );
+        if (cur) {
+          const newKey = renameGalleryFiles(userId, cur.storage_key, canonicalStem(parsed, id));
+          db.prepare("UPDATE gallery_items SET storage_key = ? WHERE id = ?").run(newKey, id);
+        }
+      } catch {
+        /* keep the original stored name if the rename fails */
+      }
+      // Hashtags from the filename's [h_] tokens -> gallery_tags (owned item).
+      if (parsed.hashtags.length) {
+        const insTag = db.prepare(
+          "INSERT OR IGNORE INTO gallery_tags (item_id, tag) VALUES (?, ?)"
+        );
+        for (const t of parsed.hashtags) insTag.run(id, t);
+      }
       consume(item.abs);
       res.imported++;
     } catch (err) {
       res.skipped++;
       res.details.push(`gallery ${item.name}: ${(err as Error).message}`);
+    }
+  }
+  pruneEmptyDirs(dir);
+}
+
+const BOOK_EXTS = new Set(["epub", "pdf", "cbz", "zip"]);
+function isSupportedBook(name: string): boolean {
+  return BOOK_EXTS.has(getExt(name));
+}
+function bookTitleExists(title: string): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM books WHERE title = ?").get(title));
+}
+
+// Books are a SHARED library (not per-user): a dropped book is ingested into the
+// common BOOKS_ROOT via lib/books.ingestUpload (slug-keyed name + cover), only
+// attributed to the dropping user (added_by). Dedup is by title (the slug PK),
+// not by [id_] — books have no numeric id.
+async function importBooksSection(
+  userId: number,
+  dir: string,
+  res: ImportSummary
+) {
+  for (const item of collectItems(dir)) {
+    if (!isSupportedBook(item.name)) continue;
+    const [stem] = splitExt(item.name);
+    const title = parseImportName(stem).title || stem;
+    if (bookTitleExists(title)) {
+      consume(item.abs);
+      res.skipped++;
+      res.details.push(`books ${item.name}: already in library ("${title}")`);
+      continue;
+    }
+    let buffer: Buffer;
+    try {
+      buffer = fs.readFileSync(item.abs);
+    } catch {
+      res.skipped++;
+      continue;
+    }
+    try {
+      await ingestUpload({ buffer, filename: item.name, title, addedBy: userId });
+      consume(item.abs);
+      res.imported++;
+    } catch (err) {
+      res.skipped++;
+      res.details.push(`books ${item.name}: ${(err as Error).message}`);
     }
   }
   pruneEmptyDirs(dir);
@@ -412,7 +543,7 @@ export async function runUserFolderImport(opts?: {
   let homes: string[];
   try {
     homes = fs
-      .readdirSync(PROFILE_ROOT, { withFileTypes: true })
+      .readdirSync(IMPORT_ROOT, { withFileTypes: true })
       .filter((e) => e.isDirectory() && e.name.startsWith("u_"))
       .map((e) => e.name);
   } catch {
@@ -429,7 +560,7 @@ export async function runUserFolderImport(opts?: {
     ) {
       continue;
     }
-    const base = path.join(PROFILE_ROOT, home, "_import");
+    const base = path.join(IMPORT_ROOT, home);
     if (!fs.existsSync(base)) continue;
     res.users++;
 
@@ -437,18 +568,19 @@ export async function runUserFolderImport(opts?: {
       user.userId,
       user.username,
       "main",
-      path.join(base, "shorts", "main"),
+      path.join(base, "shorts"),
       res
     );
     await importShortsSection(
       user.userId,
       user.username,
       "18plus",
-      path.join(base, "shorts", "18plus"),
+      path.join(base, "shorts18"),
       res
     );
     await importPostsSection(user.userId, user.username, path.join(base, "posts"), res);
     await importGallerySection(user.userId, path.join(base, "gallery"), res);
+    await importBooksSection(user.userId, path.join(base, "books"), res);
   }
 
   return res;
