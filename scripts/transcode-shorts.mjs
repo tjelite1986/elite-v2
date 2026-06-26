@@ -22,11 +22,12 @@ import path from "node:path";
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const SHORTS_ROOT = process.env.SHORTS_ROOT || "/shorts-store";
-// Per-user uploads live under PROFILE_ROOT/u_<user>/shorts/<channel>/... — their
+// Per-user uploads live under PROFILE_ROOT/u_<user>/{shorts,shorts18}/... — their
 // storage_key is self-describing (matches isUploadKey), so resolve those there
-// instead of under the shared SHORTS_ROOT/<channel> creator layout.
+// instead of under the shared SHORTS_ROOT/<channel> creator layout. Keep this
+// regex in sync with lib/shorts-storage.ts (shorts18 matched before shorts).
 const PROFILE_ROOT = process.env.PROFILE_ROOT || "/profile-store";
-const isUploadKey = (key) => /^u_[^/]+\/shorts\//.test(key);
+const isUploadKey = (key) => /^u_[^/]+\/(?:shorts18|shorts)\//.test(key);
 const LOCK = "/tmp/elitev2-shorts-transcode.lock";
 
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
