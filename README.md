@@ -99,8 +99,8 @@ The app needs a few secret settings to run. Create a file named `.env` in the
 `elite-v2` folder with this content:
 
 ```bash
-# A long random string used to keep logins secure — change this to anything.
-JWT_SECRET=change-me-to-a-long-random-string
+# Secret key used to sign your login sessions (see note below).
+JWT_SECRET=paste-a-long-random-value-here
 
 # The login for the first admin account, created automatically on first start.
 ADMIN_EMAIL=you@example.com
@@ -110,6 +110,28 @@ ADMIN_PASSWORD=pick-a-password
 These three are the minimum needed to start. Every other setting (email,
 storage folders, push notifications, etc.) is optional and listed under
 [Configuration](#configuration) below.
+
+> **What is `JWT_SECRET`?** It's the secret key the app uses to sign your login
+> sessions. When you log in, the app gives your browser a signed token; on every
+> request it checks that token was signed with this exact key. Anyone who knows
+> the value could forge logins and impersonate any user — so keep it secret,
+> never commit it, and make it long and random.
+>
+> You don't strictly need a command — any long string of letters and numbers
+> works — but a made-up one is easier to guess, so generating a random value is
+> strongly recommended:
+>
+> ```bash
+> # With OpenSSL (available on macOS/Linux):
+> openssl rand -base64 32
+>
+> # Or with Node (which you already installed):
+> node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+> ```
+>
+> Run either one, copy the output, and paste it as the `JWT_SECRET` value.
+> Note: if you change `JWT_SECRET` later, everyone's existing sessions become
+> invalid and they'll have to log in again.
 
 **Step 4 — Start the app:**
 
