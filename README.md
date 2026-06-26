@@ -148,19 +148,64 @@ run `npm run dev` from the `elite-v2` folder (steps 1–3 are one-time setup).
 > **Want to host it on a server for real (not just your own computer)?** Use the
 > Docker + Traefik setup described under [Deployment](#deployment) instead.
 
-### Scripts
+### Commands you'll use
 
-| Script          | Description                                  |
-| --------------- | -------------------------------------------- |
-| `npm run dev`   | Start the dev server on port 3020            |
-| `npm run build` | Production build                             |
-| `npm start`     | Run the production custom server (`server.mjs`) |
-| `npm run lint`  | Run ESLint                                    |
+These are the everyday commands, run from inside the `elite-v2` folder:
 
-Background jobs (Instagram/shorts/posts import, polling, transcoding,
-duplicate scans, story cleanup, app-update checks) run as host **systemd
-timers** — see `deploy/systemd/` and `scripts/systemd/`. The corresponding
-scripts live in `scripts/`.
+| Command         | What it does                                  |
+| --------------- | --------------------------------------------- |
+| `npm run dev`   | Start the app for local development (port 3020). |
+| `npm run build` | Build the optimized production version.       |
+| `npm start`     | Run the production server (`server.mjs`) after a build. |
+| `npm run lint`  | Check the code for style/quality problems.    |
+
+For just trying the app out, `npm run dev` is all you need.
+
+### Background jobs (optional — only for a real server)
+
+The project also ships helper scripts in the `scripts/` folder for things like
+importing media, polling for new shorts, transcoding videos, cleaning up old
+stories, and checking for app updates.
+
+**These do NOT run on their own.** Nothing happens automatically just because
+you started the app — the scripts only run when something triggers them. On the
+production server they're triggered on a schedule by **systemd timers** (the
+unit files in `deploy/systemd/` and `scripts/systemd/`). If you skip this, the
+app still works fully; you just won't get the automatic background imports and
+maintenance.
+
+**If you don't need them:** ignore this section. You can run any script by hand
+whenever you want instead, e.g. `node scripts/transcode-shorts.mjs`.
+
+**If you do want them to run automatically**, you have to install and enable the
+timers yourself — they are not set up for you. On a Linux host:
+
+```bash
+# Copy the timer + service files to systemd, then enable them.
+sudo cp deploy/systemd/elitev2-*.{service,timer} /etc/systemd/system/
+sudo cp scripts/systemd/elitev2-*.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now elitev2-shorts-import.timer   # repeat per timer you want
+```
+
+**Important — you almost certainly need to edit the unit files first.** They
+were written for this specific machine and contain hard-coded values that won't
+match your setup:
+
+- **Folder paths** — e.g. `/mnt/4tb/elitev2/profile` and
+  `/home/thomas/code/elite-v2`. Change these to wherever *your* storage folders
+  and project live.
+- **Container name** — most services run a command inside the Docker container
+  named `elitev2` (`docker exec elitev2 ...`). If your container has a different
+  name, update it.
+- **User/Group** — they run as `User=thomas` / `Group=thomas`. Change to your
+  own username.
+- **Secrets** — e.g. `APP_UPDATE_SECRET`. Set these to match your `.env`.
+
+Open each `.service` file, adjust those lines, then run the
+`daemon-reload` + `enable --now` commands above. Check that a timer is active
+with `systemctl list-timers | grep elitev2`, and view a job's output with
+`journalctl -u elitev2-shorts-import.service`.
 
 ## Configuration
 
