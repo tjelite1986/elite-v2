@@ -137,7 +137,7 @@ export default function AdminPage() {
     <main className="text-white px-8 pb-8 pt-6">
       <div className="mx-auto max-w-3xl">
         <div className="mb-8 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Registration codes</h1>
+          <h1 className="text-2xl font-semibold">Admin</h1>
           <Link href="/" className="text-sm text-white/60 hover:text-white">
             ← Back
           </Link>
@@ -198,6 +198,7 @@ export default function AdminPage() {
         )}
 
         {/* Generate / invite */}
+        <h2 className="mb-3 text-lg font-medium">Registration codes</h2>
         <div className="mb-4 flex flex-col gap-3 sm:flex-row">
           <input
             value={note}
