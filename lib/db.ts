@@ -983,6 +983,28 @@ function migrate(db: Database.Database) {
       "CREATE INDEX IF NOT EXISTS idx_apps_source ON apps(source, update_available)"
     );
   }
+
+  // Background-job scheduler. Each row is one job from lib/jobs-runtime.mjs the
+  // admin can enable/disable and schedule from the in-app Background Jobs panel,
+  // replacing the host systemd timers. The runtime (server.mjs) owns the writes;
+  // name/description are seeded from the registry so the API can render the list
+  // without importing the registry.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS job_schedules (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      interval_seconds INTEGER NOT NULL,
+      last_run_at TEXT,
+      last_status TEXT,
+      last_duration_ms INTEGER,
+      last_output TEXT,
+      next_run_at TEXT,
+      running INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
 }
 
 // Bootstrap an admin account from env on first run so codes can be created.
