@@ -1,6 +1,8 @@
 import Shorts18Tabs from "@/components/shorts18-tabs";
 import Shorts18Gate from "@/components/shorts-18-gate";
 import { has18Access, getPin } from "@/lib/shorts-gate";
+import { getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +19,11 @@ export default async function Shorts18Layout({
     return <Shorts18Gate configured={getPin() !== null} />;
   }
 
+  const session = await getSession();
+  const canSettings = hasPermission(session, "shorts18_settings");
   return (
     <>
-      <Shorts18Tabs />
+      <Shorts18Tabs canSettings={canSettings} />
       {children}
     </>
   );

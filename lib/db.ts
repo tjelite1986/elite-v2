@@ -610,6 +610,16 @@ function migrate(db: Database.Database) {
       earned_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (user_id, badge_id)
     );
+
+    -- Admin-granted per-user capabilities (keys defined in lib/permissions.ts).
+    -- A row's presence = granted. Admins implicitly have every permission, so
+    -- they need no rows here. Gates settings-page visibility per section.
+    CREATE TABLE IF NOT EXISTS user_permissions (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      permission TEXT NOT NULL,
+      granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, permission)
+    );
   `);
 
   // Backfill the Instagram-sync columns on profile_extras for older databases.
