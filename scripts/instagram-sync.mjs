@@ -213,7 +213,7 @@ let totalAdded = 0;
 const results = [];
 
 for (const [i, t] of targets.entries()) {
-  if (i > 0) sleepMs(4000 + Math.floor(Math.random() * 4000)); // 4–8s between profiles
+  if (i > 0) sleepMs(8000 + Math.floor(Math.random() * 7000)); // 8–15s between profiles
   setSyncing.run(t.handle);
   log(`sync ${t.handle} <- instagram.com/${t.instagram_handle} (mode=${mode})`);
   let r;
