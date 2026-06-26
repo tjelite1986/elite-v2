@@ -169,6 +169,27 @@ function pruneEmptyDirs(sectionDir: string) {
   }
 }
 
+// A subfolder on the 18+ channel maps to a creator profile (like the auto-poll
+// creators), so the folder shows up in /shorts18/profiles. Find-or-create a
+// `manual` short_profiles row for the channel, matched by exact name.
+function findOrCreateShortProfile(name: string, channel: ShortChannel): number {
+  const row = getOne<{ id: number }>(
+    qb
+      .selectFrom("short_profiles")
+      .select("id")
+      .where("channel", "=", channel)
+      .where("name", "=", name)
+  );
+  if (row) return row.id;
+  return Number(
+    db
+      .prepare(
+        "INSERT INTO short_profiles (name, channel, source_type, source_ref, auto_poll, videos_limit) VALUES (?, ?, 'manual', '', 0, 20)"
+      )
+      .run(name, channel).lastInsertRowid
+  );
+}
+
 function findOrCreatePlaylist(userId: number, name: string): number {
   const row = getOne<{ id: number }>(
     qb
@@ -274,16 +295,25 @@ async function importShortsSection(
         subdir
       );
       const status = WEB_PLAYABLE.has(ext) ? "ready" : "pending";
+      // On the 18+ channel a subfolder / [f_] becomes a CREATOR PROFILE (shown in
+      // /shorts18/profiles) and its clips are PUBLIC, like the auto-poll creators.
+      // Everywhere else a collection stays a private playlist (current behavior).
+      const asProfile = channel === "18plus" && !!collection;
+      const profileId = asProfile
+        ? findOrCreateShortProfile(collection as string, "18plus")
+        : null;
+      const isPrivate = asProfile ? 0 : 1;
       const shortId = Number(
         db
           .prepare(
             `INSERT INTO shorts
-               (channel, uploader_id, caption, storage_key, poster_key, mime_type,
-                width, height, duration, size_bytes, source, status, is_private)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, 1)`
+               (channel, profile_id, uploader_id, caption, storage_key, poster_key,
+                mime_type, width, height, duration, size_bytes, source, status, is_private)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, ?)`
           )
           .run(
             channel,
+            profileId,
             userId,
             caption,
             stored.storageKey,
@@ -293,10 +323,11 @@ async function importShortsSection(
             stored.height,
             stored.duration,
             stored.sizeBytes,
-            status
+            status,
+            isPrivate
           ).lastInsertRowid
       );
-      if (collection) {
+      if (collection && !asProfile) {
         const playlistId = findOrCreatePlaylist(userId, collection);
         db.prepare(
           "INSERT OR IGNORE INTO short_playlist_items (playlist_id, short_id) VALUES (?, ?)"
