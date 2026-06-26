@@ -6,6 +6,7 @@ import { Trash2 } from "lucide-react";
 import { InviteDialog } from "@/components/ui/invite-dialog";
 import UserImportButton from "@/components/user-import-button";
 import JobsManager from "@/components/jobs-manager";
+import UserPermissions from "@/components/user-permissions";
 
 interface CodeItem {
   id: number;
@@ -238,6 +239,9 @@ export default function AdminPage() {
 
         {/* Background jobs scheduler */}
         <JobsManager />
+
+        {/* Per-user settings-page permissions */}
+        <UserPermissions />
 
         {/* Desktop: table */}
         <div className="hidden overflow-hidden rounded-2xl border border-white/10 md:block">
