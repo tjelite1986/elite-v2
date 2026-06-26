@@ -138,7 +138,9 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 
 ## Deployment
 
-Built and run as a Docker container behind a Traefik reverse proxy:
+Built and run as a Docker container behind a [Traefik](https://traefik.io)
+reverse proxy that terminates TLS (Let's Encrypt via the Cloudflare DNS
+challenge).
 
 ```bash
 docker compose build
@@ -146,11 +148,75 @@ docker compose up -d
 ```
 
 > Operationally deployed from `docker2/compose/elitev2/` on the host (that dir
-> holds the `.env` and Traefik labels). `--no-cache` is only needed when
-> `package.json` changes.
+> holds the `.env` and the Traefik labels below). `--no-cache` is only needed
+> when `package.json` changes.
 
 The SQLite database and uploaded media live in a persistent volume mounted at
 `DATA_DIR` (plus the dedicated storage roots above).
+
+### Putting it behind Traefik
+
+The container does **not** publish ports. Traefik discovers it over a shared
+Docker network and routes by hostname, so both the app and Traefik must be on
+the same external network (here named `traefik`):
+
+```yaml
+# docker-compose.yml (excerpt)
+services:
+  elitev2:
+    build:
+      context: /home/thomas/code/elite-v2
+      dockerfile: Dockerfile
+    container_name: elitev2
+    restart: unless-stopped
+    networks:
+      - traefik           # same external network Traefik runs on
+    environment:
+      - NODE_ENV=production
+      - PORT=3000         # internal port Traefik forwards to
+      - HOSTNAME=0.0.0.0
+      # ...app env vars (see Configuration) loaded from .env...
+    volumes:
+      - elitev2_data:/app/data
+      # ...storage-root bind mounts...
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.elitev2-secure.rule=Host(`elitev2.mecloud.win`)"
+      - "traefik.http.routers.elitev2-secure.entrypoints=https"
+      - "traefik.http.routers.elitev2-secure.tls=true"
+      - "traefik.http.routers.elitev2-secure.tls.certresolver=cloudflare"
+      - "traefik.http.services.elitev2-service.loadbalancer.server.port=3000"
+
+volumes:
+  elitev2_data:
+
+networks:
+  traefik:
+    external: true        # created/owned by the Traefik stack
+```
+
+What each label does:
+
+| Label | Purpose |
+| ----- | ------- |
+| `traefik.enable=true` | Opt this container in to Traefik routing. |
+| `routers.elitev2-secure.rule=Host(...)` | Match requests for the public hostname. Point a DNS record at the host. |
+| `routers.elitev2-secure.entrypoints=https` | Serve on the HTTPS entrypoint (`:443`). |
+| `routers.elitev2-secure.tls=true` + `tls.certresolver=cloudflare` | Terminate TLS using the `cloudflare` ACME resolver defined in Traefik's static config. |
+| `services.elitev2-service.loadbalancer.server.port=3000` | Forward to the container's internal port (`PORT`), since no ports are published. |
+
+Prerequisites on the Traefik side (configured once, in Traefik's own static
+config — not here):
+
+- An `https` entrypoint on `:443` (with an `http` → `https` redirect on `:80`).
+- A `cloudflare` `certResolver` using the Cloudflare DNS-01 challenge
+  (Cloudflare API token + ACME email), so wildcard/subdomain certs for
+  `*.mecloud.win` are issued automatically.
+- The external `traefik` Docker network, which this stack joins.
+
+When all of that is in place, `docker compose up -d` is enough — Traefik picks
+up the new container via the Docker provider and starts routing
+`https://elitev2.mecloud.win` to it.
 
 ## Screenshots
 
