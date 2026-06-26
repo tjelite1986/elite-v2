@@ -277,6 +277,62 @@ When all of that is in place, `docker compose up -d` is enough — Traefik picks
 up the new container via the Docker provider and starts routing
 `https://elitev2.mecloud.win` to it.
 
+## Troubleshooting
+
+Common problems and how to fix them.
+
+**`npm run dev` exits immediately or says `JWT_SECRET` is missing.**
+The app needs the settings from step 3. Make sure there is a file named exactly
+`.env` (not `.env.txt`) in the `elite-v2` folder, and that it contains at least
+`JWT_SECRET`. Then run `npm run dev` again.
+
+**"Port 3020 is already in use" (or the page won't load).**
+Another program — often an old copy of this app — is using the port. Stop it
+with `Ctrl + C` in the terminal where it's running, or start this one on a
+different port: `npm run dev -- -p 3025`, then open `http://localhost:3025`.
+
+**`npm install` fails while building `better-sqlite3` or `sharp`.**
+These are native modules that compile on install. On Linux you need the build
+tools first: `sudo apt-get install -y python3 make g++`. On macOS, install the
+Xcode command line tools with `xcode-select --install`. Then run `npm install`
+again.
+
+**The app starts but uploading/processing images fails (`sharp` error).**
+`sharp` needs the binary that matches your machine. Reinstall it fresh:
+`npm rebuild sharp`, or remove `node_modules` and run `npm install` again.
+(The lockfile here is generated on a Raspberry Pi / arm64, so on other platforms
+`sharp`'s binary may need this rebuild — the CI workflow does the same thing.)
+
+**I can't create a new account — registration is blocked.**
+That's by design: Elite v2 is **invite-only**. The first admin account is
+created from `ADMIN_EMAIL` / `ADMIN_PASSWORD` on first start. Log in as that
+admin and generate a registration code (or approve an invite request) for
+anyone else.
+
+**Login keeps failing even with the right password.**
+After several failed attempts the login is temporarily throttled (a security
+feature). Wait a few minutes and try again. If you genuinely forgot the admin
+password, stop the app, set a new `ADMIN_PASSWORD` in `.env`, and restart — but
+note the admin account is only seeded if it doesn't already exist, so for an
+existing account you'll need to reset it in the database.
+
+**Docker: the site shows "Bad Gateway" or a 404 from Traefik.**
+Usually one of: the container isn't on the same external `traefik` network; the
+`loadbalancer.server.port` label doesn't match the container's internal `PORT`
+(both must be `3000`); or the `Host(...)` rule doesn't match the domain you're
+visiting. Check `docker logs elitev2` and confirm the labels in
+[Deployment](#deployment).
+
+**Docker: `better-sqlite3` crashes with `ERR_DLOPEN_FAILED` at startup.**
+The native module was built against a different Node version than the one in the
+image. Rebuild the image without cache so it compiles against the right runtime:
+`docker compose build --no-cache && docker compose up -d`.
+
+**Docker: "permission denied" writing to a mounted storage folder.**
+The container writes as a non-root user. Make sure the host folders mounted as
+storage roots (gallery, posts, shorts, etc.) are writable — e.g.
+`chmod -R 777 /path/to/storage` for a quick local fix.
+
 ## Screenshots
 
 | Messaging | Navigation | Account menu |
