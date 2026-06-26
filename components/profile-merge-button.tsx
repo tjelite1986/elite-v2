@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GitMerge, X, Check } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 
 interface Account {
   username: string;
@@ -15,6 +16,8 @@ interface Account {
 export default function ProfileMergeButton({ targetHandle }: { targetHandle: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Device Back closes the merge sheet instead of leaving the page.
+  useBackDismiss(open, () => setOpen(false));
   const [q, setQ] = useState("");
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [source, setSource] = useState<string | null>(null);

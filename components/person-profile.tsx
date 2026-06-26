@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, Pencil, X, Link as LinkIcon, MapPin, CalendarDays } from "lucide-react";
+import { Camera, Pencil, X, Link as LinkIcon, MapPin, CalendarDays, Lock } from "lucide-react";
 
 // "Member since June 2026" from a sqlite datetime string.
 function memberSinceLabel(value: string): string {
@@ -30,6 +30,7 @@ function linkLabel(l: { label: string; url: string }): string {
   }
 }
 import PostAvatar from "@/components/post-avatar";
+import ProfileBadges from "@/components/profile-badges";
 import FollowButton from "@/components/follow-button";
 import PostFeed from "@/components/post-feed";
 import PostGrid from "@/components/post-grid";
@@ -297,6 +298,29 @@ export default function PersonProfile({
                     ? "Add a bio and links from Edit profile."
                     : "No bio yet."}
                 </p>
+              )}
+
+              {/* Earned achievement badges. */}
+              {person.badges.length > 0 && (
+                <ProfileBadges badges={person.badges} />
+              )}
+
+              {/* Custom fields (private ones already filtered server-side; the
+                  owner sees a lock on their own private fields). */}
+              {person.fields.length > 0 && (
+                <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1 text-sm">
+                  {person.fields.map((f, i) => (
+                    <div key={i} className="contents">
+                      <dt className="flex items-center gap-1 text-white/40">
+                        {!f.public && person.isOwn && (
+                          <Lock size={11} className="shrink-0" />
+                        )}
+                        {f.label}
+                      </dt>
+                      <dd className="min-w-0 break-words text-white/80">{f.value}</dd>
+                    </div>
+                  ))}
+                </dl>
               )}
 
               {/* Location + member since */}

@@ -70,6 +70,11 @@ export async function PATCH(
     sets.push("location_name = ?");
     values.push(l);
   }
+  if ("rating" in body) {
+    const r = Math.max(0, Math.min(5, Math.round(Number(body.rating) || 0)));
+    sets.push("rating = ?");
+    values.push(String(r));
+  }
 
   if (sets.length === 0) {
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });

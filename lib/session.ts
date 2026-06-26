@@ -11,6 +11,9 @@ export interface SessionPayload {
   // real admin behind the session, used to render the "acting as" banner and to
   // return to admin. Lives inside the signed JWT, so it can't be forged.
   imp?: { sub: string; email: string };
+  // JWT id — the device/session row this token belongs to. Present on tokens
+  // minted at login/register; absent on impersonation and legacy tokens.
+  jti?: string;
 }
 
 function getSecret(): Uint8Array {
@@ -22,7 +25,7 @@ function getSecret(): Uint8Array {
 }
 
 export async function createSessionToken(payload: SessionPayload): Promise<string> {
-  return new SignJWT({
+  const jwt = new SignJWT({
     email: payload.email,
     role: payload.role,
     ...(payload.imp ? { imp: payload.imp } : {}),
@@ -30,8 +33,9 @@ export async function createSessionToken(payload: SessionPayload): Promise<strin
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
-    .setExpirationTime("7d")
-    .sign(getSecret());
+    .setExpirationTime("7d");
+  if (payload.jti) jwt.setJti(payload.jti);
+  return jwt.sign(getSecret());
 }
 
 export async function verifySessionToken(
@@ -44,6 +48,7 @@ export async function verifySessionToken(
       email: String(payload.email),
       role: (payload.role as "user" | "admin") ?? "user",
     };
+    if (typeof payload.jti === "string") result.jti = payload.jti;
     // Accept `imp` only when well-formed, so a malformed claim can't break the
     // banner / return-to-admin logic.
     const imp = payload.imp as unknown;

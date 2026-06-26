@@ -40,6 +40,7 @@ ENV DATA_DIR=/app/data
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        libheif-examples ffmpeg curl ca-certificates python3 python3-pip \
+       poppler-utils \
   && pip3 install --no-cache-dir --break-system-packages gallery-dl instaloader \
   && rm -rf /var/lib/apt/lists/*
 

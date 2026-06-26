@@ -37,7 +37,10 @@ for (const [addr, prefix] of [
 for (const [addr, prefix] of [
   ["::", 128], // unspecified
   ["::1", 128], // loopback
-  ["::ffff:0:0", 96], // IPv4-mapped
+  // NOTE: ::ffff:0:0/96 (IPv4-mapped) intentionally omitted — net.BlockList
+  // matches IPv4 addresses against IPv4-mapped IPv6 subnets, so including it
+  // blocks EVERY IPv4 address. IPv4 is already covered by the ipv4 ranges and
+  // dns.lookup never returns mapped forms.
   ["64:ff9b::", 96], // NAT64
   ["100::", 64], // discard-only
   ["fc00::", 7], // unique-local

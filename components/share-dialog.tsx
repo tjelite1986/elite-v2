@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { X, Loader2, Send } from "lucide-react";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 
 export type SharePayload =
   | { type: "photos"; ids: number[] }
@@ -38,6 +39,9 @@ export function ShareDialog({ open, payload, onClose, onShared }: ShareDialogPro
       .then((d) => setUsers(d.users))
       .catch(() => setUsers([]));
   }, [open]);
+
+  // Device Back closes the share dialog instead of leaving the page.
+  useBackDismiss(open, onClose);
 
   if (!open || !payload) return null;
 

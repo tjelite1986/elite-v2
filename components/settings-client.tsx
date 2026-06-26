@@ -5,15 +5,26 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
+import PushToggle from "@/components/push-toggle";
+import SessionsManager from "@/components/sessions-manager";
+import AppearanceSettings from "@/components/appearance-settings";
 
 interface SettingsClientProps {
   isAdmin: boolean;
   showAdultOutside: boolean;
+  accent: string;
+  bgTheme: string;
+  accentPresets: string[];
+  bgThemes: { key: string; label: string; css: string }[];
 }
 
 export default function SettingsClient({
   isAdmin,
   showAdultOutside,
+  accent,
+  bgTheme,
+  accentPresets,
+  bgThemes,
 }: SettingsClientProps) {
   const router = useRouter();
   const [currentPassword, setCurrentPassword] = useState("");
@@ -185,6 +196,20 @@ export default function SettingsClient({
             </button>
           </form>
         </div>
+
+        {/* Appearance: accent + background theme */}
+        <AppearanceSettings
+          initialAccent={accent}
+          initialBg={bgTheme}
+          accentPresets={accentPresets}
+          bgThemes={bgThemes}
+        />
+
+        {/* Push notifications */}
+        <PushToggle />
+
+        {/* Active sessions / device management */}
+        <SessionsManager />
 
         {/* 18+ content visibility */}
         <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-8">

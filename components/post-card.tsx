@@ -4,7 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Heart, MessageCircle, X, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 import PostAvatar from "@/components/post-avatar";
+import Markdown from "@/components/markdown";
+import MentionInput from "@/components/mention-input";
 import type { FeedPost } from "@/lib/posts";
 
 function relativeTime(s: string): string {
@@ -24,6 +27,9 @@ export default function PostCard({ post }: { post: FeedPost }) {
   const [showComments, setShowComments] = useState(false);
   const [active, setActive] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
+
+  // Device Back closes the comments sheet instead of leaving the feed.
+  useBackDismiss(showComments, () => setShowComments(false));
 
   const handle = post.author.username ?? "unknown";
 
@@ -133,12 +139,12 @@ export default function PostCard({ post }: { post: FeedPost }) {
           </div>
         )}
         {post.caption && (
-          <p className="mt-0.5 text-sm text-white/90">
+          <div className="mt-0.5 text-sm text-white/90">
             <Link href={`/people/${handle}`} className="mr-1.5 font-semibold text-white">
               {handle}
             </Link>
-            {post.caption}
-          </p>
+            <Markdown text={post.caption} className="inline [&_p]:inline" />
+          </div>
         )}
         {commentCount > 0 && (
           <button
@@ -189,8 +195,8 @@ function CommentsSheet({
       .finally(() => setLoading(false));
   }, [postId]);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const submit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     const body = input.trim();
     if (!body) return;
     setInput("");
@@ -235,15 +241,15 @@ function CommentsSheet({
           {comments.map((c) => (
             <div key={c.id} className="flex items-start gap-2.5 text-sm">
               <PostAvatar username={c.author_username} size={28} />
-              <p className="text-white/90">
+              <div className="text-white/90">
                 <Link
                   href={`/people/${c.author_username ?? "unknown"}`}
                   className="mr-1.5 font-semibold text-white"
                 >
                   {c.author_username ?? "unknown"}
                 </Link>
-                {c.body}
-              </p>
+                <Markdown text={c.body} className="inline [&_p]:inline" />
+              </div>
             </div>
           ))}
         </div>
@@ -251,11 +257,13 @@ function CommentsSheet({
           onSubmit={submit}
           className="flex items-center gap-2 border-t border-white/10 p-3"
         >
-          <input
+          <MentionInput
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={setInput}
+            onSubmit={() => submit()}
             placeholder="Add a comment…"
-            className="flex-1 rounded-full bg-white/10 px-4 py-2 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+            wrapperClassName="flex-1"
+            className="w-full rounded-full bg-white/10 px-4 py-2 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
           />
           <button
             type="submit"

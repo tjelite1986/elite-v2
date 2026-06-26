@@ -31,8 +31,9 @@ export default function TopNav({
     { label: "Gallery", action: "gallery" },
     { label: "Photos", action: "posts" },
     { label: "Shorts", action: "shorts" },
-    { label: "Shorts 18+", action: "shorts18" },
-    { label: "App Store", action: "app-store" },
+    { label: "18+", action: "shorts18" },
+    { label: "Books", action: "books" },
+    { label: "Store", action: "app-store" },
   ];
 
   const activeAction =
@@ -50,9 +51,11 @@ export default function TopNav({
                 ? "shorts18"
                 : pathname.startsWith("/shorts")
                   ? "shorts"
-                  : pathname.startsWith("/store")
-                    ? "app-store"
-                    : "";
+                  : pathname.startsWith("/books")
+                    ? "books"
+                    : pathname.startsWith("/store")
+                      ? "app-store"
+                      : "";
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -69,6 +72,7 @@ export default function TopNav({
     if (action === "posts") router.push("/posts");
     if (action === "shorts") router.push("/shorts");
     if (action === "shorts18") router.push("/shorts18");
+    if (action === "books") router.push("/books");
     if (action === "app-store") router.push("/store");
   };
 

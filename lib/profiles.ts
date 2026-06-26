@@ -144,9 +144,16 @@ export interface ProfileLink {
   label: string;
   url: string;
 }
+// A custom labeled profile field. `public` controls whether non-owners see it.
+export interface ProfileField {
+  label: string;
+  value: string;
+  public: boolean;
+}
 export interface ProfileExtras {
   bio: string | null;
   links: ProfileLink[];
+  fields: ProfileField[];
   location: string | null;
   banner_key: string | null;
   instagramHandle: string | null;
@@ -160,6 +167,7 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
   const row = getOne<{
     bio: string | null;
     links_json: string | null;
+    fields_json: string | null;
     location: string | null;
     banner_key: string | null;
     instagram_handle: string | null;
@@ -173,6 +181,7 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
       .select([
         "bio",
         "links_json",
+        "fields_json",
         "location",
         "banner_key",
         "instagram_handle",
@@ -195,9 +204,25 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
   } catch {
     /* bad json -> no links */
   }
+  let fields: ProfileField[] = [];
+  try {
+    const parsed = row.fields_json ? JSON.parse(row.fields_json) : [];
+    if (Array.isArray(parsed)) {
+      fields = parsed
+        .filter((f) => f && typeof f.label === "string" && typeof f.value === "string")
+        .map((f) => ({
+          label: String(f.label).slice(0, 40),
+          value: String(f.value).slice(0, 200),
+          public: Boolean(f.public),
+        }));
+    }
+  } catch {
+    /* bad json -> no fields */
+  }
   return {
     bio: row.bio,
     links,
+    fields,
     location: row.location,
     banner_key: row.banner_key,
     instagramHandle: row.instagram_handle,
@@ -245,6 +270,22 @@ export function setProfileLinks(handle: string, links: ProfileLink[]): void {
     .filter((l): l is ProfileLink => l.url !== null)
     .slice(0, 10);
   upsertExtras(handle, { links_json: JSON.stringify(clean) });
+}
+
+export function setProfileCustomFields(
+  handle: string,
+  fields: ProfileField[]
+): void {
+  const clean = (fields || [])
+    .filter((f) => f && typeof f.label === "string" && typeof f.value === "string")
+    .map((f) => ({
+      label: String(f.label).trim().slice(0, 40),
+      value: String(f.value).trim().slice(0, 200),
+      public: Boolean(f.public),
+    }))
+    .filter((f) => f.label && f.value)
+    .slice(0, 12);
+  upsertExtras(handle, { fields_json: JSON.stringify(clean) });
 }
 
 // Convenience: set bio + links together (e.g. from the profile editor, which

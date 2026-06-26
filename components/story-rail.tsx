@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 import PostAvatar from "@/components/post-avatar";
 import StoryViewer from "@/components/story-viewer";
 import type { StoryGroup } from "@/lib/stories";
@@ -15,6 +16,9 @@ export default function StoryRail({ myUsername }: { myUsername: string }) {
   const [viewerAt, setViewerAt] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Device Back closes the fullscreen story viewer instead of leaving the feed.
+  useBackDismiss(viewerAt !== null, () => setViewerAt(null));
 
   const load = async () => {
     try {

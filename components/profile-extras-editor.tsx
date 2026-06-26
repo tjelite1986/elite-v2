@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Plus, Trash2, Image as ImageIcon } from "lucide-react";
+import { Loader2, Plus, Trash2, Image as ImageIcon, Eye, EyeOff } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
-import type { ProfileLink } from "@/lib/profiles";
+import AvatarCropModal from "@/components/avatar-crop-modal";
+import type { ProfileLink, ProfileField } from "@/lib/profiles";
 
 // Edit a profile's cross-section extras: cover banner, bio, labeled links, and
 // the connected Instagram source. Works for the viewer's own profile or, for
@@ -14,6 +15,7 @@ export default function ProfileExtrasEditor({
   initialBio,
   initialLocation,
   initialLinks,
+  initialFields,
   hasBanner,
   initialInstagram,
   initialIgAutoPoll,
@@ -22,6 +24,7 @@ export default function ProfileExtrasEditor({
   initialBio: string;
   initialLocation: string;
   initialLinks: ProfileLink[];
+  initialFields: ProfileField[];
   hasBanner: boolean;
   initialInstagram: string;
   initialIgAutoPoll: boolean;
@@ -35,6 +38,8 @@ export default function ProfileExtrasEditor({
   const [links, setLinks] = useState<ProfileLink[]>(
     initialLinks.length ? initialLinks : []
   );
+  const [fields, setFields] = useState<ProfileField[]>(initialFields ?? []);
+  const [cropFile, setCropFile] = useState<File | null>(null);
   const [instagram, setInstagram] = useState(initialInstagram);
   const [igAutoPoll, setIgAutoPoll] = useState(initialIgAutoPoll);
   const [cookieState, setCookieState] = useState<"active" | "expired" | "missing" | null>(null);
@@ -58,11 +63,22 @@ export default function ProfileExtrasEditor({
   const addLink = () => setLinks((ls) => [...ls, { label: "", url: "" }]);
   const removeLink = (i: number) => setLinks((ls) => ls.filter((_, idx) => idx !== i));
 
-  const uploadAvatar = async (file: File) => {
+  const setField = (i: number, key: "label" | "value", value: string) =>
+    setFields((fs) => fs.map((f, idx) => (idx === i ? { ...f, [key]: value } : f)));
+  const toggleFieldPublic = (i: number) =>
+    setFields((fs) =>
+      fs.map((f, idx) => (idx === i ? { ...f, public: !f.public } : f))
+    );
+  const addField = () =>
+    setFields((fs) => [...fs, { label: "", value: "", public: true }]);
+  const removeField = (i: number) =>
+    setFields((fs) => fs.filter((_, idx) => idx !== i));
+
+  const uploadAvatar = async (file: Blob) => {
     setBusy(true);
     setError(null);
     const fd = new FormData();
-    fd.set("file", file);
+    fd.set("file", file, "avatar.jpg");
     const res = await fetch(`/api/profiles/${encodeURIComponent(handle)}/avatar`, {
       method: "POST",
       body: fd,
@@ -107,6 +123,9 @@ export default function ProfileExtrasEditor({
         label: l.label.trim(),
         url: /^https?:\/\//i.test(l.url.trim()) ? l.url.trim() : `https://${l.url.trim()}`,
       }));
+    const cleanFields = fields
+      .map((f) => ({ label: f.label.trim(), value: f.value.trim(), public: f.public }))
+      .filter((f) => f.label && f.value);
     const res = await fetch(`/api/profiles/${encodeURIComponent(handle)}/extras`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -114,6 +133,7 @@ export default function ProfileExtrasEditor({
         bio,
         location: location.trim(),
         links: clean,
+        fields: cleanFields,
         instagramHandle: instagram.trim(),
         igAutoPoll,
       }),
@@ -121,6 +141,7 @@ export default function ProfileExtrasEditor({
     const d = await res.json().catch(() => ({}));
     if (res.ok) {
       setLinks(clean);
+      setFields(cleanFields);
       setMsg("Saved.");
       router.refresh();
     } else {
@@ -145,9 +166,13 @@ export default function ProfileExtrasEditor({
           <input
             ref={avatarRef}
             type="file"
-            accept="*/*"
+            accept="image/*"
             hidden
-            onChange={(e) => e.target.files?.[0] && uploadAvatar(e.target.files[0])}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) setCropFile(f);
+              e.target.value = "";
+            }}
           />
           <button
             onClick={() => avatarRef.current?.click()}
@@ -253,6 +278,63 @@ export default function ProfileExtrasEditor({
         )}
       </div>
 
+      {/* Custom fields */}
+      <div>
+        <span className="mb-1 block text-xs font-medium text-white/50">
+          Details
+        </span>
+        <p className="mb-2 text-xs text-white/40">
+          Labeled facts (e.g. Pronouns, Work). Toggle the eye to make a field
+          private — only you see private fields.
+        </p>
+        <div className="space-y-2">
+          {fields.map((f, i) => (
+            <div key={i} className="flex gap-2">
+              <input
+                value={f.label}
+                onChange={(e) => setField(i, "label", e.target.value)}
+                placeholder="Label"
+                className="w-28 shrink-0 rounded-xl bg-white/10 px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+              />
+              <input
+                value={f.value}
+                onChange={(e) => setField(i, "value", e.target.value)}
+                placeholder="Value"
+                className="flex-1 rounded-xl bg-white/10 px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+              />
+              <button
+                type="button"
+                onClick={() => toggleFieldPublic(i)}
+                className={`rounded-xl px-2 transition ${
+                  f.public ? "text-white/60 hover:text-white" : "text-amber-300"
+                }`}
+                aria-label={f.public ? "Make private" : "Make public"}
+                title={f.public ? "Public — everyone can see this" : "Private — only you"}
+              >
+                {f.public ? <Eye size={16} /> : <EyeOff size={16} />}
+              </button>
+              <button
+                type="button"
+                onClick={() => removeField(i)}
+                className="rounded-xl px-2 text-rose-300 transition hover:text-rose-400"
+                aria-label="Remove field"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+        {fields.length < 12 && (
+          <button
+            type="button"
+            onClick={addField}
+            className="mt-2 flex items-center gap-1.5 text-sm text-white/60 hover:text-white"
+          >
+            <Plus size={14} /> Add field
+          </button>
+        )}
+      </div>
+
       {/* Instagram source */}
       <div>
         <span className="mb-1 block text-xs font-medium text-white/50">Instagram</span>
@@ -302,6 +384,17 @@ export default function ProfileExtrasEditor({
         {busy && <Loader2 size={16} className="animate-spin" />}
         Save profile
       </button>
+
+      {cropFile && (
+        <AvatarCropModal
+          file={cropFile}
+          onCancel={() => setCropFile(null)}
+          onCropped={async (blob) => {
+            setCropFile(null);
+            await uploadAvatar(blob);
+          }}
+        />
+      )}
     </div>
   );
 }

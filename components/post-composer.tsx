@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ImagePlus, Loader2, X } from "lucide-react";
+import MentionInput from "@/components/mention-input";
 
 interface Picked {
   file: File;
@@ -104,10 +105,11 @@ export default function PostComposer({ canFlagAdult }: { canFlagAdult: boolean }
         </div>
       )}
 
-      <textarea
+      <MentionInput
         value={caption}
-        onChange={(e) => setCaption(e.target.value)}
-        placeholder="Write a caption…  #hashtags work"
+        onChange={setCaption}
+        placeholder="Write a caption…  #hashtags and @mentions work"
+        multiline
         rows={3}
         className="w-full resize-none rounded-xl bg-white/10 px-4 py-3 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
       />

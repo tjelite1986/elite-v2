@@ -12,6 +12,8 @@ import {
   SESSION_COOKIE,
   sessionCookieOptions,
 } from "@/lib/session";
+import { createSession } from "@/lib/sessions";
+import { randomUUID } from "crypto";
 
 function validateEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -99,11 +101,19 @@ export async function POST(request: Request) {
     console.error("Failed to provision home for new user", userId, err);
   }
 
+  const jti = randomUUID();
   const token = await createSessionToken({
     sub: String(userId),
     email: String(email).toLowerCase(),
     role: "user",
+    jti,
   });
+  createSession(
+    jti,
+    userId,
+    request.headers.get("user-agent"),
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null
+  );
 
   cookies().set(SESSION_COOKIE, token, sessionCookieOptions);
   return NextResponse.json({ ok: true });

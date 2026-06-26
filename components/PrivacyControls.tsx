@@ -15,6 +15,7 @@ import {
   Shield,
   X,
 } from "lucide-react";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 
 const STORAGE_KEY = "privacy_controls_v1";
 
@@ -86,6 +87,8 @@ export default function PrivacyControls() {
   const [enabled, setEnabled] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [open, setOpen] = useState(false);
+  // Device Back closes the privacy panel instead of leaving the page.
+  useBackDismiss(open, () => setOpen(false));
   const [shooting, setShooting] = useState(false);
   const [flash, setFlash] = useState<
     { kind: "ok" | "error"; message: string; details?: string } | null

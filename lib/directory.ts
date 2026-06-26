@@ -1,6 +1,18 @@
 import { sql } from "kysely";
 import { qb, getOne, getAll } from "./kysely";
-import { getProfileExtras, ProfileLink } from "./profiles";
+import { getProfileExtras, ProfileLink, ProfileField } from "./profiles";
+import { resolveBadges } from "./badges";
+
+// A badge as sent to the client — the BadgeDef's `earned` predicate is dropped
+// (a function prop would break server→client serialization).
+export interface PersonBadge {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  color: string;
+  earned_at: string;
+}
 
 // Cross-section "people" directory: merges the three identity tables
 // (user_profiles, post_creators, short_profiles) by lowercased handle and
@@ -51,6 +63,11 @@ export interface ResolvedPerson {
   bio: string | null;
   location: string | null;
   links: ProfileLink[];
+  // Custom labeled fields, already filtered to what this viewer may see
+  // (private fields are only included for the owner).
+  fields: ProfileField[];
+  // Auto-earned achievement badges (real users only).
+  badges: PersonBadge[];
   hasBanner: boolean;
   // Account join date (users.created_at) for real users; null for mirrored
   // creators with no account.
@@ -267,19 +284,32 @@ export function resolvePerson(
       )?.c ?? 0
     : 0;
 
+  const isOwn = user?.user_id === viewerId;
   return {
     handle: user?.username || creator?.username || h,
     displayName: user?.display_name || creator?.display_name || null,
     bio: extras?.bio || user?.bio || creator?.bio || null,
     location: extras?.location ?? null,
     links: extras?.links ?? [],
+    // Owner sees all custom fields; everyone else sees only the public ones.
+    fields: (extras?.fields ?? []).filter((f) => f.public || isOwn),
+    badges: user
+      ? resolveBadges(user.user_id).map((b) => ({
+          id: b.id,
+          name: b.name,
+          description: b.description,
+          icon: b.icon,
+          color: b.color,
+          earned_at: b.earned_at,
+        }))
+      : [],
     hasBanner: Boolean(extras?.banner_key),
     memberSince,
     followers,
     following,
     userId: user?.user_id ?? null,
     creatorId: creator?.id ?? null,
-    isOwn: user?.user_id === viewerId,
+    isOwn,
     followType,
     followId,
     viewerFollows,

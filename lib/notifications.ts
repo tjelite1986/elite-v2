@@ -1,5 +1,13 @@
 import { db, NotificationRow, NotificationType } from "./db";
 import { qb, getOne, getAll } from "./kysely";
+import { sendPushToUser } from "./push";
+
+const NOTIFICATION_VERB: Partial<Record<NotificationType, string>> = {
+  like: "liked your post",
+  comment: "commented on your post",
+  follow: "started following you",
+  mention: "mentioned you",
+};
 
 // Reads go through the typed Kysely builder; the INSERT in notify() and the
 // UPDATE in markAllRead() stay on raw better-sqlite3 (single write path).
@@ -60,6 +68,16 @@ export function notify(opts: {
       }
     });
   }
+
+  // Web push so the recipient is notified even with the app closed.
+  const actor = row?.actor_username || "Someone";
+  const verb = NOTIFICATION_VERB[opts.type] || "sent you a notification";
+  void sendPushToUser(opts.recipientId, {
+    title: "Elite",
+    body: `${actor} ${verb}`,
+    url: opts.postId ? `/posts/p/${opts.postId}` : "/people",
+    tag: `notif-${opts.type}-${opts.recipientId}`,
+  });
 }
 
 export function unreadCount(userId: number): number {

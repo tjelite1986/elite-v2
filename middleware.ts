@@ -4,7 +4,7 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 import { GATE_COOKIE, verifyGateToken } from "@/lib/shorts-gate";
 
 // Public paths that never require a session.
-const PUBLIC_PATHS = ["/login", "/register", "/request-invite"];
+const PUBLIC_PATHS = ["/login", "/register", "/request-invite", "/share"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -13,10 +13,12 @@ export async function middleware(request: NextRequest) {
 
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
-  // Already authenticated users skip the auth pages.
-  if (session && isPublic) {
-    return NextResponse.redirect(new URL("/", request.url));
-  }
+  // NOTE: we deliberately do NOT bounce "authenticated" users away from /login
+  // here. Middleware runs on the edge and can't check session revocation (no DB
+  // access), so a remotely-revoked-but-still-signed token would look valid. If
+  // we redirected it off /login, the (authed) layout's revocation-aware
+  // getSession would redirect it back, creating a loop. Letting /login render is
+  // harmless — re-logging in simply mints a fresh session.
 
   // Unauthenticated users are pushed to /login for protected pages.
   if (!session && !isPublic) {
@@ -44,6 +46,10 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Run on everything except API routes, static assets and Next internals.
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // Run on everything except API routes, Next internals, and static assets
+  // (icons, the web manifest, the service worker) — those must stay public so
+  // the PWA can install and the SW can register before/without a session.
+  matcher: [
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webmanifest|js|mjs|map|css|woff2?|txt|xml)$).*)",
+  ],
 };

@@ -83,6 +83,9 @@ function migrate(db: Database.Database) {
       body TEXT NOT NULL,
       attachment_type TEXT,
       attachment_data TEXT,
+      reply_to INTEGER,
+      edited_at TEXT,
+      deleted_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       read_at TEXT
     );
@@ -109,6 +112,7 @@ function migrate(db: Database.Database) {
       taken_at TEXT NOT NULL,
       uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
       is_favorite INTEGER NOT NULL DEFAULT 0,
+      rating INTEGER NOT NULL DEFAULT 0,
       is_deleted INTEGER NOT NULL DEFAULT 0,
       deleted_at TEXT
     );
@@ -129,6 +133,25 @@ function migrate(db: Database.Database) {
       added_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (album_id, item_id)
     );
+
+    -- Public (no-auth) share links for an album, addressed by an opaque token.
+    CREATE TABLE IF NOT EXISTS album_shares (
+      token TEXT PRIMARY KEY,
+      album_id INTEGER NOT NULL REFERENCES gallery_albums(id) ON DELETE CASCADE,
+      created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_album_shares_album ON album_shares(album_id);
+
+    -- Saved smart albums: a named, dynamic filter (resolves to matching items).
+    CREATE TABLE IF NOT EXISTS smart_albums (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      criteria_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_smart_albums_user ON smart_albums(user_id);
 
     -- Short-video ("shorts") feed: a standalone TikTok-style module with its own
     -- storage, separate from the gallery. channel splits the safe-for-work feed
@@ -277,6 +300,8 @@ function migrate(db: Database.Database) {
       display_name TEXT,
       avatar_key TEXT,
       bio TEXT,
+      accent TEXT,
+      bg_theme TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -456,6 +481,7 @@ function migrate(db: Database.Database) {
       handle TEXT PRIMARY KEY,
       bio TEXT,
       links_json TEXT,
+      fields_json TEXT,
       location TEXT,
       banner_key TEXT,
       instagram_handle TEXT,
@@ -466,6 +492,124 @@ function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
+
+    -- Login throttle: per-identifier (lowercased email) failed-attempt counter
+    -- with an escalating lockout ladder. A successful login clears the row.
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      identifier TEXT PRIMARY KEY,
+      fails INTEGER NOT NULL DEFAULT 0,
+      first_fail_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_fail_at TEXT NOT NULL DEFAULT (datetime('now')),
+      locked_until TEXT
+    );
+
+    -- Web Push subscriptions (one row per browser/device endpoint). Used to send
+    -- notifications when the app/tab is closed.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id);
+
+    -- Shared bookshelf: EPUB/PDF/CBZ documents with per-user reading progress.
+    CREATE TABLE IF NOT EXISTS books (
+      slug TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      author TEXT,
+      format TEXT NOT NULL CHECK (format IN ('epub', 'pdf', 'cbz')),
+      storage_key TEXT NOT NULL,        -- filename within BOOKS_ROOT
+      cover_key TEXT,                   -- filename within BOOKS_ROOT/.covers
+      size_bytes INTEGER,
+      page_count INTEGER,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      added_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_books_added ON books(added_at DESC);
+
+    CREATE TABLE IF NOT EXISTS book_reading_state (
+      book_slug TEXT NOT NULL REFERENCES books(slug) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      position TEXT,                    -- EPUB: CFI; PDF/CBZ: page index as text
+      percent INTEGER NOT NULL DEFAULT 0,
+      last_read_at TEXT NOT NULL DEFAULT (datetime('now')),
+      finished_at TEXT,
+      PRIMARY KEY (book_slug, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_book_state_user
+      ON book_reading_state(user_id, last_read_at DESC);
+
+    -- Group channels (public chat rooms) alongside 1:1 DMs.
+    CREATE TABLE IF NOT EXISTS channels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS channel_members (
+      channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_read_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (channel_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS channel_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+      sender_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      reply_to INTEGER,
+      edited_at TEXT,
+      deleted_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_channel_messages_ch
+      ON channel_messages(channel_id, id);
+
+    -- Emoji reactions on messages. scope distinguishes DM vs channel id-spaces.
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      scope TEXT NOT NULL,        -- 'dm' | 'channel'
+      message_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      emoji TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (scope, message_id, user_id, emoji)
+    );
+    CREATE INDEX IF NOT EXISTS idx_message_reactions
+      ON message_reactions(scope, message_id);
+
+    -- Revocable login sessions (one row per device/browser). The JWT carries a
+    -- jti; getSession (Node) rejects tokens whose jti row is gone (revoked).
+    CREATE TABLE IF NOT EXISTS sessions (
+      jti TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user_agent TEXT,
+      ip TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_user
+      ON sessions(user_id, last_seen_at DESC);
+
+    -- User-applied tags on gallery items.
+    CREATE TABLE IF NOT EXISTS gallery_tags (
+      item_id INTEGER NOT NULL REFERENCES gallery_items(id) ON DELETE CASCADE,
+      tag TEXT NOT NULL,
+      PRIMARY KEY (item_id, tag)
+    );
+    CREATE INDEX IF NOT EXISTS idx_gallery_tags_tag ON gallery_tags(tag);
+
+    -- Auto-earned achievement badges (definitions live in lib/badges.ts).
+    CREATE TABLE IF NOT EXISTS user_badges (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      badge_id TEXT NOT NULL,
+      earned_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, badge_id)
+    );
   `);
 
   // Backfill the Instagram-sync columns on profile_extras for older databases.
@@ -485,6 +629,9 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE profile_extras ADD COLUMN ig_syncing INTEGER NOT NULL DEFAULT 0");
     if (!cols.includes("location"))
       db.exec("ALTER TABLE profile_extras ADD COLUMN location TEXT");
+    // Custom profile fields: JSON array of {label, value, public}.
+    if (!cols.includes("fields_json"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN fields_json TEXT");
   }
 
   // Backfill last_seen for databases created before this column existed.
@@ -517,6 +664,26 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE messages ADD COLUMN attachment_type TEXT");
   if (!messageColumns.includes("attachment_data"))
     db.exec("ALTER TABLE messages ADD COLUMN attachment_data TEXT");
+  // Reply / edit / soft-delete support on DM messages.
+  if (!messageColumns.includes("reply_to"))
+    db.exec("ALTER TABLE messages ADD COLUMN reply_to INTEGER");
+  if (!messageColumns.includes("edited_at"))
+    db.exec("ALTER TABLE messages ADD COLUMN edited_at TEXT");
+  if (!messageColumns.includes("deleted_at"))
+    db.exec("ALTER TABLE messages ADD COLUMN deleted_at TEXT");
+
+  // Same reply / edit / soft-delete columns on channel messages.
+  const channelMsgColumns = (
+    db.prepare("PRAGMA table_info(channel_messages)").all() as { name: string }[]
+  ).map((c) => c.name);
+  if (channelMsgColumns.length > 0) {
+    if (!channelMsgColumns.includes("reply_to"))
+      db.exec("ALTER TABLE channel_messages ADD COLUMN reply_to INTEGER");
+    if (!channelMsgColumns.includes("edited_at"))
+      db.exec("ALTER TABLE channel_messages ADD COLUMN edited_at TEXT");
+    if (!channelMsgColumns.includes("deleted_at"))
+      db.exec("ALTER TABLE channel_messages ADD COLUMN deleted_at TEXT");
+  }
 
   // Backfill source_id on shorts (external id from auto-poll, for dedup) for
   // databases created before phase v1c.
@@ -566,6 +733,8 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE gallery_items ADD COLUMN camera TEXT");
     if (!galleryColumns.includes("description"))
       db.exec("ALTER TABLE gallery_items ADD COLUMN description TEXT");
+    if (!galleryColumns.includes("rating"))
+      db.exec("ALTER TABLE gallery_items ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
   }
 
   // Content hash on post_media so the importer can skip an image it already
@@ -623,6 +792,11 @@ function migrate(db: Database.Database) {
       "ALTER TABLE user_profiles ADD COLUMN show_adult_outside INTEGER NOT NULL DEFAULT 0"
     );
   }
+  // Appearance prefs: accent colour (hex) + background theme key.
+  if (profileColumns.length > 0 && !profileColumns.includes("accent"))
+    db.exec("ALTER TABLE user_profiles ADD COLUMN accent TEXT");
+  if (profileColumns.length > 0 && !profileColumns.includes("bg_theme"))
+    db.exec("ALTER TABLE user_profiles ADD COLUMN bg_theme TEXT");
 
   // Give every existing user a public profile (username/avatar/bio) so the posts
   // module and attribution work. Username = slugified email local-part, with a
@@ -928,6 +1102,9 @@ export interface MessageRow {
   body: string;
   attachment_type: string | null;
   attachment_data: string | null;
+  reply_to: number | null;
+  edited_at: string | null;
+  deleted_at: string | null;
   created_at: string;
   read_at: string | null;
 }
@@ -951,6 +1128,7 @@ export interface GalleryItemRow {
   taken_at: string;
   uploaded_at: string;
   is_favorite: number;
+  rating: number;
   is_deleted: number;
   deleted_at: string | null;
 }
