@@ -30,9 +30,13 @@ import {
   Check,
   Send,
   Play,
+  Tag as TagIcon,
+  Link2 as LinkIcon,
 } from "lucide-react";
 import GalleryMap from "@/components/gallery-map";
 import { ShareDialog, type SharePayload } from "@/components/share-dialog";
+import SmartAlbumBuilder from "@/components/smart-album-builder";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 
 interface Item {
   id: number;
@@ -46,6 +50,7 @@ interface Item {
   media_version: number;
   taken_at: string;
   is_favorite: number;
+  rating: number;
   is_deleted: number;
 }
 
@@ -64,7 +69,39 @@ interface AlbumSummary {
   cover_version: number | null;
 }
 
+interface Trip {
+  key: string;
+  name: string;
+  start: string;
+  end: string;
+  count: number;
+  coverId: number;
+  itemIds: number[];
+}
+
+interface SmartCriteria {
+  tag?: string;
+  minRating?: number;
+  favorite?: boolean;
+  type?: "video";
+  gps?: boolean;
+  year?: number;
+}
+interface SmartAlbum {
+  id: number;
+  name: string;
+  criteria: SmartCriteria;
+}
+
 type Tab = "photos" | "favorites" | "albums" | "map" | "trash";
+
+// Client-side "smart" auto-collections, derived from the loaded photos.
+type SmartFilter =
+  | null
+  | { kind: "year"; year: number }
+  | { kind: "video" }
+  | { kind: "gps" }
+  | { kind: "rated" };
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "photos", label: "Photos", icon: Images },
@@ -136,6 +173,8 @@ export default function GalleryClient() {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [lightboxId, setLightboxId] = React.useState<number | null>(null);
   const [uploading, setUploading] = React.useState(0);
+  // Device Back closes the fullscreen lightbox instead of leaving the gallery.
+  useBackDismiss(lightboxId !== null, () => setLightboxId(null));
   const [fixingDates, setFixingDates] = React.useState(false);
   const [importing, setImporting] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
@@ -148,6 +187,18 @@ export default function GalleryClient() {
   const [editPlace, setEditPlace] = React.useState("");
   const [savingEdit, setSavingEdit] = React.useState(false);
   const [share, setShare] = React.useState<SharePayload | null>(null);
+  // Tags + smart collections.
+  const [activeTag, setActiveTag] = React.useState<string | null>(null);
+  const [tagList, setTagList] = React.useState<{ tag: string; count: number }[]>([]);
+  const [smart, setSmart] = React.useState<SmartFilter>(null);
+  const [infoTags, setInfoTags] = React.useState<string[]>([]);
+  const [tagDraft, setTagDraft] = React.useState("");
+  const [memoriesView, setMemoriesView] = React.useState(false);
+  const [trips, setTrips] = React.useState<Trip[]>([]);
+  const [activeTrip, setActiveTrip] = React.useState<string | null>(null);
+  const [smartAlbums, setSmartAlbums] = React.useState<SmartAlbum[]>([]);
+  const [activeSmartAlbum, setActiveSmartAlbum] = React.useState<number | null>(null);
+  const [builderOpen, setBuilderOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const loadAlbums = React.useCallback(async () => {
@@ -159,7 +210,13 @@ export default function GalleryClient() {
     setLoading(true);
     setSelected(new Set());
     try {
-      if (tab === "albums" && !activeAlbum) {
+      if (activeSmartAlbum !== null) {
+        const res = await fetch(`/api/gallery/smart-albums/${activeSmartAlbum}/items`);
+        if (res.ok) setItems((await res.json()).items);
+      } else if (memoriesView) {
+        const res = await fetch("/api/gallery/memories");
+        if (res.ok) setItems((await res.json()).items);
+      } else if (tab === "albums" && !activeAlbum) {
         await loadAlbums();
         setItems([]);
       } else if (tab === "albums" && activeAlbum) {
@@ -167,33 +224,131 @@ export default function GalleryClient() {
         if (res.ok) setItems((await res.json()).items);
       } else {
         const fetchTab = tab === "map" ? "photos" : tab;
-        const res = await fetch(`/api/gallery/items?tab=${fetchTab}`);
+        const tagQ = activeTag ? `&tag=${encodeURIComponent(activeTag)}` : "";
+        const res = await fetch(`/api/gallery/items?tab=${fetchTab}${tagQ}`);
         if (res.ok) setItems((await res.json()).items);
       }
     } finally {
       setLoading(false);
     }
-  }, [tab, activeAlbum, loadAlbums]);
+  }, [tab, activeAlbum, activeTag, memoriesView, activeSmartAlbum, loadAlbums]);
 
   React.useEffect(() => {
     load();
   }, [load]);
+
+  const loadTags = React.useCallback(async () => {
+    const res = await fetch("/api/gallery/tags");
+    if (res.ok) setTagList((await res.json()).tags);
+  }, []);
+
+  const loadTrips = React.useCallback(async () => {
+    const res = await fetch("/api/gallery/trips");
+    if (res.ok) setTrips((await res.json()).trips);
+  }, []);
+
+  const loadSmartAlbums = React.useCallback(async () => {
+    const res = await fetch("/api/gallery/smart-albums");
+    if (res.ok) setSmartAlbums((await res.json()).smartAlbums);
+  }, []);
 
   // Albums needed for the "add to album" menu on any tab.
   React.useEffect(() => {
     loadAlbums();
   }, [loadAlbums]);
 
+  React.useEffect(() => {
+    loadTags();
+    loadTrips();
+    loadSmartAlbums();
+  }, [loadTags, loadTrips, loadSmartAlbums]);
+
+  // Clear every cross-cutting filter (tag, smart, memories, trip, smart album).
+  const clearFilters = () => {
+    setActiveTag(null);
+    setSmart(null);
+    setMemoriesView(false);
+    setActiveTrip(null);
+    setActiveSmartAlbum(null);
+  };
+
   const goTab = (t: Tab) => {
     setActiveAlbum(null);
+    clearFilters();
     setTab(t);
+  };
+
+  // Filter the whole library by a tag (server-side) — switches to the Photos tab.
+  const pickTag = (t: string | null) => {
+    const next = activeTag === t ? null : t;
+    setActiveAlbum(null);
+    clearFilters();
+    setTab("photos");
+    setActiveTag(next);
+  };
+
+  // Pick a client-side smart collection (over the loaded photos).
+  const pickSmart = (s: SmartFilter) => {
+    setActiveAlbum(null);
+    clearFilters();
+    setTab("photos");
+    setSmart(s);
+  };
+
+  // "On This Day" — load photos taken on today's date in earlier years.
+  const pickMemories = () => {
+    const next = !memoriesView;
+    setActiveAlbum(null);
+    clearFilters();
+    setTab("photos");
+    setMemoriesView(next);
+  };
+
+  // Show one auto-detected trip's photos (client-side filter over the library).
+  const pickTrip = (key: string) => {
+    const next = activeTrip === key ? null : key;
+    setActiveAlbum(null);
+    clearFilters();
+    setTab("photos");
+    setActiveTrip(next);
+  };
+
+  // Open a saved smart album (server resolves its filter to matching items).
+  const pickSmartAlbum = (id: number) => {
+    const next = activeSmartAlbum === id ? null : id;
+    setActiveAlbum(null);
+    clearFilters();
+    setTab("photos");
+    setActiveSmartAlbum(next);
+  };
+
+  const removeSmartAlbum = async (id: number) => {
+    setSmartAlbums((s) => s.filter((a) => a.id !== id));
+    if (activeSmartAlbum === id) setActiveSmartAlbum(null);
+    await fetch(`/api/gallery/smart-albums/${id}`, { method: "DELETE" }).catch(() => {});
   };
 
   const groups = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = q
+    let filtered = q
       ? items.filter((i) => i.filename.toLowerCase().includes(q))
       : items;
+    if (smart?.kind === "video") {
+      filtered = filtered.filter((i) => i.mime_type.startsWith("video/"));
+    } else if (smart?.kind === "gps") {
+      filtered = filtered.filter((i) => i.latitude !== null && i.longitude !== null);
+    } else if (smart?.kind === "year") {
+      filtered = filtered.filter(
+        (i) => new Date(i.taken_at.replace(" ", "T")).getFullYear() === smart.year
+      );
+    } else if (smart?.kind === "rated") {
+      filtered = filtered.filter((i) => (i.rating ?? 0) >= 4);
+    }
+    if (activeTrip) {
+      const trip = trips.find((t) => t.key === activeTrip);
+      const ids = new Set(trip?.itemIds ?? []);
+      filtered = filtered.filter((i) => ids.has(i.id));
+    }
     const map = new Map<string, Item[]>();
     for (const it of filtered) {
       const label = groupLabel(it.taken_at);
@@ -202,7 +357,7 @@ export default function GalleryClient() {
       else map.set(label, [it]);
     }
     return Array.from(map.entries());
-  }, [items, query]);
+  }, [items, query, smart, activeTrip, trips]);
 
   const mapItems = React.useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -216,6 +371,28 @@ export default function GalleryClient() {
         filename: i.filename,
       }));
   }, [items, query]);
+
+  // Auto-collections derived from the loaded photos: years present, plus video
+  // and geotagged counts.
+  const smartGroups = React.useMemo(() => {
+    const years = new Map<number, number>();
+    let videos = 0;
+    let gps = 0;
+    let rated = 0;
+    for (const i of items) {
+      const y = new Date(i.taken_at.replace(" ", "T")).getFullYear();
+      if (!Number.isNaN(y)) years.set(y, (years.get(y) ?? 0) + 1);
+      if (i.mime_type.startsWith("video/")) videos++;
+      if (i.latitude !== null && i.longitude !== null) gps++;
+      if ((i.rating ?? 0) >= 4) rated++;
+    }
+    return {
+      years: Array.from(years.entries()).sort((a, b) => b[0] - a[0]),
+      videos,
+      gps,
+      rated,
+    };
+  }, [items]);
 
   const inAlbumView = tab === "albums" && !!activeAlbum;
   const showGrid = tab !== "map" && !(tab === "albums" && !activeAlbum);
@@ -316,16 +493,40 @@ export default function GalleryClient() {
   };
 
   // --- bulk actions ---
-  const bulk = async (action: string) => {
+  const bulk = async (action: string, extra?: Record<string, unknown>) => {
     if (selected.size === 0) return;
     if (action === "delete" && !confirm("Permanently delete the selected photos?"))
       return;
     await fetch("/api/gallery/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, ids: Array.from(selected) }),
+      body: JSON.stringify({ action, ids: Array.from(selected), ...extra }),
     });
     await load();
+    if (action === "tag") loadTags();
+  };
+
+  const bulkTag = async () => {
+    const tag = window.prompt("Add tag to selected photos:")?.trim();
+    if (tag) await bulk("tag", { tag });
+  };
+
+  // Download the selected items as a .zip of their originals.
+  const downloadSelected = async () => {
+    if (selected.size === 0) return;
+    const res = await fetch("/api/gallery/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: Array.from(selected) }),
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "elite-photos.zip";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // --- albums ---
@@ -422,6 +623,72 @@ export default function GalleryClient() {
     setEditing(true);
   };
 
+  // Load the open item's tags whenever the info panel item changes.
+  React.useEffect(() => {
+    if (!infoItem) {
+      setInfoTags([]);
+      return;
+    }
+    let active = true;
+    fetch(`/api/gallery/${infoItem.id}/tags`)
+      .then((r) => (r.ok ? r.json() : { tags: [] }))
+      .then((d) => active && setInfoTags(d.tags || []))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [infoItem]);
+
+  const saveInfoTags = async (next: string[]) => {
+    if (!infoItem) return;
+    setInfoTags(next);
+    await fetch(`/api/gallery/${infoItem.id}/tags`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tags: next }),
+    }).catch(() => {});
+    loadTags();
+  };
+  const addInfoTag = () => {
+    const t = tagDraft.trim();
+    if (t && !infoTags.includes(t)) saveInfoTags([...infoTags, t]);
+    setTagDraft("");
+  };
+  const removeInfoTag = (t: string) =>
+    saveInfoTags(infoTags.filter((x) => x !== t));
+
+  // Set a 0–5 star rating on the open item (click the same star to clear).
+  const setRating = async (value: number) => {
+    if (!infoItem) return;
+    const next = infoItem.rating === value ? 0 : value;
+    setInfoItem({ ...infoItem, rating: next });
+    setItems((its) =>
+      its.map((it) => (it.id === infoItem.id ? { ...it, rating: next } : it))
+    );
+    await fetch(`/api/gallery/${infoItem.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rating: next }),
+    }).catch(() => {});
+  };
+
+  // Create/copy a public share link for the open album.
+  const shareAlbumLink = async () => {
+    if (!activeAlbum) return;
+    const res = await fetch(`/api/gallery/albums/${activeAlbum.id}/share`, {
+      method: "POST",
+    });
+    if (!res.ok) return;
+    const { token } = await res.json();
+    const url = `${window.location.origin}/share/${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      alert(`Public link copied:\n${url}`);
+    } catch {
+      prompt("Public link:", url);
+    }
+  };
+
   const saveEdit = async () => {
     if (!infoItem) return;
     setSavingEdit(true);
@@ -471,7 +738,7 @@ export default function GalleryClient() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-3.5rem)] text-white">
+    <div className="flex min-h-[calc(100dvh-3.5rem)] text-white">
       {/* Sidebar (desktop) */}
       <aside
         className={`hidden shrink-0 border-r border-white/10 p-3 md:block ${
@@ -505,6 +772,147 @@ export default function GalleryClient() {
             );
           })}
         </nav>
+
+        {sidebarOpen && (
+          <button
+            onClick={pickMemories}
+            className={`mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${
+              memoriesView ? "bg-white/15 font-medium" : "text-white/70 hover:bg-white/5"
+            }`}
+          >
+            <CalendarClock size={18} /> On This Day
+          </button>
+        )}
+
+        {sidebarOpen && (smartGroups.videos > 0 || smartGroups.gps > 0 || smartGroups.rated > 0 || smartGroups.years.length > 0) && (
+          <div className="mt-5">
+            <div className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-white/30">
+              Collections
+            </div>
+            <div className="space-y-0.5">
+              {smartGroups.rated > 0 && (
+                <SidebarFilter
+                  active={smart?.kind === "rated"}
+                  label="Top rated"
+                  count={smartGroups.rated}
+                  onClick={() =>
+                    pickSmart(smart?.kind === "rated" ? null : { kind: "rated" })
+                  }
+                />
+              )}
+              {smartGroups.videos > 0 && (
+                <SidebarFilter
+                  active={smart?.kind === "video"}
+                  label="Videos"
+                  count={smartGroups.videos}
+                  onClick={() => pickSmart(smart?.kind === "video" ? null : { kind: "video" })}
+                />
+              )}
+              {smartGroups.gps > 0 && (
+                <SidebarFilter
+                  active={smart?.kind === "gps"}
+                  label="Places"
+                  count={smartGroups.gps}
+                  onClick={() => pickSmart(smart?.kind === "gps" ? null : { kind: "gps" })}
+                />
+              )}
+              {smartGroups.years.map(([year, count]) => (
+                <SidebarFilter
+                  key={year}
+                  active={smart?.kind === "year" && smart.year === year}
+                  label={String(year)}
+                  count={count}
+                  onClick={() =>
+                    pickSmart(
+                      smart?.kind === "year" && smart.year === year
+                        ? null
+                        : { kind: "year", year }
+                    )
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sidebarOpen && (
+          <div className="mt-5">
+            <div className="mb-1 flex items-center justify-between px-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-white/30">
+                Smart albums
+              </span>
+              <button
+                onClick={() => setBuilderOpen(true)}
+                className="rounded p-0.5 text-white/40 hover:bg-white/10 hover:text-white"
+                aria-label="New smart album"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+            <div className="space-y-0.5">
+              {smartAlbums.length === 0 && (
+                <p className="px-3 py-1 text-xs text-white/30">
+                  Save a filter as a smart album.
+                </p>
+              )}
+              {smartAlbums.map((a) => (
+                <div key={a.id} className="group/sa flex items-center">
+                  <SidebarFilter
+                    active={activeSmartAlbum === a.id}
+                    label={a.name}
+                    onClick={() => pickSmartAlbum(a.id)}
+                  />
+                  <button
+                    onClick={() => removeSmartAlbum(a.id)}
+                    className="ml-1 rounded p-1 text-white/30 opacity-0 transition hover:text-red-300 group-hover/sa:opacity-100"
+                    aria-label={`Delete ${a.name}`}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sidebarOpen && trips.length > 0 && (
+          <div className="mt-5">
+            <div className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-white/30">
+              Trips
+            </div>
+            <div className="space-y-0.5">
+              {trips.map((t) => (
+                <SidebarFilter
+                  key={t.key}
+                  active={activeTrip === t.key}
+                  label={t.name}
+                  count={t.count}
+                  onClick={() => pickTrip(t.key)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {sidebarOpen && tagList.length > 0 && (
+          <div className="mt-5">
+            <div className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wide text-white/30">
+              Tags
+            </div>
+            <div className="space-y-0.5">
+              {tagList.map((t) => (
+                <SidebarFilter
+                  key={t.tag}
+                  active={activeTag === t.tag}
+                  label={`#${t.tag}`}
+                  count={t.count}
+                  onClick={() => pickTag(activeTag === t.tag ? null : t.tag)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         <button
           onClick={() => setSidebarOpen((v) => !v)}
           className="mt-4 flex w-full items-center justify-center rounded-lg px-3 py-2 text-white/40 transition hover:bg-white/5 hover:text-white"
@@ -643,6 +1051,20 @@ export default function GalleryClient() {
                     <span className="hidden sm:inline">Favorite</span>
                   </button>
                   <button
+                    onClick={bulkTag}
+                    className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm hover:bg-white/10"
+                  >
+                    <TagIcon size={15} />
+                    <span className="hidden sm:inline">Tag</span>
+                  </button>
+                  <button
+                    onClick={downloadSelected}
+                    className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm hover:bg-white/10"
+                  >
+                    <Download size={15} />
+                    <span className="hidden sm:inline">Download</span>
+                  </button>
+                  <button
                     onClick={() => bulk("trash")}
                     className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm hover:bg-white/10"
                   >
@@ -713,7 +1135,14 @@ export default function GalleryClient() {
                 }
                 className="ml-auto flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-white/70 hover:bg-white/10 hover:text-white"
               >
-                <Send size={15} /> Share album
+                <Send size={15} /> Share to chat
+              </button>
+              <button
+                onClick={shareAlbumLink}
+                title="Create a public link anyone can open"
+                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm text-white/70 hover:bg-white/10 hover:text-white"
+              >
+                <LinkIcon size={15} /> Public link
               </button>
               <button
                 onClick={deleteAlbum}
@@ -870,6 +1299,18 @@ export default function GalleryClient() {
           setSelected(new Set());
         }}
       />
+
+      {builderOpen && (
+        <SmartAlbumBuilder
+          tags={tagList.map((t) => t.tag)}
+          years={smartGroups.years.map(([y]) => y)}
+          onClose={() => setBuilderOpen(false)}
+          onCreated={() => {
+            setBuilderOpen(false);
+            loadSmartAlbums();
+          }}
+        />
+      )}
 
       {/* Lightbox */}
       {lightboxItem && (
@@ -1075,6 +1516,28 @@ export default function GalleryClient() {
                 </div>
               ) : (
                 <dl className="space-y-3 text-sm">
+                  <div>
+                    <dt className="text-white/50">Rating</dt>
+                    <dd className="mt-1 flex gap-0.5">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setRating(n)}
+                          aria-label={`${n} star${n === 1 ? "" : "s"}`}
+                          className="p-0.5"
+                        >
+                          <Star
+                            size={18}
+                            className={
+                              n <= (infoItem.rating ?? 0)
+                                ? "fill-amber-400 text-amber-400"
+                                : "text-white/30 hover:text-white/60"
+                            }
+                          />
+                        </button>
+                      ))}
+                    </dd>
+                  </div>
                   <InfoRow label="Name" value={infoItem.filename} />
                   <InfoRow label="Date taken" value={fullDate(infoItem.taken_at)} />
                   {infoItem.description && (
@@ -1106,6 +1569,50 @@ export default function GalleryClient() {
                     </div>
                   )}
                   <InfoRow label="Uploaded" value={fullDate(infoItem.uploaded_at)} />
+
+                  <div className="pt-1">
+                    <dt className="text-white/50">Tags</dt>
+                    <dd className="mt-1 flex flex-wrap gap-1.5">
+                      {infoTags.map((t) => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-xs"
+                        >
+                          #{t}
+                          <button
+                            onClick={() => removeInfoTag(t)}
+                            aria-label={`Remove tag ${t}`}
+                            className="text-white/50 hover:text-white"
+                          >
+                            <X size={11} />
+                          </button>
+                        </span>
+                      ))}
+                      {infoTags.length === 0 && (
+                        <span className="text-xs text-white/30">No tags yet.</span>
+                      )}
+                    </dd>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        value={tagDraft}
+                        onChange={(e) => setTagDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addInfoTag();
+                          }
+                        }}
+                        placeholder="Add a tag…"
+                        className="flex-1 rounded-lg bg-white/10 px-2.5 py-1.5 text-xs text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+                      />
+                      <button
+                        onClick={addInfoTag}
+                        className="rounded-lg bg-white/15 px-3 text-xs font-medium hover:bg-white/25"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
                 </dl>
               )}
             </div>
@@ -1122,5 +1629,32 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <dt className="text-white/50">{label}</dt>
       <dd className="mt-0.5 break-words text-white/90">{value}</dd>
     </div>
+  );
+}
+
+// A sidebar filter row (smart collection or tag) with a count badge.
+function SidebarFilter({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-sm transition ${
+        active ? "bg-white/15 font-medium" : "text-white/70 hover:bg-white/5"
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      {count != null && count > 0 && (
+        <span className="shrink-0 text-xs text-white/40">{count}</span>
+      )}
+    </button>
   );
 }

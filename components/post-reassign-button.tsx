@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UserCog, X, Check, Plus } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 
 interface Creator {
   id: number;
@@ -21,6 +22,8 @@ export default function PostReassignButton({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  // Device Back closes the reassign sheet instead of leaving the page.
+  useBackDismiss(open, () => setOpen(false));
   const [q, setQ] = useState("");
   const [creators, setCreators] = useState<Creator[]>([]);
   const [busy, setBusy] = useState(false);

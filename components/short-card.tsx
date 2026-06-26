@@ -24,6 +24,7 @@ import {
   Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
 
 // Player interaction tuning.
@@ -145,6 +146,11 @@ export default function ShortCard({
   const [saved, setSaved] = useState(short.viewer_saved);
   const [commentCount, setCommentCount] = useState(short.comment_count);
   const [showCategory, setShowCategory] = useState(false);
+  // Device Back closes an open bottom sheet instead of leaving the feed.
+  useBackDismiss(showComments, () => setShowComments(false));
+  useBackDismiss(showShare, () => setShowShare(false));
+  useBackDismiss(showSave, () => setShowSave(false));
+  useBackDismiss(showCategory, () => setShowCategory(false));
   const [category, setCategory] = useState(short.category);
   const [coverMsg, setCoverMsg] = useState<string | null>(null);
   const [caption, setCaption] = useState(short.caption);

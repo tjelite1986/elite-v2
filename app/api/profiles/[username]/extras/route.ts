@@ -5,6 +5,7 @@ import {
   getProfileExtras,
   setProfileBio,
   setProfileLinks,
+  setProfileCustomFields,
   setProfileBanner,
   setProfileInstagram,
   setProfileLocation,
@@ -48,6 +49,9 @@ export async function PATCH(
   }
   if ("location" in body) {
     setProfileLocation(handle, typeof body.location === "string" ? body.location : null);
+  }
+  if ("fields" in body) {
+    setProfileCustomFields(handle, Array.isArray(body.fields) ? body.fields : []);
   }
 
   // Optional Instagram source: a username/URL to pull media from, plus an

@@ -11,6 +11,17 @@ import {
   Play,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
+import LinkifyText, { firstUrl } from "@/components/linkify-text";
+import LinkPreview from "@/components/link-preview";
+import MentionInput from "@/components/mention-input";
+import {
+  MessageMenu,
+  ReactionChips,
+  ReplyQuote,
+  type Reaction,
+  type ReplyInfo,
+} from "@/components/message-extras";
 import { useWs } from "@/components/ws-provider";
 
 interface ConversationUser {
@@ -32,6 +43,10 @@ interface Message {
   attachment_data: string | null;
   created_at: string;
   read_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  reply: ReplyInfo | null;
+  reactions: Reaction[];
 }
 
 interface Attachment {
@@ -84,6 +99,28 @@ function formatTime(value: string): string {
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+function msOf(value: string): number {
+  return new Date(value.replace(" ", "T") + "Z").getTime();
+}
+
+// Centered, faint timestamp shown above the first message of a group that
+// starts after a long pause — like Messenger. Time only for today, date + time
+// otherwise.
+function formatStamp(value: string): string {
+  const d = new Date(value.replace(" ", "T") + "Z");
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const time = d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (d.toDateString() === now.toDateString()) return time;
+  return `${d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  })}, ${time}`;
+}
+
 function formatLastSeen(value: string | null): string {
   if (!value) return "Offline";
   const d = new Date(value.replace(" ", "T") + "Z");
@@ -127,6 +164,13 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [typingFrom, setTypingFrom] = useState<number | null>(null);
   const [viewer, setViewer] = useState<{ ids: number[]; index: number } | null>(null);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<Message | null>(null);
+
+  // Device Back closes the media viewer first, then the open conversation
+  // (back to the list), instead of leaving /messages for the dashboard.
+  useBackDismiss(selectedId !== null, () => setSelectedId(null));
+  useBackDismiss(viewer !== null, () => setViewer(null));
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const selectedIdRef = useRef<number | null>(null);
@@ -229,8 +273,8 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
     }, 2500);
   };
 
-  const send_ = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const send_ = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     const body = input.trim();
     if (!body || !selectedId) return;
     setSending(true);
@@ -238,13 +282,31 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
     sendTyping("stop_typing");
     typingSentRef.current = 0;
     try {
+      if (editing) {
+        const res = await fetch("/api/messages/edit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ scope: "dm", messageId: editing.id, body }),
+        });
+        if (res.ok) {
+          setInput("");
+          setEditing(null);
+          await loadConversation(selectedId);
+        }
+        return;
+      }
       const res = await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipientId: selectedId, body }),
+        body: JSON.stringify({
+          recipientId: selectedId,
+          body,
+          replyTo: replyTo?.id ?? null,
+        }),
       });
       if (res.ok) {
         setInput("");
+        setReplyTo(null);
         await loadConversation(selectedId);
         loadUsers();
       }
@@ -253,11 +315,34 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
     }
   };
 
+  const react = async (messageId: number, emoji: string) => {
+    await fetch("/api/messages/react", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "dm", messageId, emoji }),
+    }).catch(() => {});
+    if (selectedId) loadConversation(selectedId);
+  };
+  const removeMessage = async (messageId: number) => {
+    if (!confirm("Delete this message?")) return;
+    await fetch("/api/messages/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope: "dm", messageId }),
+    }).catch(() => {});
+    if (selectedId) loadConversation(selectedId);
+  };
+  const startEdit = (m: Message) => {
+    setReplyTo(null);
+    setEditing(m);
+    setInput(m.body);
+  };
+
   const selectedUser = users.find((u) => u.id === selectedId);
   const selectedOnline = selectedId !== null && onlineIds.has(selectedId);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] text-white">
+    <div className="flex h-full text-white">
       {/* Conversation list */}
       <aside
         className={cn(
@@ -354,7 +439,9 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
           )}
         </header>
 
-        <div className="flex-1 space-y-2 overflow-y-auto px-4 py-4 sm:px-6">
+        <div className="flex flex-1 flex-col overflow-y-auto px-4 py-3 sm:px-6">
+          {/* Anchor messages to the bottom and grow upward (Messenger-style). */}
+          <div className="flex min-h-full flex-col justify-end">
           {!selectedUser && (
             <div className="flex h-full items-center justify-center text-white/40">
               Select a conversation to start chatting.
@@ -366,23 +453,96 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
             </div>
           )}
           {selectedUser &&
-            messages.map((m) => {
+            messages.map((m, i) => {
               const mine = m.sender_id === meId;
+              const prev = messages[i - 1];
+              const next = messages[i + 1];
+              const GAP = 5 * 60 * 1000; // group messages sent within 5 min
+              const firstOfGroup =
+                !prev ||
+                prev.sender_id !== m.sender_id ||
+                msOf(m.created_at) - msOf(prev.created_at) > GAP;
+              const lastOfGroup =
+                !next ||
+                next.sender_id !== m.sender_id ||
+                msOf(next.created_at) - msOf(m.created_at) > GAP;
+              // Faint centered timestamp when a new group starts after >1h.
+              const showStamp =
+                firstOfGroup &&
+                (!prev ||
+                  msOf(m.created_at) - msOf(prev.created_at) > 60 * 60 * 1000);
               const att = parseAttachment(m);
               const shortAtt = parseShortAttachment(m);
               return (
-                <div
-                  key={m.id}
-                  className={cn("flex", mine ? "justify-end" : "justify-start")}
-                >
+                <div key={m.id}>
+                  {showStamp && (
+                    <div className="py-2 text-center text-[11px] text-white/30">
+                      {formatStamp(m.created_at)}
+                    </div>
+                  )}
                   <div
                     className={cn(
-                      "max-w-[80%] rounded-2xl px-4 py-2 text-sm sm:max-w-[70%]",
-                      mine ? "bg-blue-600 text-white" : "bg-white/10 text-white"
+                      "group flex items-end gap-1.5",
+                      mine ? "justify-end" : "justify-start",
+                      firstOfGroup && !showStamp ? "mt-3" : "mt-0.5"
                     )}
                   >
+                    {!mine &&
+                      (lastOfGroup ? (
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-[11px] font-semibold">
+                          {getInitials(selectedUser.email)}
+                        </span>
+                      ) : (
+                        <span className="h-7 w-7 shrink-0" />
+                      ))}
+                    {mine && !m.deleted_at && (
+                      <MessageMenu
+                        mine
+                        align="right"
+                        onReact={(e) => react(m.id, e)}
+                        onReply={() => {
+                          setEditing(null);
+                          setReplyTo(m);
+                        }}
+                        onEdit={() => startEdit(m)}
+                        onDelete={() => removeMessage(m.id)}
+                      />
+                    )}
+                    <div
+                      className={cn(
+                        "flex max-w-[80%] flex-col sm:max-w-[65%]",
+                        mine ? "items-end" : "items-start"
+                      )}
+                    >
+                    <div
+                      title={formatTime(m.created_at)}
+                      className={cn(
+                        "rounded-2xl px-3.5 py-2 text-sm",
+                        mine
+                          ? cn(
+                              "bg-blue-600 text-white",
+                              !firstOfGroup && "rounded-tr-md",
+                              !lastOfGroup && "rounded-br-md"
+                            )
+                          : cn(
+                              "bg-white/10 text-white",
+                              !firstOfGroup && "rounded-tl-md",
+                              !lastOfGroup && "rounded-bl-md"
+                            )
+                      )}
+                    >
+                    {m.reply && <ReplyQuote reply={m.reply} />}
+                    {m.deleted_at ? (
+                      <div className="italic text-white/40">Message deleted</div>
+                    ) : (
+                      <>
                     {m.body && (
-                      <div className="whitespace-pre-wrap break-words">{m.body}</div>
+                      <div className="whitespace-pre-wrap break-words">
+                        <LinkifyText text={m.body} />
+                      </div>
+                    )}
+                    {m.body && firstUrl(m.body) && (
+                      <LinkPreview url={firstUrl(m.body)!} />
                     )}
 
                     {att && m.attachment_type === "album" && (
@@ -470,20 +630,44 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
                       </a>
                     )}
 
-                    <div
-                      className={cn(
-                        "mt-1 text-[10px]",
-                        mine ? "text-white/70" : "text-white/40"
-                      )}
-                    >
-                      {formatTime(m.created_at)}
+                    {m.edited_at && (
+                      <span className="mt-0.5 block text-[10px] text-white/40">
+                        (edited)
+                      </span>
+                    )}
+                      </>
+                    )}
                     </div>
+                    {!m.deleted_at && (
+                      <ReactionChips
+                        reactions={m.reactions}
+                        onToggle={(e) => react(m.id, e)}
+                        align={mine ? "end" : "start"}
+                      />
+                    )}
+                    </div>
+                    {!mine && !m.deleted_at && (
+                      <MessageMenu
+                        mine={false}
+                        align="left"
+                        onReact={(e) => react(m.id, e)}
+                        onReply={() => {
+                          setEditing(null);
+                          setReplyTo(m);
+                        }}
+                        onEdit={() => {}}
+                        onDelete={() => {}}
+                      />
+                    )}
                   </div>
                 </div>
               );
             })}
           {selectedUser && typingFrom === selectedId && (
-            <div className="flex justify-start">
+            <div className="mt-3 flex items-end justify-start gap-2">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-[11px] font-semibold">
+                {getInitials(selectedUser.email)}
+              </span>
               <div className="flex items-center gap-1 rounded-2xl bg-white/10 px-4 py-3">
                 <span className="h-2 w-2 animate-bounce rounded-full bg-white/60 [animation-delay:-0.3s]" />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-white/60 [animation-delay:-0.15s]" />
@@ -492,18 +676,44 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
             </div>
           )}
           <div ref={bottomRef} />
+          </div>
         </div>
 
+        {selectedUser && (replyTo || editing) && (
+          <div className="flex items-center gap-2 border-t border-white/10 bg-white/5 px-4 py-2 text-xs sm:px-6">
+            <span className="font-medium text-white/60">
+              {editing ? "Editing message" : "Replying"}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-white/40">
+              {(editing ?? replyTo)?.body}
+            </span>
+            <button
+              onClick={() => {
+                setReplyTo(null);
+                if (editing) {
+                  setEditing(null);
+                  setInput("");
+                }
+              }}
+              className="rounded-full p-1 text-white/50 hover:bg-white/10 hover:text-white"
+              aria-label="Cancel"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
         {selectedUser && (
           <form
             onSubmit={send_}
             className="flex items-center gap-3 border-t border-white/10 px-4 py-4 sm:px-6"
           >
-            <input
+            <MentionInput
               value={input}
-              onChange={(e) => handleInputChange(e.target.value)}
-              placeholder="Type a message..."
-              className="flex-1 rounded-full bg-white/10 px-5 py-3 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400"
+              onChange={handleInputChange}
+              onSubmit={() => send_()}
+              placeholder={editing ? "Edit message…" : "Type a message..."}
+              wrapperClassName="flex-1"
+              className="w-full rounded-full bg-white/10 px-5 py-3 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
             <button
               type="submit"

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db, MessageRow } from "@/lib/db";
 import { qb, getAll } from "@/lib/kysely";
 import { getSession, getUserById } from "@/lib/auth";
+import { reactionsForMessages, replyPreview } from "@/lib/message-actions";
 
 export async function GET(
   _request: Request,
@@ -45,8 +46,20 @@ export async function GET(
       .orderBy("id")
   );
 
+  // Attach reaction summaries + reply previews.
+  const reactions = reactionsForMessages(
+    "dm",
+    messages.map((m) => m.id),
+    meId
+  );
+  const withMeta = messages.map((m) => ({
+    ...m,
+    reactions: reactions[m.id] ?? [],
+    reply: m.reply_to ? replyPreview("dm", m.reply_to) : null,
+  }));
+
   return NextResponse.json({
-    messages,
+    messages: withMeta,
     other: { id: other.id, email: other.email },
   });
 }

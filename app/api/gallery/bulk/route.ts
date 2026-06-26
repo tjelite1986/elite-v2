@@ -3,11 +3,25 @@ import { db, GalleryItemRow } from "@/lib/db";
 import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { deleteMediaFiles } from "@/lib/gallery-storage";
+import { addTagToItems } from "@/lib/gallery-tags";
 
 export const dynamic = "force-dynamic";
 
-type Action = "favorite" | "unfavorite" | "trash" | "restore" | "delete";
-const ACTIONS: Action[] = ["favorite", "unfavorite", "trash", "restore", "delete"];
+type Action =
+  | "favorite"
+  | "unfavorite"
+  | "trash"
+  | "restore"
+  | "delete"
+  | "tag";
+const ACTIONS: Action[] = [
+  "favorite",
+  "unfavorite",
+  "trash",
+  "restore",
+  "delete",
+  "tag",
+];
 
 // Apply an action to a set of the current user's items (multi-select support).
 export async function POST(request: Request) {
@@ -28,6 +42,16 @@ export async function POST(request: Request) {
   }
   if (ids.length === 0) {
     return NextResponse.json({ error: "No items selected." }, { status: 400 });
+  }
+
+  // Tagging is its own path (ownership-checked inside addTagToItems).
+  if (action === "tag") {
+    const affected = addTagToItems(
+      userId,
+      ids,
+      typeof body.tag === "string" ? body.tag : ""
+    );
+    return NextResponse.json({ ok: true, affected });
   }
 
   // Only ever touch rows owned by this user.

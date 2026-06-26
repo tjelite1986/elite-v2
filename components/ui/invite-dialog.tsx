@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { UserRoundPlus, Check, Copy, X } from "lucide-react";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 
 interface SentResult {
   email: string;
@@ -60,6 +61,9 @@ export function InviteDialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Device Back closes the dialog instead of leaving the page.
+  useBackDismiss(open, onClose);
 
   if (!open) return null;
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db, MessageRow } from "@/lib/db";
 import { qb, getOne, getAll } from "@/lib/kysely";
 import { getSession, getUserById } from "@/lib/auth";
+import { sendPushToUser } from "@/lib/push";
 
 interface Attachment {
   type: "photos" | "album";
@@ -87,17 +88,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Recipient not found." }, { status: 404 });
   }
 
+  const replyTo = Number.isInteger(Number(reqBody.replyTo))
+    ? Number(reqBody.replyTo)
+    : null;
   const result = db
     .prepare(
-      `INSERT INTO messages (sender_id, recipient_id, body, attachment_type, attachment_data)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO messages (sender_id, recipient_id, body, attachment_type, attachment_data, reply_to)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
     .run(
       meId,
       Number(recipientId),
       trimmed.slice(0, 4000),
       attachment ? attachment.type : null,
-      attachment ? JSON.stringify(attachment.data) : null
+      attachment ? JSON.stringify(attachment.data) : null,
+      replyTo
     );
 
   const message = getOne<MessageRow>(
@@ -123,6 +128,18 @@ export async function POST(request: Request) {
       });
     }
   }
+
+  // Web push to the recipient so a new DM reaches them with the app closed.
+  const senderName =
+    getOne<{ username: string }>(
+      qb.selectFrom("user_profiles").select("username").where("user_id", "=", meId)
+    )?.username || "Someone";
+  void sendPushToUser(Number(recipientId), {
+    title: senderName,
+    body: trimmed ? trimmed.slice(0, 140) : "Sent you an attachment",
+    url: "/messages",
+    tag: `dm-${meId}`,
+  });
 
   return NextResponse.json({ message });
 }
