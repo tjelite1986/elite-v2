@@ -175,8 +175,9 @@ without them.
 
 #### The easy way: the admin panel (recommended)
 
-The simplest option needs no terminal or config. Log in as an admin and open
-**Admin → Background jobs**. There you can, per job:
+The simplest option needs no terminal or config. Log in as an admin, open the
+account menu (top-right avatar) and choose **Admin**, then find the **Background
+jobs** section. There you can, per job:
 
 - **Enable / disable** it — when enabled, the app runs it automatically on a
   schedule.
