@@ -55,6 +55,11 @@ COPY --chown=nextjs:nodejs package.json next.config.mjs server.mjs ./
 # Maintenance scripts (e.g. the shorts transcoder run via `docker exec` on a
 # host systemd timer). Plain .mjs, executed with the runtime node_modules.
 COPY --chown=nextjs:nodejs scripts ./scripts
+# The custom server imports the background-job runtime at startup. It lives in
+# lib/ but is NOT part of Next's traced output (Next only traces its own server,
+# not our server.mjs), so ship this one file explicitly. The Next route handlers
+# import the same module via a bundled copy inside .next.
+COPY --chown=nextjs:nodejs lib/jobs-runtime.mjs ./lib/jobs-runtime.mjs
 
 USER nextjs
 EXPOSE 3000
