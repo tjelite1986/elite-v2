@@ -16,11 +16,17 @@ export async function POST(request: Request) {
   }
   const { scope, messageId, emoji } = await request.json().catch(() => ({}));
   const id = Number(messageId);
+  // Require an emoji-like string (short, no ASCII letters/digits or markup) so
+  // reactions can't be abused to store arbitrary text/markup.
+  const validEmoji =
+    typeof emoji === "string" &&
+    emoji.length >= 1 &&
+    emoji.length <= 16 &&
+    !/[a-zA-Z0-9<>&]/.test(emoji);
   if (
     (scope !== "dm" && scope !== "channel") ||
     !Number.isInteger(id) ||
-    typeof emoji !== "string" ||
-    !emoji
+    !validEmoji
   ) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }

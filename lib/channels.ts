@@ -118,6 +118,18 @@ export function postMessage(
   body: string,
   replyTo: number | null = null
 ): ChannelMessage {
+  // Only allow replying to a message in THIS channel (avoid cross-channel
+  // reply previews referencing unrelated messages).
+  if (
+    replyTo !== null &&
+    !db
+      .prepare(
+        "SELECT 1 FROM channel_messages WHERE id = ? AND channel_id = ?"
+      )
+      .get(replyTo, channelId)
+  ) {
+    replyTo = null;
+  }
   const result = db
     .prepare(
       "INSERT INTO channel_messages (channel_id, sender_id, body, reply_to) VALUES (?, ?, ?, ?)"

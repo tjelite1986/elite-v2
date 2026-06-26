@@ -110,7 +110,7 @@ export function computeTrips(userId: number): Trip[] {
     if (!name) {
       name = `Trip · ${new Date(start.replace(" ", "T")).toLocaleDateString(
         "en-US",
-        { month: "short", year: "numeric" }
+        { month: "short", year: "numeric", timeZone: "UTC" }
       )}`;
     }
     trips.push({

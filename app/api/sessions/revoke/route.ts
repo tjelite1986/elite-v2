@@ -13,8 +13,16 @@ export async function POST(request: Request) {
   const { jti, others } = await request.json().catch(() => ({}));
 
   if (others) {
-    // Sign out every other device, keeping the current one.
-    revokeOtherSessions(session.jti ?? "", userId);
+    // Sign out every other device, keeping the current one. Requires a jti to
+    // identify "this" device — without it we can't safely keep the current
+    // session, so refuse rather than wipe everything (legacy/impersonation token).
+    if (!session.jti) {
+      return NextResponse.json(
+        { error: "Cannot identify the current device." },
+        { status: 400 }
+      );
+    }
+    revokeOtherSessions(session.jti, userId);
   } else if (typeof jti === "string" && jti) {
     revokeSession(jti, userId);
   } else {
