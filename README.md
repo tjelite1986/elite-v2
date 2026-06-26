@@ -63,9 +63,22 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
 Requires Node.js 18.
 
 ```bash
+# 1. Get the code
+git clone https://github.com/tjelite1986/elite-v2.git
+cd elite-v2
+
+# 2. Install dependencies
 npm install
+
+# 3. Configure environment (see Configuration below)
+#    Create a .env file with at least JWT_SECRET, ADMIN_EMAIL and ADMIN_PASSWORD.
+
+# 4. Run the dev server
 npm run dev        # http://localhost:3020
 ```
+
+For a production deployment, build and run the Docker image behind Traefik
+instead — see [Deployment](#deployment).
 
 ### Scripts
 
