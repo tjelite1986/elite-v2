@@ -20,6 +20,12 @@ export async function GET(
   const file = sharedItemFile(params.token, Number(params.itemId));
   if (!file) return new NextResponse("Not found", { status: 404 });
 
+  // Defense-in-depth on this no-auth route: storage_key is a server-generated
+  // YYYY/MM/<uuid>.<ext>, but never let a stray "../" or absolute key escape.
+  if (file.storage_key.includes("..") || file.storage_key.startsWith("/")) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
   const variant = new URL(request.url).searchParams.get("variant") || "thumb";
 
   if (variant !== "original") {

@@ -79,14 +79,16 @@ function isBlockedAddress(address: string, family: number): boolean {
 const cache = new Map<string, { at: number; data: LinkPreview | null }>();
 
 function decode(s: string): string {
+  // Decode &amp; LAST so an input like "&amp;lt;" becomes "&lt;" (not "<") — no
+  // double-decoding. (Output is rendered as React text anyway, which escapes it.)
   return s
-    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&#x27;/gi, "'")
     .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
     .trim();
 }
 
