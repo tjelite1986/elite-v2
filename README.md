@@ -60,25 +60,71 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
 
 ## Getting started
 
-Requires Node.js 18.
+This walks you through running the app on your own computer, step by step. No
+prior experience needed — just follow each step in order.
+
+**Before you start**, install these two free tools (skip any you already have):
+
+- **Node.js 18** — the runtime that runs the app. Download it from
+  [nodejs.org](https://nodejs.org) and pick version 18. To check if you already
+  have it, run `node --version` in a terminal; it should print `v18.something`.
+- **Git** — used to download the code. Get it from
+  [git-scm.com](https://git-scm.com). Check with `git --version`.
+
+Now open a terminal (Terminal on macOS/Linux, or "Git Bash" / PowerShell on
+Windows) and run these commands one at a time:
+
+**Step 1 — Download the code:**
 
 ```bash
-# 1. Get the code
 git clone https://github.com/tjelite1986/elite-v2.git
 cd elite-v2
-
-# 2. Install dependencies
-npm install
-
-# 3. Configure environment (see Configuration below)
-#    Create a .env file with at least JWT_SECRET, ADMIN_EMAIL and ADMIN_PASSWORD.
-
-# 4. Run the dev server
-npm run dev        # http://localhost:3020
 ```
 
-For a production deployment, build and run the Docker image behind Traefik
-instead — see [Deployment](#deployment).
+This downloads the project into a folder called `elite-v2` and moves you into
+it. Every command after this must be run from inside that folder.
+
+**Step 2 — Install the dependencies:**
+
+```bash
+npm install
+```
+
+This downloads all the libraries the app needs. It can take a few minutes the
+first time. You only need to do this again if the project's dependencies change.
+
+**Step 3 — Create your settings file:**
+
+The app needs a few secret settings to run. Create a file named `.env` in the
+`elite-v2` folder with this content:
+
+```bash
+# A long random string used to keep logins secure — change this to anything.
+JWT_SECRET=change-me-to-a-long-random-string
+
+# The login for the first admin account, created automatically on first start.
+ADMIN_EMAIL=you@example.com
+ADMIN_PASSWORD=pick-a-password
+```
+
+These three are the minimum needed to start. Every other setting (email,
+storage folders, push notifications, etc.) is optional and listed under
+[Configuration](#configuration) below.
+
+**Step 4 — Start the app:**
+
+```bash
+npm run dev
+```
+
+Wait until it says it's ready, then open **http://localhost:3020** in your web
+browser. Log in with the `ADMIN_EMAIL` / `ADMIN_PASSWORD` you set in step 3.
+
+To stop the app, press `Ctrl + C` in the terminal. To start it again later, just
+run `npm run dev` from the `elite-v2` folder (steps 1–3 are one-time setup).
+
+> **Want to host it on a server for real (not just your own computer)?** Use the
+> Docker + Traefik setup described under [Deployment](#deployment) instead.
 
 ### Scripts
 
