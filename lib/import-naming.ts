@@ -1,3 +1,4 @@
+import path from "node:path";
 import { parseHashtags } from "./posts";
 
 // Pure naming layer shared by the folder importer (lib/user-import.ts) and the
@@ -87,7 +88,7 @@ export function uploadStem(
   dbId: number,
   fallback = "media"
 ): string {
-  const stem = filename.replace(/\.[^./\\]+$/, "");
+  const stem = path.parse(filename).name; // drops the last extension, keeps dotfiles
   const parsed = parseImportName(stem);
   const hashtags = Array.from(
     new Set([...parsed.hashtags, ...parseHashtags(caption ?? null)])
