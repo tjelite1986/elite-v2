@@ -50,8 +50,18 @@ for (const [addr, prefix] of [
   BLOCKLIST.addSubnet(addr, prefix, "ipv6");
 }
 
+// IPv4-mapped IPv6 (::ffff:0:0/96), checked ONLY against family-6 addresses.
+// It can't go in BLOCKLIST (net.BlockList would then reject every real IPv4),
+// but a literal like [::ffff:10.0.0.1] resolves as family-6 and must be blocked
+// so it can't smuggle a private IPv4 past the guard.
+const MAPPED_V4 = new net.BlockList();
+MAPPED_V4.addSubnet("::ffff:0:0", 96, "ipv6");
+
 function isBlockedAddress(address: string, family: number): boolean {
-  return BLOCKLIST.check(address, family === 6 ? "ipv6" : "ipv4");
+  if (family === 6) {
+    return BLOCKLIST.check(address, "ipv6") || MAPPED_V4.check(address, "ipv6");
+  }
+  return BLOCKLIST.check(address, "ipv4");
 }
 
 // Fetch by connecting directly to a pre-validated IP. The hostname is never

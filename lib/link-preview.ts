@@ -60,6 +60,22 @@ for (const [addr, prefix] of [
   BLOCKLIST.addSubnet(addr, prefix, "ipv6");
 }
 
+// IPv4-mapped IPv6 range, checked ONLY against family-6 addresses. We can't add
+// it to BLOCKLIST (net.BlockList would then reject every real IPv4), but a
+// literal like [::ffff:10.0.0.1] resolves as family-6 and must be rejected so it
+// can't smuggle a private IPv4 past the guard.
+const MAPPED_V4 = new net.BlockList();
+MAPPED_V4.addSubnet("::ffff:0:0", 96, "ipv6");
+
+function isBlockedAddress(address: string, family: number): boolean {
+  if (family === 6) {
+    return (
+      BLOCKLIST.check(address, "ipv6") || MAPPED_V4.check(address, "ipv6")
+    );
+  }
+  return BLOCKLIST.check(address, "ipv4");
+}
+
 const cache = new Map<string, { at: number; data: LinkPreview | null }>();
 
 function decode(s: string): string {
@@ -133,7 +149,7 @@ function fetchOnce(
     }
     if (resolved.length === 0) return reject(new Error("no address"));
     for (const { address, family } of resolved) {
-      if (BLOCKLIST.check(address, family === 6 ? "ipv6" : "ipv4")) {
+      if (isBlockedAddress(address, family)) {
         return reject(new Error("blocked address"));
       }
     }
