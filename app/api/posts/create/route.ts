@@ -3,8 +3,9 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { parseHashtags } from "@/lib/posts";
-import { storePostImage, authorSlug } from "@/lib/posts-storage";
+import { storePostImage, authorSlug, renamePostImageFiles } from "@/lib/posts-storage";
 import { userHomeDir } from "@/lib/shorts-storage";
+import { uploadStem } from "@/lib/import-naming";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -78,6 +79,22 @@ export async function POST(request: Request) {
 
     return id;
   })();
+
+  // Rename each media file to a site-relevant self-describing name now that we
+  // know the post id, and persist the new keys.
+  stored.forEach((m, i) => {
+    try {
+      const newKey = renamePostImageFiles(
+        m.storageKey,
+        uploadStem(files[i].name, caption, postId, "post")
+      );
+      db.prepare(
+        "UPDATE post_media SET storage_key = ? WHERE post_id = ? AND position = ?"
+      ).run(newKey, postId, i);
+    } catch {
+      /* keep the original stored name if the rename fails */
+    }
+  });
 
   return NextResponse.json({ ok: true, id: postId });
 }

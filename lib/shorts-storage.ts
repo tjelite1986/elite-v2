@@ -9,6 +9,7 @@ import {
   videoMimeFor,
 } from "./gallery-storage";
 import type { ShortChannel } from "./db";
+import { IMPORT_ROOT, PROFILE_SECTIONS, IMPORT_SECTIONS } from "./storage-roots";
 
 // Shorts media root. Standalone from the gallery: defaults under the data volume
 // but in production it's a bind-mounted host folder (SHORTS_ROOT) so the host
@@ -42,7 +43,9 @@ export function userHomeDir(userId: number, username?: string | null): string {
 // key survives moves (reassigning an upload to a creator profile drops the
 // u_.../shorts/ prefix, which flips its resolution automatically).
 function isUploadKey(key: string): boolean {
-  return /^u_[^/]+\/shorts\//.test(key);
+  // Per-user upload keys live under u_<user>/shorts/ (main) or u_<user>/shorts18/
+  // (18+); shorts18 is matched first so it isn't shadowed by the shorts branch.
+  return /^u_[^/]+\/(?:shorts18|shorts)\//.test(key);
 }
 
 export function channelDir(channel: ShortChannel): string {
@@ -66,19 +69,6 @@ function ensureDir(dir: string) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-// Relative subfolders created under each user's home. The `shorts/<channel>`
-// dirs receive the user's own uploads; the `_import/...` tree is the per-user
-// drop folder the folder-importer (lib/user-import.ts) scans.
-const USER_HOME_SUBDIRS = [
-  "shorts/main",
-  "shorts/18plus",
-  "posts",
-  "_import/shorts/main",
-  "_import/shorts/18plus",
-  "_import/posts",
-  "_import/gallery",
-];
-
 // Drop folders need to be writable by whoever places files there (e.g. a Samba
 // user that differs from the container uid), so the leaf import dirs are opened
 // up. Best effort — a chmod failure must not break provisioning.
@@ -90,21 +80,24 @@ function makeDroppable(dir: string) {
   }
 }
 
-// Pre-create a user's per-user home and all its subfolders up front (instead of
-// lazily on first upload), so every account has the same browsable layout under
-// PROFILE_ROOT from day one:
-//   <PROFILE_ROOT>/<userHome>/shorts/{main,18plus}/
-//   <PROFILE_ROOT>/<userHome>/_import/{shorts/main,shorts/18plus,posts,gallery}/
-// Idempotent (recursive mkdir). Returns the userHome name (e.g. "u_anna").
+// Pre-create a user's per-user home up front (instead of lazily on first upload),
+// so every account has the same browsable layout from day one:
+//   <PROFILE_ROOT>/<userHome>/{gallery,posts,shorts,shorts18,cookies}/  (served)
+//   <IMPORT_ROOT>/<userHome>/{gallery,posts,shorts,shorts18,books}/     (drop tree)
+// The import leaf dirs are world-writable so a Samba/other-uid user can drop files
+// (the container runs as a different uid). Idempotent. Returns the userHome name.
 export function ensureUserHome(
   userId: number,
   username?: string | null
 ): string {
   const home = userHomeDir(userId, username);
-  for (const sub of USER_HOME_SUBDIRS) {
-    const dir = path.join(PROFILE_ROOT, home, sub);
+  for (const sec of PROFILE_SECTIONS) {
+    ensureDir(path.join(PROFILE_ROOT, home, sec));
+  }
+  for (const sec of IMPORT_SECTIONS) {
+    const dir = path.join(IMPORT_ROOT, home, sec);
     ensureDir(dir);
-    if (sub.startsWith("_import/")) makeDroppable(dir);
+    makeDroppable(dir);
   }
   return home;
 }
@@ -204,12 +197,13 @@ export async function storeShortUpload(
     throw new Error("Unsupported file type — videos only");
   }
 
-  const ch = channel === "18plus" ? "18plus" : "main";
-  // Mandatory subfolder — a clip is NEVER stored loose in the channel root.
+  // Per-user channel section: main -> "shorts", 18+ -> "shorts18".
+  const section = channel === "18plus" ? "shorts18" : "shorts";
+  // Mandatory subfolder — a clip is NEVER stored loose in the section root.
   // Either an explicit subdir (import collection / creator parsed from the
   // filename) or the shared fallback dir.
   const sub = profileSlug(subdir || UPLOADS_FALLBACK_DIR);
-  const rel = `${userHome}/shorts/${ch}/${sub}`; // relative to PROFILE_ROOT
+  const rel = `${userHome}/${section}/${sub}`; // relative to PROFILE_ROOT
   const dir = path.join(PROFILE_ROOT, rel);
   ensureDir(dir);
 
@@ -398,6 +392,51 @@ export function moveShortToProfile(
     }
   }
 
+  return { storageKey: newStorageKey, posterKey: newPosterKey };
+}
+
+// Rename a freshly stored short's files to a canonical, self-describing basename
+// — "<title> [h_tag]...[f_collection][id_<shortId>]" — within the SAME folder, so
+// the stored file round-trips through the importer (re-dropping it re-parses to
+// the same metadata and its [id_] triggers dedup). The video keeps its extension;
+// the poster becomes "<stem>.jpg". `newStem` is assembled by the caller (already
+// length-capped); here we only strip path-breaking characters. Returns the
+// updated keys; the caller persists them. A real collision gets a short suffix.
+export function renameShortFiles(
+  channel: ShortChannel,
+  storageKey: string,
+  posterKey: string | null,
+  newStem: string
+): MovedShortKeys {
+  const [, ext] = splitExt(path.basename(storageKey));
+  const dir = path.dirname(storageKey); // unchanged; relative to PROFILE_ROOT
+  const safe =
+    newStem.replace(/[/:*?"<>| ]+/g, " ").replace(/\s+/g, " ").trim() ||
+    "clip";
+
+  const keyFor = (stem: string, e: string) =>
+    dir === "." ? `${stem}${e}` : `${dir}/${stem}${e}`;
+
+  // Decide the final stem once (off the video) so video + poster stay paired.
+  const srcVideo = videoPathFor(channel, storageKey);
+  let finalStem = safe;
+  const probe = videoPathFor(channel, keyFor(safe, ext));
+  if (fs.existsSync(probe) && path.resolve(srcVideo) !== path.resolve(probe)) {
+    finalStem = `${safe}_${randomUUID().slice(0, 8)}`;
+  }
+
+  const newStorageKey = keyFor(finalStem, ext);
+  fs.renameSync(srcVideo, videoPathFor(channel, newStorageKey));
+
+  let newPosterKey: string | null = null;
+  if (posterKey) {
+    try {
+      newPosterKey = keyFor(finalStem, ".jpg");
+      fs.renameSync(posterPathFor(channel, posterKey), posterPathFor(channel, newPosterKey));
+    } catch {
+      newPosterKey = null;
+    }
+  }
   return { storageKey: newStorageKey, posterKey: newPosterKey };
 }
 
