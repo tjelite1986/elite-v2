@@ -7,8 +7,10 @@ import {
   storeShortUpload,
   userHomeDir,
   profileFromFilename,
+  renameShortFiles,
 } from "@/lib/shorts-storage";
 import { getExt } from "@/lib/gallery-storage";
+import { uploadStem } from "@/lib/import-naming";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +87,25 @@ export async function POST(request: Request) {
         isPrivate
       );
 
-    return NextResponse.json({ ok: true, id: Number(result.lastInsertRowid) });
+    const shortId = Number(result.lastInsertRowid);
+    // Rename to the canonical self-describing name now that we know the id.
+    try {
+      const renamed = renameShortFiles(
+        channel,
+        stored.storageKey,
+        stored.posterKey,
+        uploadStem(file.name, caption, shortId, "clip")
+      );
+      db.prepare("UPDATE shorts SET storage_key = ?, poster_key = ? WHERE id = ?").run(
+        renamed.storageKey,
+        renamed.posterKey,
+        shortId
+      );
+    } catch {
+      /* keep the original stored name if the rename fails */
+    }
+
+    return NextResponse.json({ ok: true, id: shortId });
   } catch (err) {
     console.error("[shorts] upload failed:", err);
     const message =

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { ingestMedia } from "@/lib/gallery-ingest";
+import { renameGalleryFiles } from "@/lib/gallery-storage";
+import { uploadStem } from "@/lib/import-naming";
 
 export const dynamic = "force-dynamic";
 
@@ -33,8 +36,25 @@ export async function POST(request: Request) {
         buffer,
         lastModified[i] ?? null
       );
-      if (id) created++;
-      else skipped.push(file.name);
+      if (id) {
+        created++;
+        // Rename the uuid file to the canonical self-describing name (keeps yyyy/mm).
+        try {
+          const cur = db
+            .prepare("SELECT storage_key FROM gallery_items WHERE id = ?")
+            .get(id) as { storage_key: string } | undefined;
+          if (cur) {
+            const newKey = renameGalleryFiles(
+              userId,
+              cur.storage_key,
+              uploadStem(file.name, null, id)
+            );
+            db.prepare("UPDATE gallery_items SET storage_key = ? WHERE id = ?").run(newKey, id);
+          }
+        } catch {
+          /* keep the original stored name if the rename fails */
+        }
+      } else skipped.push(file.name);
     } catch (err) {
       console.error(`[gallery] failed to ingest ${file.name}:`, err);
       skipped.push(file.name);
