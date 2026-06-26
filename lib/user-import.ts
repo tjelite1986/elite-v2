@@ -470,7 +470,12 @@ function isSupportedBook(name: string): boolean {
   return BOOK_EXTS.has(getExt(name));
 }
 function bookTitleExists(title: string): boolean {
-  return Boolean(db.prepare("SELECT 1 FROM books WHERE title = ?").get(title));
+  // Normalize (case/trim) so a re-drop with trivial title differences still dedups.
+  return Boolean(
+    db
+      .prepare("SELECT 1 FROM books WHERE trim(lower(title)) = trim(lower(?))")
+      .get(title)
+  );
 }
 
 // Books are a SHARED library (not per-user): a dropped book is ingested into the
