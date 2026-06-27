@@ -7,6 +7,7 @@ import { getProfileByUserId } from "@/lib/profiles";
 import ShortsAdmin from "@/components/shorts-admin";
 import ShortsImportButton from "@/components/shorts-import-button";
 import ShortsDuplicates from "@/components/shorts-duplicates";
+import ShortsMergeProfiles from "@/components/shorts-merge-profiles";
 import ShortsCleanup from "@/components/shorts-cleanup";
 import ShortsTitleFetch from "@/components/shorts-title-fetch";
 
@@ -65,6 +66,8 @@ export default async function ShortsSettingsPage() {
           <ShortsImportButton channel="main" />
         </section>
       )}
+
+      {isAdmin && <ShortsMergeProfiles channel="main" />}
 
       {isAdmin && <ShortsDuplicates channel="main" />}
 

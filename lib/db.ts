@@ -218,6 +218,17 @@ function migrate(db: Database.Database) {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Linked aliases: when an admin merges several profiles for the same model
+    -- (different handles, e.g. @lillielucas + @lillieinlove) into one, each
+    -- merged-away name maps to the surviving profile so a future import of that
+    -- handle reuses it instead of recreating a duplicate. Names stored lowercase.
+    CREATE TABLE IF NOT EXISTS short_profile_aliases (
+      channel TEXT NOT NULL,
+      name TEXT NOT NULL,
+      profile_id INTEGER NOT NULL REFERENCES short_profiles(id) ON DELETE CASCADE,
+      PRIMARY KEY (channel, name)
+    );
+
     -- User-curated collections of shorts (TikTok calls these "Favorites").
     CREATE TABLE IF NOT EXISTS short_playlists (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
