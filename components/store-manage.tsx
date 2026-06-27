@@ -216,6 +216,30 @@ function AppLinks({
     onDone();
   }
 
+  // Re-pull metadata (icon / description / screenshots) for an already-linked
+  // Play package without retyping it.
+  async function refetchPlay() {
+    if (busy || !app.playPackage) return;
+    setBusy(true);
+    const { ok, json } = await call(`/api/store/admin/apps/${app.id}/link-play`, "PUT", {
+      packageId: app.playPackage,
+      refreshMeta: true,
+    });
+    setBusy(false);
+    onDone(ok ? `Refreshed Play: ${json.playName}${json.icon ? " + logo" : ""}` : `Play: ${json.error}`);
+  }
+
+  async function refetchFdroid() {
+    if (busy || !app.fdroidPackage) return;
+    setBusy(true);
+    const { ok, json } = await call(`/api/store/admin/apps/${app.id}/link-fdroid`, "PUT", {
+      packageId: app.fdroidPackage,
+      refreshMeta: true,
+    });
+    setBusy(false);
+    onDone(ok ? `Refreshed F-Droid: ${json.name}${json.icon ? " + logo" : ""}` : `F-Droid: ${json.error}`);
+  }
+
   async function unlink(kind: "play" | "modapk" | "fdroid") {
     setBusy(true);
     await call(`/api/store/admin/apps/${app.id}/link-${kind}`, "DELETE");
@@ -273,6 +297,9 @@ function AppLinks({
       {app.playPackage && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="truncate text-sky-300">Play: {app.playPackage}</span>
+          <button onClick={refetchPlay} disabled={busy} className={cn(linkBtn, "bg-sky-500/80 text-white hover:bg-sky-500")}>
+            Refresh
+          </button>
           <button onClick={checkPlay} disabled={busy} className={cn(linkBtn, "bg-white/10 text-white/80 hover:bg-white/15")}>
             Check
           </button>
@@ -284,6 +311,9 @@ function AppLinks({
       {app.fdroidPackage && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <span className="truncate text-indigo-300">F-Droid: {app.fdroidPackage}</span>
+          <button onClick={refetchFdroid} disabled={busy} className={cn(linkBtn, "bg-indigo-500/80 text-white hover:bg-indigo-500")}>
+            Refresh
+          </button>
           <button onClick={checkFdroid} disabled={busy} className={cn(linkBtn, "bg-white/10 text-white/80 hover:bg-white/15")}>
             Check
           </button>
