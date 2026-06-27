@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, getUserById } from "@/lib/auth";
+import { verifyPassword } from "@/lib/password";
 import {
   GATE_COOKIE,
   createGateToken,
   gateCookieOptions,
-  getPin,
 } from "@/lib/shorts-gate";
 
 export const dynamic = "force-dynamic";
@@ -45,12 +45,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const pin = getPin();
-  if (!pin) {
-    return NextResponse.json(
-      { error: "Adult channel is not configured" },
-      { status: 403 }
-    );
+  const user = getUserById(Number(session.sub));
+  if (!user?.adult_pin_hash) {
+    // No personal PIN set → nothing to unlock (adult content is already open).
+    return NextResponse.json({ error: "No PIN set" }, { status: 400 });
   }
 
   let submitted = "";
@@ -61,7 +59,7 @@ export async function POST(request: Request) {
     submitted = "";
   }
 
-  if (submitted !== pin) {
+  if (!submitted || !verifyPassword(submitted, user.adult_pin_hash)) {
     recordFailure(session.sub);
     return NextResponse.json({ error: "Incorrect PIN" }, { status: 401 });
   }

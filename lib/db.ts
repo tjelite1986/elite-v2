@@ -819,6 +819,15 @@ function migrate(db: Database.Database) {
   if (profileColumns.length > 0 && !profileColumns.includes("bg_theme"))
     db.exec("ALTER TABLE user_profiles ADD COLUMN bg_theme TEXT");
 
+  // Optional PER-USER 18+ PIN. Adult content is open to all logged-in users by
+  // default; a user may set a personal PIN (scrypt hash here) to lock 18+
+  // surfaces behind it on their account. Null = no PIN = open.
+  const userColumns = (
+    db.prepare("PRAGMA table_info(users)").all() as { name: string }[]
+  ).map((c) => c.name);
+  if (userColumns.length > 0 && !userColumns.includes("adult_pin_hash"))
+    db.exec("ALTER TABLE users ADD COLUMN adult_pin_hash TEXT");
+
   // Give every existing user a public profile (username/avatar/bio) so the posts
   // module and attribution work. Username = slugified email local-part, with a
   // numeric suffix on collision; the user can change it later in settings.
@@ -1119,6 +1128,7 @@ export interface UserRow {
   role: "user" | "admin";
   created_at: string;
   last_seen: string | null;
+  adult_pin_hash: string | null;
 }
 
 export interface CodeRow {

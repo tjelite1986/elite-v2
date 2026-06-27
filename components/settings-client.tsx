@@ -8,10 +8,12 @@ import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
 import PushToggle from "@/components/push-toggle";
 import SessionsManager from "@/components/sessions-manager";
 import AppearanceSettings from "@/components/appearance-settings";
+import AdultPinSettings from "@/components/adult-pin-settings";
 
 interface SettingsClientProps {
   isAdmin: boolean;
   showAdultOutside: boolean;
+  hasAdultPin: boolean;
   accent: string;
   bgTheme: string;
   accentPresets: string[];
@@ -21,6 +23,7 @@ interface SettingsClientProps {
 export default function SettingsClient({
   isAdmin,
   showAdultOutside,
+  hasAdultPin,
   accent,
   bgTheme,
   accentPresets,
@@ -218,8 +221,8 @@ export default function SettingsClient({
               <h2 className="text-lg font-medium">Show 18+ content everywhere</h2>
               <p className="mt-1 max-w-md text-sm text-white/50">
                 Weave adult content into normal browsing (feeds, profiles, people)
-                instead of only the Shorts 18+ section. You still need to unlock
-                the 18+ PIN to view it.
+                instead of only the Shorts 18+ section. If you set a personal 18+
+                PIN below, you&apos;ll need to unlock it to view adult content.
               </p>
             </div>
             <button
@@ -240,6 +243,9 @@ export default function SettingsClient({
             </button>
           </div>
         </div>
+
+        {/* Optional per-user 18+ PIN */}
+        <AdultPinSettings hasPin={hasAdultPin} />
 
         {/* Danger zone — hidden for admins (admin accounts can't be deleted) */}
         {!isAdmin && (

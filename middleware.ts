@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
-import { GATE_COOKIE, verifyGateToken } from "@/lib/shorts-gate";
 
 // Public paths that never require a session.
 const PUBLIC_PATHS = ["/login", "/register", "/request-invite", "/share"];
@@ -32,15 +31,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  // Gate the separate 18+ shorts section behind a valid PIN-unlock cookie. The
-  // /shorts18 root is allowed through so its layout can render the PIN prompt;
-  // deeper paths (profiles, settings, watch views) require an unlocked gate.
-  if (pathname.startsWith("/shorts18/") || pathname === "/shorts18") {
-    const gateOk = await verifyGateToken(request.cookies.get(GATE_COOKIE)?.value);
-    if (!gateOk && pathname !== "/shorts18") {
-      return NextResponse.redirect(new URL("/shorts18", request.url));
-    }
-  }
+  // The 18+ section is per-user gated in the node layout + every 18+ API route
+  // (has18Access is now per-user and can't be evaluated on the edge without DB),
+  // so there's no edge redirect here. Adult content is open by default; a user
+  // who set a personal PIN sees the unlock prompt from the layout.
 
   return NextResponse.next();
 }
