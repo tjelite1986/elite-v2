@@ -163,7 +163,7 @@ function AppLinks({
     });
     setBusy(false);
     if (ok) setAddr("");
-    onDone(ok ? `Linked Play: ${json.playName}` : `Play: ${json.error}`);
+    onDone(ok ? `Linked Play: ${json.playName}${json.icon ? " + logo" : ""}` : `Play: ${json.error}`);
   }
 
   async function linkMod() {
