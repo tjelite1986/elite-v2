@@ -104,6 +104,28 @@ export async function impersonateDownload(
   }
 }
 
+// Download a (possibly large) file via the newer Chrome-131 fingerprint — for
+// sites like APKPure that 403 the chrome-100 one. Returns byte size or 0.
+export async function impersonateDownloadModern(
+  url: string,
+  destAbs: string,
+  timeoutMs = 180000
+): Promise<number> {
+  const safe = safeHttpUrl(url);
+  if (!safe) return 0;
+  const useWrapper = fs.existsSync(CHROME131_BIN);
+  const bin = useWrapper ? CHROME131_BIN : CURL_BIN;
+  const base = ["-sL", "--max-time", String(Math.round(timeoutMs / 1000)), "-o", destAbs, "--", safe];
+  const args = useWrapper ? base : [...IMPERSONATE_ARGS, ...base];
+  try {
+    ensureDir(path.dirname(destAbs));
+    await execFileAsync(bin, args, { timeout: timeoutMs + 5000, maxBuffer: 1024 });
+    return fs.existsSync(destAbs) ? fs.statSync(destAbs).size : 0;
+  } catch {
+    return fs.existsSync(destAbs) ? fs.statSync(destAbs).size : 0;
+  }
+}
+
 // Shared og:<prop> extractor + minimal HTML entity decode for mod-apk pages.
 export function ogTag(html: string, prop: string): string | null {
   const m = html.match(

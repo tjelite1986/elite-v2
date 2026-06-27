@@ -703,8 +703,9 @@ export default function StoreManage({ apps }: { apps: ManageApp[] }) {
               </button>
             </div>
 
-            {/* Update controls for external sources */}
-            {a.source !== "local" && (
+            {/* Update controls for external sources + APKPure-linked local apps
+                (APKPure can fetch a real installable APK; Play/mod-apk can't). */}
+            {(a.source !== "local" || !!a.apkpureUrl) && (
               <div className="flex flex-wrap items-center gap-1.5 border-t border-white/5 pt-2">
                 <button
                   onClick={() => rowCheck(a.id)}
