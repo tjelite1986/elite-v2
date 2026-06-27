@@ -991,6 +991,9 @@ function migrate(db: Database.Database) {
     // An F-Droid package id linked to a non-fdroid app for metadata/icon +
     // version-check only — never changes how the app is served.
     addApp("fdroid_package", "TEXT");
+    // An apkpure.com app-page URL linked for metadata/icon/screenshots +
+    // version-check only (scraped via curl-impersonate chrome131).
+    addApp("apkpure_url", "TEXT");
 
     const verCols = (
       db.prepare("PRAGMA table_info(app_versions)").all() as { name: string }[]
@@ -1394,6 +1397,7 @@ export interface AppRow {
   play_package: string | null;
   modapk_url: string | null;
   fdroid_package: string | null;
+  apkpure_url: string | null;
 }
 
 export interface AppVersionRow {

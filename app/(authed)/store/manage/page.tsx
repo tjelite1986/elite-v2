@@ -36,6 +36,7 @@ export default async function StoreManagePage() {
     playPackage: a.play_package,
     modapkUrl: a.modapk_url,
     fdroidPackage: a.fdroid_package,
+    apkpureUrl: a.apkpure_url,
   }));
 
   return (

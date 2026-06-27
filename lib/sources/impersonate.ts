@@ -60,6 +60,30 @@ export async function impersonateFetch(url: string): Promise<string> {
   }
 }
 
+// Some sites (e.g. apkpure.com) 403 the Chrome-100 fingerprint and need a newer
+// one. Use the curl_chrome131 wrapper that ships alongside the binary; fall back
+// to the chrome-100 path if the wrapper isn't present.
+const CHROME131_BIN = path.join(path.dirname(CURL_BIN), "curl_chrome131");
+export async function impersonateFetchModern(url: string): Promise<string> {
+  const safe = safeHttpUrl(url);
+  if (!safe) throw new Error("Refusing to fetch non-http(s) URL");
+  const useWrapper = fs.existsSync(CHROME131_BIN);
+  const bin = useWrapper ? CHROME131_BIN : CURL_BIN;
+  const args = useWrapper
+    ? ["-sL", "--max-time", "30", "--", safe]
+    : [...IMPERSONATE_ARGS, "-sL", "--max-time", "30", "--", safe];
+  try {
+    const { stdout } = await execFileAsync(bin, args, {
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: 35000,
+      encoding: "utf8",
+    });
+    return stdout;
+  } catch (err) {
+    throw new Error(`Could not fetch page (${(err as Error).message.slice(0, 80)})`);
+  }
+}
+
 // Download an image to destAbs via curl-impersonate; returns byte size or 0.
 export async function impersonateDownload(
   url: string,
