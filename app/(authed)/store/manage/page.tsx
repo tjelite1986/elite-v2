@@ -38,6 +38,7 @@ export default async function StoreManagePage() {
     fdroidPackage: a.fdroid_package,
     apkpureUrl: a.apkpure_url,
     lastCheckedAt: a.last_checked_at,
+    createdAt: a.created_at,
   }));
 
   return (

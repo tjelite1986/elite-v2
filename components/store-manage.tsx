@@ -31,6 +31,7 @@ export interface ManageApp {
   fdroidPackage: string | null;
   apkpureUrl: string | null;
   lastCheckedAt: string | null;
+  createdAt: string | null;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -397,7 +398,7 @@ export default function StoreManage({ apps }: { apps: ManageApp[] }) {
   const [query, setQuery] = useState("");
   const [linkState, setLinkState] = useState<"all" | "linked" | "unlinked">("all");
   const [updatesOnly, setUpdatesOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<"name" | "checked" | "updates">("name");
+  const [sortBy, setSortBy] = useState<"name" | "added" | "checked" | "updates">("name");
 
   // Re-sync local rows when the server data refreshes (router.refresh), so link
   // / check / import results show without a manual page reload.
@@ -527,6 +528,11 @@ export default function StoreManage({ apps }: { apps: ManageApp[] }) {
       return true;
     })
     .sort((a, b) => {
+      if (sortBy === "added") {
+        // Most-recently-added first (created_at desc), tiebreak by id.
+        const c = (b.createdAt || "").localeCompare(a.createdAt || "");
+        return c !== 0 ? c : b.id - a.id;
+      }
       if (sortBy === "checked") {
         // Most-recently-checked first; never-checked last.
         return (b.lastCheckedAt || "").localeCompare(a.lastCheckedAt || "");
@@ -617,6 +623,7 @@ export default function StoreManage({ apps }: { apps: ManageApp[] }) {
           className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white outline-none ring-1 ring-white/10"
         >
           <option value="name">Sort: Name</option>
+          <option value="added">Sort: Recently added</option>
           <option value="checked">Sort: Last checked</option>
           <option value="updates">Sort: Updates first</option>
         </select>
