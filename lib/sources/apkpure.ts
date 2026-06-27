@@ -4,7 +4,16 @@
 // impersonation (impersonateFetchModern). Used for "Link APKPure" enrichment +
 // version-check only — never changes how the APK is served.
 
-import { impersonateFetchModern, ogTag, decodeEntities } from "./impersonate";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import JSZip from "jszip";
+import {
+  impersonateFetchModern,
+  impersonateDownloadModern,
+  ogTag,
+  decodeEntities,
+} from "./impersonate";
 
 export interface ApkpureMeta {
   url: string;
@@ -139,5 +148,56 @@ export async function fetchVersion(input: string): Promise<string | null> {
     return versionFrom(html);
   } catch {
     return null;
+  }
+}
+
+// Download the app's package from APKPure and return a single installable base
+// .apk in destDir. APKPure serves an XAPK (zip of base.apk + config splits) for
+// most apps; we extract the base apk (`<pkg>.apk`, or the first non-split apk).
+// `splits` > 0 means resource/language splits were dropped (base still installs).
+export async function downloadBaseApk(
+  input: string,
+  destDir: string
+): Promise<{ apkPath: string; fileName: string; version: string | null; splits: number }> {
+  const url = normalizeUrl(input);
+  const pkg = packageFromUrl(url);
+  if (!pkg) throw new Error("Could not determine the package id from the APKPure URL");
+  const version = await fetchVersion(url);
+  const xapkUrl = `https://d.apkpure.com/b/XAPK/${pkg}?version=latest`;
+  const tmp = path.join(os.tmpdir(), `apkpure-${pkg}-${Date.now()}.bin`);
+
+  const size = await impersonateDownloadModern(xapkUrl, tmp);
+  if (!size) throw new Error("APKPure download failed (empty response)");
+
+  try {
+    const zip = await JSZip.loadAsync(fs.readFileSync(tmp));
+    const entries = Object.values(zip.files).filter((f) => !f.dir);
+    const apkEntries = entries.filter((f) => /\.apk$/i.test(f.name) && !f.name.includes("/"));
+    fs.mkdirSync(destDir, { recursive: true });
+    const fileName = `${pkg}-${version || "latest"}.apk`;
+    const apkPath = path.join(destDir, fileName);
+
+    if (apkEntries.length === 0) {
+      // Already a bare APK (a zip with AndroidManifest/classes, no nested .apk).
+      const bareApk = entries.some((f) =>
+        /^AndroidManifest\.xml$/i.test(f.name) || /^classes\d*\.dex$/i.test(f.name)
+      );
+      if (!bareApk) throw new Error("Unrecognized APKPure download (not an APK/XAPK)");
+      fs.copyFileSync(tmp, apkPath);
+      return { apkPath, fileName, version, splits: 0 };
+    }
+
+    // XAPK → base apk = `<pkg>.apk`, else the first non-config/non-split apk.
+    const nonSplit = apkEntries.filter(
+      (f) => !/(^|\/)(config\.|split_)/i.test(f.name)
+    );
+    const base =
+      apkEntries.find((f) => f.name.toLowerCase() === `${pkg.toLowerCase()}.apk`) ||
+      nonSplit[0] ||
+      apkEntries[0];
+    fs.writeFileSync(apkPath, await base.async("nodebuffer"));
+    return { apkPath, fileName, version, splits: apkEntries.length - 1 };
+  } finally {
+    fs.rm(tmp, { force: true }, () => {});
   }
 }

@@ -4,7 +4,7 @@ import semver from "semver";
 import { sql } from "kysely";
 import { db, AppRow, AppVersionRow } from "../db";
 import { qb, getOne, getAll } from "../kysely";
-import { STORE_DIR } from "../appstore-storage";
+import { STORE_DIR, storeKey } from "../appstore-storage";
 import { verifyApk, VerifyResult } from "../apk-verify";
 import { downloadToFile } from "./download";
 import * as github from "./github";
@@ -362,7 +362,12 @@ export async function updateNow(appId: number): Promise<VerifyResult | null> {
       .orderBy("id", "desc")
       .limit(1)
   );
-  if (!version) return null;
+  if (!version) {
+    // No downloadable github/fdroid version — fall back to a linked APKPure page
+    // (downloads + extracts the base APK from the XAPK).
+    if (app.apkpure_url) return await installFromApkpure(appId);
+    return null;
+  }
   const result = await downloadAndPromote(appId, version.id);
   if (result && (result.status === "ok" || result.status === "unverifiable")) {
     const m = meta(getApp(appId)!);
@@ -370,6 +375,63 @@ export async function updateNow(appId: number): Promise<VerifyResult | null> {
       setMeta(appId, { versionCode: m.availableVersionCode });
   }
   return result;
+}
+
+// Download the base APK from an app's linked APKPure page (XAPK → base apk),
+// verify (SHA + signer TOFU), store it and promote — making "Update now" work
+// for APKPure-linked apps that have no native download source.
+export async function installFromApkpure(appId: number): Promise<VerifyResult | null> {
+  const app = getApp(appId);
+  if (!app || !app.apkpure_url) return null;
+
+  const destDir = path.join(STORE_DIR, app.slug, "apkpure");
+  const dl = await apkpure.downloadBaseApk(app.apkpure_url, destDir);
+  const version = dl.version || app.available_version || "latest";
+
+  const verify = await verifyApk(dl.apkPath, { pinnedSigner: app.signing_cert });
+  if (verify.status === "hash_mismatch" || verify.status === "signer_mismatch") {
+    try {
+      fs.unlinkSync(dl.apkPath);
+    } catch {
+      /* ignore */
+    }
+    db.prepare(
+      "UPDATE apps SET review_flag = ?, last_checked_at = datetime('now') WHERE id = ?"
+    ).run(verify.status, appId);
+    return verify;
+  }
+
+  // store: prefix so resolveAppFile finds it under STORE_DIR even for a local app.
+  const apkKey = storeKey(path.relative(STORE_DIR, dl.apkPath));
+  const fileSize = fs.statSync(dl.apkPath).size;
+  const existing = getOne<{ id: number }>(
+    qb.selectFrom("app_versions").select("id").where("app_id", "=", appId).where("version", "=", version)
+  );
+  let vid: number;
+  if (existing) {
+    db.prepare(
+      `UPDATE app_versions SET apk_key = ?, file_name = ?, file_size = ?, storage = 'download',
+         sha256 = ?, verify_status = ?, downloaded_at = datetime('now') WHERE id = ?`
+    ).run(apkKey, dl.fileName, fileSize, verify.sha256, verify.status, existing.id);
+    vid = existing.id;
+  } else {
+    const r = db
+      .prepare(
+        `INSERT INTO app_versions (app_id, version, apk_key, file_name, file_size, storage, sha256, verify_status, downloaded_at)
+         VALUES (?, ?, ?, ?, ?, 'download', ?, ?, datetime('now'))`
+      )
+      .run(appId, version, apkKey, dl.fileName, fileSize, verify.sha256, verify.status);
+    vid = Number(r.lastInsertRowid);
+  }
+
+  const pin = !app.signing_cert && verify.signerSha256 ? verify.signerSha256 : app.signing_cert;
+  db.prepare("UPDATE app_versions SET is_current = 0 WHERE app_id = ?").run(appId);
+  db.prepare("UPDATE app_versions SET is_current = 1 WHERE id = ?").run(vid);
+  db.prepare(
+    `UPDATE apps SET current_version = ?, available_version = ?, update_available = 0,
+       review_flag = NULL, signing_cert = ?, last_checked_at = datetime('now') WHERE id = ?`
+  ).run(version, version, pin, appId);
+  return verify;
 }
 
 export function setAutoUpdate(appId: number, on: boolean): void {
