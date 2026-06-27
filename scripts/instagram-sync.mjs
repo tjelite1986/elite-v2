@@ -31,11 +31,19 @@ const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const POSTS_ROOT = process.env.POSTS_ROOT || "/posts-store";
 const IMPORT_DIR =
   process.env.POSTS_IMPORT_DIR || path.join(POSTS_ROOT, "_import");
+const COOKIES_ROOT = process.env.IG_COOKIES_ROOT || "/instagram-store";
 const COOKIES_PATH =
-  process.env.IG_COOKIES_PATH || "/instagram-store/.cookies.txt";
+  process.env.IG_COOKIES_PATH || path.join(COOKIES_ROOT, "cookies.txt");
 const GALLERY_DL = process.env.GALLERY_DL_BIN || "gallery-dl";
 const LOCK = "/tmp/elitev2-instagram-sync.lock";
-const MAX_PER_RUN = 30;
+const COOLDOWN_FILE = path.join(os.tmpdir(), "elitev2-ig-cooldowns.json");
+const MAX_PER_RUN = Number(process.env.IG_MAX_PER_RUN) || 30;
+const MAX_PER_COOKIE_PER_RUN = Number(process.env.IG_MAX_PER_COOKIE_PER_RUN) || 0; // 0 = unlimited
+const COOLDOWN_MS = (Number(process.env.IG_COOLDOWN_MINUTES) || 60) * 60 * 1000;
+const SLEEP_REQUEST = process.env.IG_SLEEP_REQUEST || "3.0-8.0";
+const RETRIES = Number(process.env.IG_RETRIES) || 2;
+// Between-profile pause range in seconds ("min-max"), default 15–30s.
+const PROFILE_SLEEP = process.env.IG_PROFILE_SLEEP_SECONDS || "15-30";
 // gallery-dl needs a writable HOME for its cache; the container's nextjs user
 // has none (/nonexistent). Point it at a writable dir so session handling works.
 const RUN_HOME =
@@ -85,14 +93,6 @@ process.on("exit", () => {
 });
 
 // --- Helpers ---------------------------------------------------------------
-function hasCookies() {
-  try {
-    return fs.statSync(COOKIES_PATH).size > 0;
-  } catch {
-    return false;
-  }
-}
-
 function countFiles(dir) {
   try {
     return fs.readdirSync(dir).filter((n) => !n.startsWith(".")).length;
@@ -101,27 +101,147 @@ function countFiles(dir) {
   }
 }
 
-// gallery-dl rewrites the cookies.txt in place (cookies-update); the mounted
-// file is owned by another uid and read-only to us. Work on a writable copy so
-// the rotation write-back doesn't fail with EACCES.
-function writableCookies() {
-  if (!hasCookies()) return null;
-  const dest = path.join(os.tmpdir(), "elitev2-ig-cookies.txt");
+// --- Cookie pool -----------------------------------------------------------
+// Several IG accounts can be rotated: the root cookies.txt (id "default") plus
+// one cookies.txt per immediate subfolder of COOKIES_ROOT (id = folder name).
+// Discovery + ordering MUST match lib/instagram.ts and scripts/ig_profile.py
+// (sorted by id, deduped by realpath) so sticky hashing stays stable.
+function sanitizeId(name) {
+  const s = String(name || "").toLowerCase().replace(/[^a-z0-9._-]/g, "");
+  return s || "default";
+}
+
+function listCookiePool() {
+  const out = [];
+  const seen = new Set();
+  const add = (id, p) => {
+    try {
+      if (!fs.statSync(p).isFile()) return;
+    } catch {
+      return;
+    }
+    let rp = p;
+    try {
+      rp = fs.realpathSync(p);
+    } catch {
+      /* keep p */
+    }
+    if (seen.has(rp)) return;
+    seen.add(rp);
+    out.push({ id, path: p });
+  };
+  add("default", COOKIES_PATH);
   try {
-    fs.copyFileSync(COOKIES_PATH, dest);
-    return dest;
+    for (const name of fs.readdirSync(COOKIES_ROOT).sort()) {
+      if (!/^[A-Za-z0-9._-]+$/.test(name)) continue;
+      const d = path.join(COOKIES_ROOT, name);
+      let st;
+      try {
+        st = fs.statSync(d);
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      const pref = path.join(d, "cookies.txt");
+      if (fs.existsSync(pref)) {
+        add(sanitizeId(name), pref);
+      } else {
+        const txts = fs.readdirSync(d).filter((f) => f.endsWith(".txt")).sort();
+        if (txts.length) add(sanitizeId(name), path.join(d, txts[0]));
+      }
+    }
   } catch {
-    return COOKIES_PATH;
+    /* root may not exist */
+  }
+  out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return out;
+}
+
+// djb2 — deterministic across runs/runtimes (matches ig_profile.py stable_hash).
+function stableHash(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+// --- Cooldown state (shared with scripts/ig_profile.py) --------------------
+function readCooldowns() {
+  try {
+    const d = JSON.parse(fs.readFileSync(COOLDOWN_FILE, "utf8"));
+    return d && typeof d === "object" ? d : {};
+  } catch {
+    return {};
+  }
+}
+function isCooling(id, cd, now) {
+  const e = cd[id];
+  return !!e && Number(e.until) > now;
+}
+function markCooling(id, reason) {
+  try {
+    const cd = readCooldowns();
+    cd[id] = { until: Date.now() + COOLDOWN_MS, reason: String(reason || "").slice(0, 200) };
+    const tmp = COOLDOWN_FILE + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(cd));
+    fs.renameSync(tmp, COOLDOWN_FILE);
+  } catch {
+    /* best effort; last-writer-wins */
   }
 }
 
+// Sticky cookie for a local handle: start at hash(handle)%len, walk the ring,
+// skip members that are cooling or over the per-run budget. null = none eligible.
+function pickCookieForHandle(handle, pool, cd, perRunCount) {
+  if (!pool.length) return null;
+  const now = Date.now();
+  const start = stableHash(handle) % pool.length;
+  for (let i = 0; i < pool.length; i++) {
+    const m = pool[(start + i) % pool.length];
+    if (isCooling(m.id, cd, now)) continue;
+    if (MAX_PER_COOKIE_PER_RUN > 0 && (perRunCount[m.id] || 0) >= MAX_PER_COOKIE_PER_RUN) continue;
+    return m;
+  }
+  return null;
+}
+
+// gallery-dl rewrites the cookies.txt in place (cookies-update); the mounted
+// file is read-only to the runtime uid. Work on a per-cookie writable copy so
+// the rotation write-back doesn't fail and accounts never collide.
+function writableCookies(srcPath, id) {
+  const dest = path.join(os.tmpdir(), `elitev2-ig-cookies-${sanitizeId(id)}.txt`);
+  try {
+    fs.copyFileSync(srcPath, dest);
+    return dest;
+  } catch {
+    return srcPath;
+  }
+}
+
+// Parse a "min-max" (or single) seconds range into a random ms value.
+function randMsFromRange(range, fallbackMin, fallbackMax) {
+  const m = String(range || "").match(/^\s*([\d.]+)\s*-\s*([\d.]+)\s*$/);
+  let lo = fallbackMin;
+  let hi = fallbackMax;
+  if (m) {
+    lo = parseFloat(m[1]);
+    hi = parseFloat(m[2]);
+  } else {
+    const one = parseFloat(range);
+    if (Number.isFinite(one)) lo = hi = one;
+  }
+  if (!(hi >= lo)) hi = lo;
+  return Math.round((lo + Math.random() * (hi - lo)) * 1000);
+}
+
 // Download an IG account's new media into the LOCAL profile's import subfolder
-// via gallery-dl (photos, carousels, and videos). Returns { added, error }.
-function downloadProfile(localHandle, igUsername) {
+// via gallery-dl (photos, carousels, and videos), using the given cookie pool
+// member. Returns { added, error, blocked } — blocked=true on a rate-limit/
+// auth rejection (the caller cools that cookie down and retries with another).
+function downloadProfile(localHandle, igUsername, cookie) {
   const dir = path.join(IMPORT_DIR, localHandle);
   fs.mkdirSync(dir, { recursive: true });
   const before = countFiles(dir);
-  const cookies = writableCookies();
+  const cookies = cookie ? writableCookies(cookie.path, cookie.id) : null;
   const gdArchive = path.join(dir, ".gallery-dl-archive.sqlite");
 
   const rangeUpper = Math.min(before + MAX_PER_RUN, 500);
@@ -138,9 +258,9 @@ function downloadProfile(localHandle, igUsername) {
     // Space out HTTP requests (randomized) so a multi-profile run stays under
     // Instagram's rate limit instead of tripping "Please wait a few minutes".
     "--sleep-request",
-    "2.0-5.0",
+    SLEEP_REQUEST,
     "--retries",
-    "2",
+    String(RETRIES),
     // Write a <file>.json sidecar per item (caption, shortcode, date, tags) so
     // import-posts can set the post caption + hashtags and group carousels.
     "--write-metadata",
@@ -149,6 +269,7 @@ function downloadProfile(localHandle, igUsername) {
   if (cookies) gdArgs.push("--cookies", cookies);
 
   let lastErr = null;
+  let blocked = false;
   try {
     execFileSync(GALLERY_DL, gdArgs, {
       stdio: ["ignore", "ignore", "pipe"],
@@ -159,8 +280,9 @@ function downloadProfile(localHandle, igUsername) {
     });
   } catch (err) {
     const stderr = `${err.stderr || ""}\n${err.message || ""}`;
-    if (/NotFoundError|could not be found|\b401\b|login_required/i.test(stderr)) {
-      lastErr = "Instagram rejected the request — session cookies expired? Re-export cookies.txt.";
+    if (/NotFoundError|could not be found|\b401\b|\b429\b|login_required|Please wait a few minutes/i.test(stderr)) {
+      blocked = true;
+      lastErr = "Instagram rejected the request (rate-limit / expired session).";
     } else {
       const m = stderr.match(/\[[a-z]+\]\[error\][^\n]*/i);
       lastErr = (m ? m[0] : err.message || "download failed").slice(0, 300);
@@ -169,7 +291,7 @@ function downloadProfile(localHandle, igUsername) {
 
   const after = countFiles(dir);
   const added = Math.max(0, after - before);
-  return { added, error: added > 0 ? null : lastErr };
+  return { added, error: added > 0 ? null : lastErr, blocked: added > 0 ? false : blocked };
 }
 
 // --- Main ------------------------------------------------------------------
@@ -209,22 +331,55 @@ function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
+const pool = listCookiePool();
+log(`cookie pool: ${pool.length ? pool.map((m) => m.id).join(", ") : "(none)"}`);
+
 let totalAdded = 0;
 const results = [];
+const perRunCount = {}; // cookie id -> profiles served this run
 
 for (const [i, t] of targets.entries()) {
-  if (i > 0) sleepMs(8000 + Math.floor(Math.random() * 7000)); // 8–15s between profiles
+  if (i > 0) sleepMs(randMsFromRange(PROFILE_SLEEP, 15, 30)); // between-profile breather
   setSyncing.run(t.handle);
-  log(`sync ${t.handle} <- instagram.com/${t.instagram_handle} (mode=${mode})`);
+
+  let cookie = pool.length ? pickCookieForHandle(t.handle, pool, readCooldowns(), perRunCount) : null;
+  if (pool.length && !cookie) {
+    // Every account is cooling down — don't dig the hole deeper.
+    log(`sync ${t.handle}: all Instagram accounts cooling down, skipping`);
+    const msg = "All Instagram accounts are cooling down (rate-limited). Try later.";
+    setResult.run(msg, t.handle);
+    results.push({ handle: t.handle, ig: t.instagram_handle, added: 0, error: msg });
+    continue;
+  }
+
+  log(`sync ${t.handle} <- instagram.com/${t.instagram_handle} (mode=${mode}) via cookie=${cookie?.id ?? "none"}`);
   let r;
   try {
-    r = downloadProfile(t.handle, t.instagram_handle);
+    r = downloadProfile(t.handle, t.instagram_handle, cookie);
   } catch (err) {
-    r = { added: 0, error: String(err.message || err).slice(0, 300) };
+    r = { added: 0, error: String(err.message || err).slice(0, 300), blocked: false };
   }
+  if (cookie) perRunCount[cookie.id] = (perRunCount[cookie.id] || 0) + 1;
+
+  // On a block, cool this cookie down and retry once with the next eligible one.
+  if (r.blocked && cookie) {
+    markCooling(cookie.id, r.error);
+    const next = pickCookieForHandle(t.handle, pool, readCooldowns(), perRunCount);
+    if (next && next.id !== cookie.id) {
+      log(`  ${t.handle}: cookie=${cookie.id} blocked → retry via cookie=${next.id}`);
+      try {
+        r = downloadProfile(t.handle, t.instagram_handle, next);
+      } catch (err) {
+        r = { added: 0, error: String(err.message || err).slice(0, 300), blocked: false };
+      }
+      perRunCount[next.id] = (perRunCount[next.id] || 0) + 1;
+      if (r.blocked) markCooling(next.id, r.error);
+    }
+  }
+
   setResult.run(r.error, t.handle);
   totalAdded += r.added;
-  results.push({ handle: t.handle, ig: t.instagram_handle, ...r });
+  results.push({ handle: t.handle, ig: t.instagram_handle, added: r.added, error: r.error });
   log(`  ${t.handle}: +${r.added}${r.error ? ` (error: ${r.error})` : ""}`);
 }
 

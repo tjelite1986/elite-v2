@@ -15,23 +15,104 @@ import { safeHttpUrl } from "./url";
 // profile's posts and videos its shorts (via scripts/instagram-sync.mjs +
 // import-posts.mjs). A Netscape cookies.txt grants logged-in scrape mode.
 
+const COOKIES_ROOT = process.env.IG_COOKIES_ROOT || "/instagram-store";
 const COOKIES_PATH =
-  process.env.IG_COOKIES_PATH || "/instagram-store/cookies.txt";
+  process.env.IG_COOKIES_PATH || path.join(COOKIES_ROOT, "cookies.txt");
+const COOLDOWN_FILE = path.join(os.tmpdir(), "elitev2-ig-cooldowns.json");
 
 const GALLERY_DL = process.env.GALLERY_DL_BIN || "gallery-dl";
 
-// --- Cookie file ----------------------------------------------------------
+// --- Cookie pool ----------------------------------------------------------
+// Several IG accounts can be rotated: the root cookies.txt (id "default") plus
+// one cookies.txt per immediate subfolder of IG_COOKIES_ROOT (id = folder name).
+// Discovery + ordering MUST match scripts/ig_profile.py and
+// scripts/instagram-sync.mjs (sorted by id with plain codepoint comparison,
+// deduped by realpath) so the heavy poller's sticky hashing stays stable.
+
+export interface CookieMember {
+  id: string;
+  path: string;
+}
+
+function sanitizeCookieId(name: string): string {
+  const s = String(name || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "");
+  return s || "default";
+}
+
+export function listCookiePool(): CookieMember[] {
+  const out: CookieMember[] = [];
+  const seen = new Set<string>();
+  const add = (id: string, p: string) => {
+    try {
+      if (!fs.statSync(p).isFile()) return;
+    } catch {
+      return;
+    }
+    let rp = p;
+    try {
+      rp = fs.realpathSync(p);
+    } catch {
+      /* keep p */
+    }
+    if (seen.has(rp)) return;
+    seen.add(rp);
+    out.push({ id, path: p });
+  };
+  add("default", COOKIES_PATH);
+  try {
+    for (const name of fs.readdirSync(COOKIES_ROOT).sort()) {
+      if (!/^[A-Za-z0-9._-]+$/.test(name)) continue;
+      const d = path.join(COOKIES_ROOT, name);
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(d);
+      } catch {
+        continue;
+      }
+      if (!st.isDirectory()) continue;
+      const pref = path.join(d, "cookies.txt");
+      if (fs.existsSync(pref)) {
+        add(sanitizeCookieId(name), pref);
+      } else {
+        const txts = fs.readdirSync(d).filter((f) => f.endsWith(".txt")).sort();
+        if (txts.length) add(sanitizeCookieId(name), path.join(d, txts[0]));
+      }
+    }
+  } catch {
+    /* root may not exist */
+  }
+  out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return out;
+}
+
+function readCooldowns(): Record<string, { until: number }> {
+  try {
+    const d = JSON.parse(fs.readFileSync(COOLDOWN_FILE, "utf8"));
+    return d && typeof d === "object" ? d : {};
+  } catch {
+    return {};
+  }
+}
+
+// First non-cooling pool member (for light single fetches), or the first member.
+function firstEligibleCookie(): CookieMember | null {
+  const pool = listCookiePool();
+  if (!pool.length) return null;
+  const cd = readCooldowns();
+  const now = Date.now();
+  return pool.find((m) => !(cd[m.id] && cd[m.id].until > now)) || pool[0];
+}
+
+// --- Cookie file (legacy single path, for display) ------------------------
 
 export function cookiesFilePath(): string {
   return COOKIES_PATH;
 }
 
 export function hasCookies(): boolean {
-  try {
-    return fs.statSync(COOKIES_PATH).size > 0;
-  } catch {
-    return false;
-  }
+  return listCookiePool().length > 0;
 }
 
 // Run the Instaloader sidecar (scripts/ig_profile.py). Instaloader is IG-
@@ -111,7 +192,8 @@ function igUser(username: string): IgUser | null {
 // metadata, so it stays null (applyToPeople keeps the existing bio via COALESCE).
 function igUserViaGalleryDl(username: string): IgUser | null {
   const url = `https://www.instagram.com/${encodeURIComponent(username)}/posts/`;
-  const args = ["-j", "--range", "1-1", "--cookies", COOKIES_PATH, url];
+  const cookiePath = firstEligibleCookie()?.path || COOKIES_PATH;
+  const args = ["-j", "--range", "1-1", "--cookies", cookiePath, url];
   let out: string;
   try {
     out = execFileSync(GALLERY_DL, args, {
@@ -152,50 +234,69 @@ function igUserViaGalleryDl(username: string): IgUser | null {
   return null;
 }
 
-// Cache the live login-check so the admin manage page polling this status
-// doesn't spawn a graphql test_login on every request — that endpoint is what
+// Per-cookie session status (mirrors scripts/ig_profile.py `pool-status`).
+export interface CookieStatus {
+  id: string;
+  alive: boolean;
+  username: string;
+  cooling: boolean;
+  cooling_until?: number | null;
+}
+
+// Cache the live pool status so the admin manage page polling it doesn't spawn a
+// graphql test_login per cookie on every request — that endpoint is what
 // Instagram throttles ("Please wait a few minutes"). A positive result is held
-// longer than a negative one (which may just be a transient throttle).
-let aliveCache: { value: boolean; mtimeMs: number; expires: number } | null =
+// longer than a negative one. Keyed by a pool signature (ids + mtimes) so a
+// freshly dropped/rotated cookie file re-checks at once.
+let statusCache: { sig: string; value: CookieStatus[]; expires: number } | null =
   null;
 const ALIVE_POS_TTL = 30 * 60 * 1000; // 30 min
 const ALIVE_NEG_TTL = 5 * 60 * 1000; //  5 min
 
-// Whether the saved session is still valid (Instagram rotates cookies every few
-// weeks). Uses Instaloader's test_login — accurate, unlike file-presence.
-// Cached by cookie-file mtime so a freshly dropped cookies.txt re-checks at once.
-export function cookiesAlive(): boolean {
-  if (!hasCookies()) return false;
-  let mtimeMs = 0;
-  try {
-    mtimeMs = fs.statSync(COOKIES_PATH).mtimeMs;
-  } catch {
-    /* fall through to a live check */
-  }
+function poolSignature(): string {
+  return listCookiePool()
+    .map((m) => {
+      let mt = 0;
+      try {
+        mt = fs.statSync(m.path).mtimeMs;
+      } catch {
+        /* ignore */
+      }
+      return `${m.id}:${mt}`;
+    })
+    .join("|");
+}
+
+// Live status of every pool cookie (alive / cooling / username), cached.
+export function cookiePoolStatus(): CookieStatus[] {
+  if (!hasCookies()) return [];
+  const sig = poolSignature();
   const now = Date.now();
-  if (aliveCache && aliveCache.mtimeMs === mtimeMs && now < aliveCache.expires) {
-    return aliveCache.value;
+  if (statusCache && statusCache.sig === sig && now < statusCache.expires) {
+    return statusCache.value;
   }
-  const value = probeCookiesAlive();
-  aliveCache = {
-    value,
-    mtimeMs,
-    expires: now + (value ? ALIVE_POS_TTL : ALIVE_NEG_TTL),
-  };
+  let value: CookieStatus[] = [];
+  const out = runIgPython(["pool-status"]);
+  if (out) {
+    const last = out.trim().split("\n").pop();
+    try {
+      const parsed = JSON.parse(last || "[]");
+      if (Array.isArray(parsed)) value = parsed as CookieStatus[];
+    } catch {
+      /* leave empty on parse failure */
+    }
+  }
+  const anyAlive = value.some((e) => e.alive);
+  statusCache = { sig, value, expires: now + (anyAlive ? ALIVE_POS_TTL : ALIVE_NEG_TTL) };
   return value;
 }
 
-function probeCookiesAlive(): boolean {
-  const out = runIgPython(["login-check"]);
-  if (!out) return false;
-  const last = out.trim().split("\n").pop();
-  if (!last) return false;
-  try {
-    const d = JSON.parse(last) as { username?: string };
-    return !!d.username;
-  } catch {
-    return false;
-  }
+// Whether ANY pool cookie still has a valid session (Instagram rotates cookies
+// every few weeks). Uses Instaloader's test_login via pool-status — accurate,
+// unlike file-presence.
+export function cookiesAlive(): boolean {
+  if (!hasCookies()) return false;
+  return cookiePoolStatus().some((e) => e.alive);
 }
 
 // --- Username parsing -----------------------------------------------------
