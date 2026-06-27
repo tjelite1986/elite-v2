@@ -1,5 +1,5 @@
 import { sql } from "kysely";
-import { ShortRow, ShortChannel, ShortCategory } from "./db";
+import { db, ShortRow, ShortChannel, ShortCategory } from "./db";
 import { qb, getOne, getAll } from "./kysely";
 import { has18Access } from "./shorts-gate";
 
@@ -268,4 +268,83 @@ export function getCreators(channel: ShortChannel): CreatorCard[] {
       .orderBy("clip_count", "desc")
       .orderBy("p.name", "asc")
   );
+}
+
+// --- Profile merge (link several handles for the same model into one) ---------
+
+export interface MergeProfile {
+  id: number;
+  name: string;
+  clips: number;
+}
+
+// Every profile on a channel with its (non-deleted) clip count — INCLUDING ones
+// with no ready clips — for the admin merge picker. (getCreators only lists ones
+// with a ready clip.)
+export function listProfilesForMerge(channel: ShortChannel): MergeProfile[] {
+  return db
+    .prepare(
+      `SELECT p.id AS id, p.name AS name,
+              (SELECT COUNT(*) FROM shorts s WHERE s.profile_id = p.id AND s.is_deleted = 0) AS clips
+       FROM short_profiles p
+       WHERE p.channel = ?
+       ORDER BY p.name COLLATE NOCASE`
+    )
+    .all(channel) as MergeProfile[];
+}
+
+// Resolve a handle to a linked profile via the alias table (channel-scoped,
+// case-insensitive). Returns null if not aliased.
+export function getAliasProfileId(
+  channel: ShortChannel,
+  name: string
+): number | null {
+  const row = db
+    .prepare(
+      "SELECT profile_id FROM short_profile_aliases WHERE channel = ? AND name = ?"
+    )
+    .get(channel, name.toLowerCase()) as { profile_id: number } | undefined;
+  return row?.profile_id ?? null;
+}
+
+// Merge the `mergeIds` profiles into `primaryId` (same channel): reassign their
+// clips, record each merged name as an alias of the primary (so a future import
+// of that handle reuses it), re-point existing aliases, then delete the merged
+// rows. Returns counts.
+export function mergeShortProfiles(
+  primaryId: number,
+  mergeIds: number[]
+): { reassigned: number; merged: number } {
+  const ids = mergeIds.filter((id) => id !== primaryId);
+  const primary = db
+    .prepare("SELECT id, channel, name FROM short_profiles WHERE id = ?")
+    .get(primaryId) as { id: number; channel: string; name: string } | undefined;
+  if (!primary) throw new Error("primary profile not found");
+
+  let reassigned = 0;
+  let merged = 0;
+  const reassign = db.prepare("UPDATE shorts SET profile_id = ? WHERE profile_id = ?");
+  const addAlias = db.prepare(
+    "INSERT OR REPLACE INTO short_profile_aliases (channel, name, profile_id) VALUES (?, ?, ?)"
+  );
+  const repoint = db.prepare(
+    "UPDATE short_profile_aliases SET profile_id = ? WHERE profile_id = ?"
+  );
+  const del = db.prepare("DELETE FROM short_profiles WHERE id = ?");
+
+  const tx = db.transaction(() => {
+    for (const id of ids) {
+      const p = db
+        .prepare("SELECT name, channel FROM short_profiles WHERE id = ?")
+        .get(id) as { name: string; channel: string } | undefined;
+      if (!p || p.channel !== primary.channel) continue; // never merge across channels
+      reassigned += Number(reassign.run(primaryId, id).changes);
+      addAlias.run(primary.channel, p.name.toLowerCase(), primaryId);
+      repoint.run(primaryId, id);
+      del.run(id);
+      merged++;
+    }
+  });
+  tx();
+  return { reassigned, merged };
 }
