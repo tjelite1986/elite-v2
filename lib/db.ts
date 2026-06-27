@@ -988,6 +988,9 @@ function migrate(db: Database.Database) {
     // A latestmodapks.com page URL linked for metadata/banner/version-check
     // (mod apps not on Play/F-Droid). Scraped via curl-impersonate.
     addApp("modapk_url", "TEXT");
+    // An F-Droid package id linked to a non-fdroid app for metadata/icon +
+    // version-check only — never changes how the app is served.
+    addApp("fdroid_package", "TEXT");
 
     const verCols = (
       db.prepare("PRAGMA table_info(app_versions)").all() as { name: string }[]
@@ -1390,6 +1393,7 @@ export interface AppRow {
   source_meta: string | null;
   play_package: string | null;
   modapk_url: string | null;
+  fdroid_package: string | null;
 }
 
 export interface AppVersionRow {

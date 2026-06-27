@@ -28,6 +28,7 @@ export interface ManageApp {
   reviewFlag: string | null;
   playPackage: string | null;
   modapkUrl: string | null;
+  fdroidPackage: string | null;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -181,6 +182,22 @@ function AppLinks({
     );
   }
 
+  async function linkFdroid() {
+    if (!addr.trim() || busy) return;
+    setBusy(true);
+    const { ok, json } = await call(`/api/store/admin/apps/${app.id}/link-fdroid`, "PUT", {
+      packageId: addr.trim(),
+      refreshMeta: true,
+    });
+    setBusy(false);
+    if (ok) setAddr("");
+    onDone(
+      ok
+        ? `F-Droid: ${json.name}${json.version ? ` v${json.version}` : ""}${json.icon ? " + logo" : ""}`
+        : `F-Droid: ${json.error}`
+    );
+  }
+
   async function refetchMod() {
     if (busy || !app.modapkUrl) return;
     setBusy(true);
@@ -199,11 +216,20 @@ function AppLinks({
     onDone();
   }
 
-  async function unlink(kind: "play" | "modapk") {
+  async function unlink(kind: "play" | "modapk" | "fdroid") {
     setBusy(true);
     await call(`/api/store/admin/apps/${app.id}/link-${kind}`, "DELETE");
     setBusy(false);
-    onDone(`${kind === "play" ? "Play" : "Mod APK"} link removed`);
+    const label = kind === "play" ? "Play" : kind === "fdroid" ? "F-Droid" : "Mod APK";
+    onDone(`${label} link removed`);
+  }
+
+  async function checkFdroid() {
+    if (busy) return;
+    setBusy(true);
+    await call(`/api/store/admin/apps/${app.id}/check`, "POST");
+    setBusy(false);
+    onDone();
   }
 
   return (
@@ -212,7 +238,7 @@ function AppLinks({
       <input
         value={addr}
         onChange={(e) => setAddr(e.target.value)}
-        placeholder="Play package id, or a mod-apk URL (latestmodapks / modapk.world / 9mod)"
+        placeholder="Play / F-Droid package id, or a mod-apk URL (latestmodapks / modapk.world / 9mod)"
         className="w-full rounded-lg bg-black/30 px-2.5 py-1.5 text-xs text-white placeholder-white/30 outline-none ring-1 ring-white/10"
       />
       <div className="flex flex-wrap gap-1.5">
@@ -223,6 +249,15 @@ function AppLinks({
             className={cn(linkBtn, "bg-sky-500/80 text-white hover:bg-sky-500")}
           >
             Link Play
+          </button>
+        )}
+        {app.source !== "fdroid" && (
+          <button
+            onClick={linkFdroid}
+            disabled={busy}
+            className={cn(linkBtn, "bg-indigo-500/80 text-white hover:bg-indigo-500")}
+          >
+            Link F-Droid
           </button>
         )}
         <button
@@ -242,6 +277,17 @@ function AppLinks({
             Check
           </button>
           <button onClick={() => unlink("play")} disabled={busy} className={cn(linkBtn, "bg-white/10 text-white/70 hover:bg-white/15")}>
+            Unlink
+          </button>
+        </div>
+      )}
+      {app.fdroidPackage && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="truncate text-indigo-300">F-Droid: {app.fdroidPackage}</span>
+          <button onClick={checkFdroid} disabled={busy} className={cn(linkBtn, "bg-white/10 text-white/80 hover:bg-white/15")}>
+            Check
+          </button>
+          <button onClick={() => unlink("fdroid")} disabled={busy} className={cn(linkBtn, "bg-white/10 text-white/70 hover:bg-white/15")}>
             Unlink
           </button>
         </div>
