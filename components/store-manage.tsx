@@ -30,6 +30,7 @@ export interface ManageApp {
   modapkUrl: string | null;
   fdroidPackage: string | null;
   apkpureUrl: string | null;
+  lastCheckedAt: string | null;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -392,6 +393,12 @@ export default function StoreManage({ apps }: { apps: ManageApp[] }) {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
 
+  // Filters / sort for the app list.
+  const [query, setQuery] = useState("");
+  const [linkState, setLinkState] = useState<"all" | "linked" | "unlinked">("all");
+  const [updatesOnly, setUpdatesOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<"name" | "checked" | "updates">("name");
+
   // Re-sync local rows when the server data refreshes (router.refresh), so link
   // / check / import results show without a manual page reload.
   useEffect(() => {
@@ -506,6 +513,38 @@ export default function StoreManage({ apps }: { apps: ManageApp[] }) {
     refresh(`Deleted "${name}".`);
   }
 
+  const isLinked = (a: ManageApp) =>
+    !!(a.playPackage || a.modapkUrl || a.fdroidPackage || a.apkpureUrl) ||
+    ["github", "fdroid", "playstore"].includes(a.source);
+
+  const q = query.trim().toLowerCase();
+  const visibleRows = rows
+    .filter((a) => {
+      if (q && !`${a.name} ${a.slug}`.toLowerCase().includes(q)) return false;
+      if (linkState === "linked" && !isLinked(a)) return false;
+      if (linkState === "unlinked" && isLinked(a)) return false;
+      if (updatesOnly && !a.updateAvailable) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortBy === "checked") {
+        // Most-recently-checked first; never-checked last.
+        return (b.lastCheckedAt || "").localeCompare(a.lastCheckedAt || "");
+      }
+      if (sortBy === "updates") {
+        if (a.updateAvailable !== b.updateAvailable) return a.updateAvailable ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+  const updateCount = rows.filter((a) => a.updateAvailable).length;
+  const chip = (active: boolean) =>
+    cn(
+      "rounded-full px-3 py-1.5 text-xs font-medium transition",
+      active ? "bg-white text-black" : "bg-white/10 text-white/80 hover:bg-white/15"
+    );
+
   return (
     <div>
       {/* Add from external sources — one input + a source selector */}
@@ -552,8 +591,47 @@ export default function StoreManage({ apps }: { apps: ManageApp[] }) {
         {msg && <span className="text-xs text-white/50">{msg}</span>}
       </div>
 
+      {/* Filters */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search apps…"
+          className="min-w-[140px] flex-1 rounded-full bg-white/[0.06] px-4 py-1.5 text-sm text-white placeholder-white/30 outline-none ring-1 ring-white/10 focus:ring-white/30"
+        />
+        <button className={chip(linkState === "all")} onClick={() => setLinkState("all")}>
+          All
+        </button>
+        <button className={chip(linkState === "unlinked")} onClick={() => setLinkState("unlinked")}>
+          Unlinked
+        </button>
+        <button className={chip(linkState === "linked")} onClick={() => setLinkState("linked")}>
+          Linked
+        </button>
+        <button className={chip(updatesOnly)} onClick={() => setUpdatesOnly((v) => !v)}>
+          Updates{updateCount ? ` (${updateCount})` : ""}
+        </button>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+          className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white outline-none ring-1 ring-white/10"
+        >
+          <option value="name">Sort: Name</option>
+          <option value="checked">Sort: Last checked</option>
+          <option value="updates">Sort: Updates first</option>
+        </select>
+        <span className="text-xs text-white/40">
+          {visibleRows.length}/{rows.length}
+        </span>
+      </div>
+
       <div className="space-y-2">
-        {rows.map((a) => (
+        {visibleRows.length === 0 && (
+          <p className="rounded-2xl bg-white/[0.03] p-6 text-center text-sm text-white/40 ring-1 ring-white/10">
+            No apps match the filter.
+          </p>
+        )}
+        {visibleRows.map((a) => (
           <div
             key={a.id}
             className="space-y-2 rounded-2xl bg-white/[0.04] p-3 ring-1 ring-white/10"
