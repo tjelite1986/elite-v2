@@ -29,6 +29,10 @@ import path from "node:path";
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const SHORTS_ROOT = process.env.SHORTS_ROOT || "/shorts-store";
+const PROFILE_ROOT = process.env.PROFILE_ROOT || "/profile-store";
+// Per-user upload keys (u_<user>/shorts|shorts18/...) resolve under PROFILE_ROOT;
+// keep in sync with lib/shorts-storage.ts isUploadKey.
+const isUploadKey = (key) => /^u_[^/]+\/(?:shorts18|shorts)\//.test(key);
 
 // Perceptual matching knobs.
 const FRAME_FRACTIONS = [0.2, 0.5, 0.8]; // where to sample (of duration)
@@ -39,9 +43,10 @@ const DUR_TOL = 1.5; // seconds: only compare clips of near-equal length
 
 const log = (m) => console.log(`[scan-dupes] ${m}`);
 
-// channelDir() in lib/shorts-storage.ts: 18plus -> "18plus", everything else
-// -> "main". storage_key is relative to that dir.
+// Per-user upload keys live under PROFILE_ROOT; creator/import clips under
+// SHORTS_ROOT/<channel> (channelDir(): 18plus -> "18plus", else "main").
 function videoPath(channel, storageKey) {
+  if (isUploadKey(storageKey)) return path.join(PROFILE_ROOT, storageKey);
   const dir = channel === "18plus" ? "18plus" : "main";
   return path.join(SHORTS_ROOT, dir, storageKey);
 }
