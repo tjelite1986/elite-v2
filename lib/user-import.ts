@@ -171,14 +171,16 @@ function pruneEmptyDirs(sectionDir: string) {
 
 // A subfolder on the 18+ channel maps to a creator profile (like the auto-poll
 // creators), so the folder shows up in /shorts18/profiles. Find-or-create a
-// `manual` short_profiles row for the channel, matched by exact name.
+// `manual` short_profiles row. Names are stored/matched LOWERCASE so a re-import
+// reuses the same profile regardless of the source folder's casing.
 function findOrCreateShortProfile(name: string, channel: ShortChannel): number {
+  const lname = name.toLowerCase();
   const row = getOne<{ id: number }>(
     qb
       .selectFrom("short_profiles")
       .select("id")
       .where("channel", "=", channel)
-      .where("name", "=", name)
+      .where("name", "=", lname)
   );
   if (row) return row.id;
   return Number(
@@ -186,7 +188,7 @@ function findOrCreateShortProfile(name: string, channel: ShortChannel): number {
       .prepare(
         "INSERT INTO short_profiles (name, channel, source_type, source_ref, auto_poll, videos_limit) VALUES (?, ?, 'manual', '', 0, 20)"
       )
-      .run(name, channel).lastInsertRowid
+      .run(lname, channel).lastInsertRowid
   );
 }
 
@@ -262,7 +264,15 @@ async function importShortsSection(
     const ext = getExt(item.name);
     if (!isSupportedVideo(item.name, "")) continue;
     const parsed = resolve(item);
-    const { title, collection } = parsed;
+    const { title } = parsed;
+    // 18+ collections become creator profiles — keep them lowercase (the convention
+    // used everywhere else) so folders/profiles/files stay consistent and a re-import
+    // never makes a case-variant duplicate profile.
+    let collection = parsed.collection;
+    if (channel === "18plus" && collection) {
+      collection = collection.toLowerCase();
+      parsed.collection = collection;
+    }
     const md = readMdSidecar(item.abs);
     if (parsed.siteId && rowExists("shorts", "uploader_id", parsed.siteId, userId)) {
       consume(item.abs);
@@ -334,12 +344,15 @@ async function importShortsSection(
         ).run(playlistId, shortId);
       }
       // Rename to the canonical self-describing name now that we know the id.
+      // 18+ stored filenames are lowercased to match the lowercase folder/profile
+      // (the caption keeps its original casing).
       try {
+        const stem = canonicalStem(parsed, shortId, "clip");
         const renamed = renameShortFiles(
           channel,
           stored.storageKey,
           stored.posterKey,
-          canonicalStem(parsed, shortId, "clip")
+          asProfile ? stem.toLowerCase() : stem
         );
         db.prepare("UPDATE shorts SET storage_key = ?, poster_key = ? WHERE id = ?").run(
           renamed.storageKey,
