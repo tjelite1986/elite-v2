@@ -13,6 +13,7 @@ import { IMPORT_ROOT } from "./storage-roots";
 import { storePostImage, authorSlug, renamePostImageFiles } from "./posts-storage";
 import { ingestMedia } from "./gallery-ingest";
 import { ingestUpload } from "./books";
+import { getAliasProfileId } from "./shorts";
 import {
   getExt,
   isSupportedImage,
@@ -175,6 +176,10 @@ function pruneEmptyDirs(sectionDir: string) {
 // reuses the same profile regardless of the source folder's casing.
 function findOrCreateShortProfile(name: string, channel: ShortChannel): number {
   const lname = name.toLowerCase();
+  // A merged-away handle (alias) routes to the surviving profile, so re-importing
+  // e.g. a "lillieinlove" folder lands on the merged "lillielucas" profile.
+  const aliased = getAliasProfileId(channel, lname);
+  if (aliased) return aliased;
   const row = getOne<{ id: number }>(
     qb
       .selectFrom("short_profiles")
