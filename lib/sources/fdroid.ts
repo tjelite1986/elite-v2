@@ -15,6 +15,7 @@ export interface FdroidMeta {
   packageName: string;
   name: string;
   summary: string | null;
+  description: string | null;
   iconUrl: string | null;
   suggestedVersionCode: number;
   versions: FdroidVersion[];
@@ -55,10 +56,42 @@ function ogTag(html: string, prop: string): string | null {
   return m ? m[1] : null;
 }
 
+// Convert the F-Droid description block's HTML (br/p/li/a + entities) to readable
+// plain text (bullets kept as "* " so it still reads as markdown downstream).
+function htmlToText(s: string): string {
+  return s
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "* ")
+    .replace(/<\/(p|div|li|ul|ol)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// The full app description from the F-Droid page body (the og:description meta is
+// only the short summary).
+function extractDescription(html: string): string | null {
+  const m = html.match(
+    /<div class="package-description"[^>]*>([\s\S]*?)<\/div>/i
+  );
+  if (!m) return null;
+  const text = htmlToText(m[1]);
+  return text || null;
+}
+
 export async function fetchMeta(packageId: string): Promise<FdroidMeta> {
   const { suggested, versions } = await fetchVersions(packageId);
   let name = packageId;
   let summary: string | null = null;
+  let description: string | null = null;
   let iconUrl: string | null = null;
   try {
     const res = await fetch(`${FDROID_BASE}/en/packages/${packageId}/`, {
@@ -68,12 +101,13 @@ export async function fetchMeta(packageId: string): Promise<FdroidMeta> {
       const html = await res.text();
       name = (ogTag(html, "title") || packageId).replace(/ \| F-Droid.*$/, "");
       summary = ogTag(html, "description");
+      description = extractDescription(html);
       iconUrl = ogTag(html, "image");
     }
   } catch {
     /* metadata is best-effort */
   }
-  return { packageName: packageId, name, summary, iconUrl, suggestedVersionCode: suggested, versions };
+  return { packageName: packageId, name, summary, description, iconUrl, suggestedVersionCode: suggested, versions };
 }
 
 // Standard F-Droid APK filename + URL convention.

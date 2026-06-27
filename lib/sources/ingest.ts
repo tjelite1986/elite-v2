@@ -184,7 +184,7 @@ export async function ingestFdroid(packageInput: string): Promise<number> {
     name: m.name,
     developer: null,
     tagline: m.summary,
-    description: m.summary,
+    description: m.description || m.summary,
     category: "App",
     website: `https://f-droid.org/packages/${pkg}/`,
     homepage: null,
@@ -445,9 +445,11 @@ export async function linkFdroid(
 
   let icon = false;
   if (opts.refreshMeta) {
-    // Fill gaps only — never overwrite the app's own curated metadata.
-    if (!app.description && m.summary) {
-      db.prepare("UPDATE apps SET description = ? WHERE id = ?").run(m.summary, appId);
+    // Fill gaps only — never overwrite the app's own curated metadata. The full
+    // page description is preferred; the short summary is the fallback/tagline.
+    const fullDesc = m.description || m.summary;
+    if (!app.description && fullDesc) {
+      db.prepare("UPDATE apps SET description = ? WHERE id = ?").run(fullDesc, appId);
     }
     if (!app.tagline && m.summary) {
       db.prepare("UPDATE apps SET tagline = ? WHERE id = ?").run(m.summary, appId);
