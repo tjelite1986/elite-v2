@@ -11,6 +11,7 @@ import * as github from "./github";
 import * as fdroid from "./fdroid";
 import * as playstore from "./playstore";
 import { fetchModSiteVersion } from "./modsites";
+import * as apkpure from "./apkpure";
 
 function getApp(appId: number): AppRow | undefined {
   return getOne<AppRow>(
@@ -241,8 +242,34 @@ export async function checkApp(appId: number): Promise<{
   if (app.fdroid_package) {
     return await checkFdroidPackage(appId);
   }
+  if (app.apkpure_url) {
+    return await checkApkpurePackage(appId);
+  }
 
   return { source: app.source, updateAvailable: false, version: null };
+}
+
+// Version-check an app against its linked APKPure page (never downloads).
+export async function checkApkpurePackage(appId: number): Promise<{
+  source: string;
+  updateAvailable: boolean;
+  version: string | null;
+}> {
+  const app = getApp(appId);
+  if (!app || !app.apkpure_url) {
+    return { source: "apkpure", updateAvailable: false, version: null };
+  }
+  db.prepare("UPDATE apps SET last_checked_at = datetime('now') WHERE id = ?").run(appId);
+  const version = await apkpure.fetchVersion(app.apkpure_url);
+  const newer = !!(version && isNewerSemver(version, app.current_version));
+  if (newer) {
+    db.prepare(
+      "UPDATE apps SET available_version = ?, update_available = 1 WHERE id = ?"
+    ).run(version, appId);
+  } else {
+    db.prepare("UPDATE apps SET update_available = 0 WHERE id = ?").run(appId);
+  }
+  return { source: "apkpure", updateAvailable: newer, version };
 }
 
 // Version-check an app against its linked F-Droid package (never downloads).
@@ -364,6 +391,7 @@ export async function checkAll(source?: string): Promise<{
         eb("play_package", "is not", null),
         eb("modapk_url", "is not", null),
         eb("fdroid_package", "is not", null),
+        eb("apkpure_url", "is not", null),
       ])
     );
   } else if (source === "playstore") {

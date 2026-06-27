@@ -5,7 +5,8 @@ import { STORE_DIR, storeKey } from "../appstore-storage";
 import { slugify } from "../appstore-archive";
 import { safeHttpUrl } from "../url";
 import { downloadImage } from "./download";
-import { downloadAndPromote, checkPlayPackage, checkModApk, checkFdroidPackage } from "./updater";
+import { downloadAndPromote, checkPlayPackage, checkModApk, checkFdroidPackage, checkApkpurePackage } from "./updater";
+import * as apkpure from "./apkpure";
 import { fetchModSiteMeta } from "./modsites";
 import { impersonateDownload } from "./impersonate";
 import * as github from "./github";
@@ -474,5 +475,81 @@ export async function linkFdroid(
 export function unlinkFdroid(appId: number): void {
   db.prepare(
     "UPDATE apps SET fdroid_package = NULL, update_available = 0, available_version = NULL WHERE id = ?"
+  ).run(appId);
+}
+
+// Link an APKPure app page to an existing app: fill description gap, fetch the
+// app icon + screenshots into the writable store (store: prefix → resolves for
+// any source, incl. local archive apps), and version-check. Metadata + version
+// only — never changes APK serving. APKPure has rich icons/screenshots for apps
+// not on Play/F-Droid (e.g. FikFap).
+export async function linkApkpure(
+  appId: number,
+  input: string,
+  opts: { refreshMeta?: boolean } = {}
+): Promise<{
+  name: string;
+  version: string | null;
+  updateAvailable: boolean;
+  icon: boolean;
+  screenshots: number;
+}> {
+  const meta = await apkpure.fetchMeta(input);
+
+  const app = getOne<AppRow>(
+    qb.selectFrom("apps").selectAll().where("id", "=", appId)
+  );
+  if (!app) throw new Error("App not found");
+
+  db.prepare("UPDATE apps SET apkpure_url = ? WHERE id = ?").run(meta.url, appId);
+
+  let icon = false;
+  let shots = 0;
+  if (opts.refreshMeta) {
+    if (!app.description && meta.description) {
+      db.prepare("UPDATE apps SET description = ? WHERE id = ?").run(meta.description, appId);
+    }
+    if (!app.icon_key && meta.iconUrl) {
+      const rel = await downloadImage(meta.iconUrl, STORE_DIR, `${app.slug}/assets`, "apkpure-icon");
+      if (rel) {
+        db.prepare("UPDATE apps SET icon_key = ? WHERE id = ?").run(storeKey(rel), appId);
+        icon = true;
+      }
+    }
+    const shotCount =
+      getOne<{ c: number }>(
+        qb
+          .selectFrom("app_screenshots")
+          .select((eb) => eb.fn.countAll<number>().as("c"))
+          .where("app_id", "=", appId)
+      )?.c ?? 0;
+    if (shotCount === 0 && meta.screenshots.length) {
+      let idx = 0;
+      for (const url of meta.screenshots) {
+        const rel = await downloadImage(url, STORE_DIR, `${app.slug}/assets/screenshots`, `ap-${idx}`);
+        if (rel) {
+          db.prepare(
+            "INSERT INTO app_screenshots (app_id, image_key, sort_order) VALUES (?, ?, ?)"
+          ).run(appId, storeKey(rel), idx);
+          idx++;
+        }
+      }
+      shots = idx;
+    }
+  }
+
+  const result = await checkApkpurePackage(appId);
+  return {
+    name: meta.name,
+    version: result.version,
+    updateAvailable: result.updateAvailable,
+    icon,
+    screenshots: shots,
+  };
+}
+
+export function unlinkApkpure(appId: number): void {
+  db.prepare(
+    "UPDATE apps SET apkpure_url = NULL, update_available = 0, available_version = NULL WHERE id = ?"
   ).run(appId);
 }

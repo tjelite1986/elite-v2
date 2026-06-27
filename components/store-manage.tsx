@@ -29,6 +29,7 @@ export interface ManageApp {
   playPackage: string | null;
   modapkUrl: string | null;
   fdroidPackage: string | null;
+  apkpureUrl: string | null;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -198,6 +199,31 @@ function AppLinks({
     );
   }
 
+  async function linkApkpure() {
+    if (!addr.trim() || busy) return;
+    setBusy(true);
+    const { ok, json } = await call(`/api/store/admin/apps/${app.id}/link-apkpure`, "PUT", {
+      url: addr.trim(),
+    });
+    setBusy(false);
+    if (ok) setAddr("");
+    onDone(
+      ok
+        ? `APKPure: ${json.name}${json.version ? ` v${json.version}` : ""}${json.icon ? " + logo" : ""}${json.screenshots ? ` + ${json.screenshots} shots` : ""}`
+        : `APKPure: ${json.error}`
+    );
+  }
+
+  async function refetchApkpure() {
+    if (busy || !app.apkpureUrl) return;
+    setBusy(true);
+    const { ok, json } = await call(`/api/store/admin/apps/${app.id}/link-apkpure`, "PUT", {
+      url: app.apkpureUrl,
+    });
+    setBusy(false);
+    onDone(ok ? `Refreshed APKPure: ${json.name}` : `APKPure: ${json.error}`);
+  }
+
   async function refetchMod() {
     if (busy || !app.modapkUrl) return;
     setBusy(true);
@@ -240,11 +266,12 @@ function AppLinks({
     onDone(ok ? `Refreshed F-Droid: ${json.name}${json.icon ? " + logo" : ""}` : `F-Droid: ${json.error}`);
   }
 
-  async function unlink(kind: "play" | "modapk" | "fdroid") {
+  async function unlink(kind: "play" | "modapk" | "fdroid" | "apkpure") {
     setBusy(true);
     await call(`/api/store/admin/apps/${app.id}/link-${kind}`, "DELETE");
     setBusy(false);
-    const label = kind === "play" ? "Play" : kind === "fdroid" ? "F-Droid" : "Mod APK";
+    const label =
+      kind === "play" ? "Play" : kind === "fdroid" ? "F-Droid" : kind === "apkpure" ? "APKPure" : "Mod APK";
     onDone(`${label} link removed`);
   }
 
@@ -262,7 +289,7 @@ function AppLinks({
       <input
         value={addr}
         onChange={(e) => setAddr(e.target.value)}
-        placeholder="Play / F-Droid package id, or a mod-apk URL (latestmodapks / modapk.world / 9mod)"
+        placeholder="Play / F-Droid package id, or an APKPure / mod-apk URL"
         className="w-full rounded-lg bg-black/30 px-2.5 py-1.5 text-xs text-white placeholder-white/30 outline-none ring-1 ring-white/10"
       />
       <div className="flex flex-wrap gap-1.5">
@@ -284,6 +311,13 @@ function AppLinks({
             Link F-Droid
           </button>
         )}
+        <button
+          onClick={linkApkpure}
+          disabled={busy}
+          className={cn(linkBtn, "bg-orange-500/80 text-white hover:bg-orange-500")}
+        >
+          Link APKPure
+        </button>
         <button
           onClick={linkMod}
           disabled={busy}
@@ -318,6 +352,19 @@ function AppLinks({
             Check
           </button>
           <button onClick={() => unlink("fdroid")} disabled={busy} className={cn(linkBtn, "bg-white/10 text-white/70 hover:bg-white/15")}>
+            Unlink
+          </button>
+        </div>
+      )}
+      {app.apkpureUrl && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="truncate text-orange-300">
+            APKPure: {app.apkpureUrl.replace(/^https?:\/\//, "")}
+          </span>
+          <button onClick={refetchApkpure} disabled={busy} className={cn(linkBtn, "bg-orange-500/80 text-white hover:bg-orange-500")}>
+            Refresh
+          </button>
+          <button onClick={() => unlink("apkpure")} disabled={busy} className={cn(linkBtn, "bg-white/10 text-white/70 hover:bg-white/15")}>
             Unlink
           </button>
         </div>
