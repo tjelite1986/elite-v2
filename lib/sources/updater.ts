@@ -238,8 +238,36 @@ export async function checkApp(appId: number): Promise<{
   if (app.modapk_url) {
     return await checkModApk(appId);
   }
+  if (app.fdroid_package) {
+    return await checkFdroidPackage(appId);
+  }
 
   return { source: app.source, updateAvailable: false, version: null };
+}
+
+// Version-check an app against its linked F-Droid package (never downloads).
+export async function checkFdroidPackage(appId: number): Promise<{
+  source: string;
+  updateAvailable: boolean;
+  version: string | null;
+}> {
+  const app = getApp(appId);
+  if (!app || !app.fdroid_package) {
+    return { source: "fdroid-link", updateAvailable: false, version: null };
+  }
+  db.prepare("UPDATE apps SET last_checked_at = datetime('now') WHERE id = ?").run(appId);
+  const { suggested, versions } = await fdroid.fetchVersions(app.fdroid_package);
+  const top = versions.find((v) => v.versionCode === suggested) || versions[0] || null;
+  const version = top?.versionName || null;
+  const newer = !!(version && isNewerSemver(version, app.current_version));
+  if (newer) {
+    db.prepare(
+      "UPDATE apps SET available_version = ?, update_available = 1 WHERE id = ?"
+    ).run(version, appId);
+  } else {
+    db.prepare("UPDATE apps SET update_available = 0 WHERE id = ?").run(appId);
+  }
+  return { source: "fdroid-link", updateAvailable: newer, version };
 }
 
 // Version-check an app against its linked latestmodapks page (never downloads).
@@ -335,6 +363,7 @@ export async function checkAll(source?: string): Promise<{
         eb("source", "in", ["github", "fdroid", "playstore"]),
         eb("play_package", "is not", null),
         eb("modapk_url", "is not", null),
+        eb("fdroid_package", "is not", null),
       ])
     );
   } else if (source === "playstore") {

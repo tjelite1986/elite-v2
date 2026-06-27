@@ -35,6 +35,7 @@ export default async function StoreManagePage() {
     reviewFlag: a.review_flag,
     playPackage: a.play_package,
     modapkUrl: a.modapk_url,
+    fdroidPackage: a.fdroid_package,
   }));
 
   return (

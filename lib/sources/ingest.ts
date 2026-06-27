@@ -5,7 +5,7 @@ import { STORE_DIR, storeKey } from "../appstore-storage";
 import { slugify } from "../appstore-archive";
 import { safeHttpUrl } from "../url";
 import { downloadImage } from "./download";
-import { downloadAndPromote, checkPlayPackage, checkModApk } from "./updater";
+import { downloadAndPromote, checkPlayPackage, checkModApk, checkFdroidPackage } from "./updater";
 import { fetchModSiteMeta } from "./modsites";
 import { impersonateDownload } from "./impersonate";
 import * as github from "./github";
@@ -420,5 +420,58 @@ export async function linkModApk(
 export function unlinkModApk(appId: number): void {
   db.prepare(
     "UPDATE apps SET modapk_url = NULL, update_available = 0, available_version = NULL WHERE id = ?"
+  ).run(appId);
+}
+
+// Link an F-Droid package to an existing app: fill metadata gaps (summary →
+// tagline/description), fetch the app icon into the writable store (resolves for
+// any source via the "store:" prefix), and run a version-check. Does not change
+// APK serving — F-Droid here is metadata + version-check only.
+export async function linkFdroid(
+  appId: number,
+  packageInput: string,
+  opts: { refreshMeta?: boolean } = {}
+): Promise<{ name: string; version: string | null; updateAvailable: boolean; icon: boolean }> {
+  const pkg = fdroid.normalizePackageId(packageInput);
+  const m = await fdroid.fetchMeta(pkg); // validates + gets versions/icon/summary
+  if (!m.versions.length) throw new Error(`No F-Droid package found for "${pkg}"`);
+
+  const app = getOne<AppRow>(
+    qb.selectFrom("apps").selectAll().where("id", "=", appId)
+  );
+  if (!app) throw new Error("App not found");
+
+  db.prepare("UPDATE apps SET fdroid_package = ? WHERE id = ?").run(pkg, appId);
+
+  let icon = false;
+  if (opts.refreshMeta) {
+    // Fill gaps only — never overwrite the app's own curated metadata.
+    if (!app.description && m.summary) {
+      db.prepare("UPDATE apps SET description = ? WHERE id = ?").run(m.summary, appId);
+    }
+    if (!app.tagline && m.summary) {
+      db.prepare("UPDATE apps SET tagline = ? WHERE id = ?").run(m.summary, appId);
+    }
+    if (!app.icon_key && m.iconUrl) {
+      const rel = await downloadImage(m.iconUrl, STORE_DIR, `${app.slug}/assets`, "fdroid-icon");
+      if (rel) {
+        db.prepare("UPDATE apps SET icon_key = ? WHERE id = ?").run(storeKey(rel), appId);
+        icon = true;
+      }
+    }
+  }
+
+  const result = await checkFdroidPackage(appId);
+  return {
+    name: m.name || pkg,
+    version: result.version,
+    updateAvailable: result.updateAvailable,
+    icon,
+  };
+}
+
+export function unlinkFdroid(appId: number): void {
+  db.prepare(
+    "UPDATE apps SET fdroid_package = NULL, update_available = 0, available_version = NULL WHERE id = ?"
   ).run(appId);
 }
