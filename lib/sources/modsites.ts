@@ -2,12 +2,14 @@ import type { ModApkMeta } from "./latestmodapks";
 import * as latestmodapks from "./latestmodapks";
 import * as modapkworld from "./modapkworld";
 import * as ninemod from "./ninemod";
+import * as apkrmod from "./apkrmod";
 
 // Mod-apk metadata sites, dispatched by hostname. Each parser fetches past
 // Cloudflare via curl-impersonate and returns the same ModApkMeta shape.
 const SITES = [
   { match: /9mod\.com/i, mod: ninemod },
   { match: /modapk\.world/i, mod: modapkworld },
+  { match: /apkrmod\.net/i, mod: apkrmod },
   { match: /latestmodapks\.com/i, mod: latestmodapks },
 ];
 
@@ -25,4 +27,4 @@ export async function fetchModSiteVersion(input: string): Promise<string | null>
   return pick(input).fetchAppVersion(input);
 }
 
-export const SUPPORTED_MOD_SITES = ["latestmodapks.com", "modapk.world", "9mod.com"];
+export const SUPPORTED_MOD_SITES = ["latestmodapks.com", "modapk.world", "9mod.com", "apkrmod.net"];
