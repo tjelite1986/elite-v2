@@ -41,13 +41,19 @@ export async function GET(
 
   const stat = fs.statSync(abs);
   const fileName = version.file_name || `${app.slug}-${version.version}.apk`;
+  // .xapk is a split-APK bundle (zip), not a single APK — serve it as a generic
+  // download so the device hands it to an XAPK installer instead of the package
+  // installer (which would reject the zip).
+  const contentType = /\.xapk$/i.test(fileName)
+    ? "application/octet-stream"
+    : "application/vnd.android.package-archive";
   const stream = Readable.toWeb(
     fs.createReadStream(abs)
   ) as unknown as ReadableStream;
 
   return new NextResponse(stream, {
     headers: {
-      "Content-Type": "application/vnd.android.package-archive",
+      "Content-Type": contentType,
       "Content-Length": String(stat.size),
       "Content-Disposition": `attachment; filename="${fileName.replace(/"/g, "")}"`,
       "Cache-Control": "private, max-age=3600",

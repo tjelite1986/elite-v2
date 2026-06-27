@@ -387,11 +387,17 @@ export async function installFromApkpure(appId: number): Promise<VerifyResult | 
   const destDir = path.join(STORE_DIR, app.slug, "apkpure");
   const dl = await apkpure.downloadBaseApk(app.apkpure_url, destDir);
   const version = dl.version || app.available_version || "latest";
+  // verifyPath is a bare base.apk; clean it up afterwards if it's a throwaway
+  // temp (i.e. the served file is the full .xapk).
+  const cleanupVerify = () => {
+    if (dl.verifyPath !== dl.servePath) fs.rm(dl.verifyPath, { force: true }, () => {});
+  };
 
-  const verify = await verifyApk(dl.apkPath, { pinnedSigner: app.signing_cert });
+  const verify = await verifyApk(dl.verifyPath, { pinnedSigner: app.signing_cert });
+  cleanupVerify();
   if (verify.status === "hash_mismatch" || verify.status === "signer_mismatch") {
     try {
-      fs.unlinkSync(dl.apkPath);
+      fs.unlinkSync(dl.servePath);
     } catch {
       /* ignore */
     }
@@ -402,8 +408,8 @@ export async function installFromApkpure(appId: number): Promise<VerifyResult | 
   }
 
   // store: prefix so resolveAppFile finds it under STORE_DIR even for a local app.
-  const apkKey = storeKey(path.relative(STORE_DIR, dl.apkPath));
-  const fileSize = fs.statSync(dl.apkPath).size;
+  const apkKey = storeKey(path.relative(STORE_DIR, dl.servePath));
+  const fileSize = fs.statSync(dl.servePath).size;
   const existing = getOne<{ id: number }>(
     qb.selectFrom("app_versions").select("id").where("app_id", "=", appId).where("version", "=", version)
   );

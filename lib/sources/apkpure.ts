@@ -151,14 +151,23 @@ export async function fetchVersion(input: string): Promise<string | null> {
   }
 }
 
-// Download the app's package from APKPure and return a single installable base
-// .apk in destDir. APKPure serves an XAPK (zip of base.apk + config splits) for
-// most apps; we extract the base apk (`<pkg>.apk`, or the first non-split apk).
-// `splits` > 0 means resource/language splits were dropped (base still installs).
+// Download the app's package from APKPure and produce an installable file in
+// destDir. APKPure serves an XAPK (zip of base.apk + optional config/density/
+// language splits). A single-APK bundle → we serve the clean base `.apk`. A
+// SPLIT bundle → we serve the whole `.xapk` (many apps require their splits, so
+// base-only would fail to install). Either way `verifyPath` is a bare `.apk`
+// (the base) for signature/TOFU verification; the caller deletes it if it's a
+// throwaway temp.
 export async function downloadBaseApk(
   input: string,
   destDir: string
-): Promise<{ apkPath: string; fileName: string; version: string | null; splits: number }> {
+): Promise<{
+  servePath: string;
+  fileName: string;
+  verifyPath: string;
+  version: string | null;
+  splits: number;
+}> {
   const url = normalizeUrl(input);
   const pkg = packageFromUrl(url);
   if (!pkg) throw new Error("Could not determine the package id from the APKPure URL");
@@ -174,29 +183,43 @@ export async function downloadBaseApk(
     const entries = Object.values(zip.files).filter((f) => !f.dir);
     const apkEntries = entries.filter((f) => /\.apk$/i.test(f.name) && !f.name.includes("/"));
     fs.mkdirSync(destDir, { recursive: true });
-    const fileName = `${pkg}-${version || "latest"}.apk`;
-    const apkPath = path.join(destDir, fileName);
+    const ver = version || "latest";
 
+    // Already a bare APK (zip with AndroidManifest/classes, no nested .apk).
     if (apkEntries.length === 0) {
-      // Already a bare APK (a zip with AndroidManifest/classes, no nested .apk).
       const bareApk = entries.some((f) =>
         /^AndroidManifest\.xml$/i.test(f.name) || /^classes\d*\.dex$/i.test(f.name)
       );
       if (!bareApk) throw new Error("Unrecognized APKPure download (not an APK/XAPK)");
-      fs.copyFileSync(tmp, apkPath);
-      return { apkPath, fileName, version, splits: 0 };
+      const fileName = `${pkg}-${ver}.apk`;
+      const servePath = path.join(destDir, fileName);
+      fs.copyFileSync(tmp, servePath);
+      return { servePath, fileName, verifyPath: servePath, version, splits: 0 };
     }
 
     // XAPK → base apk = `<pkg>.apk`, else the first non-config/non-split apk.
-    const nonSplit = apkEntries.filter(
-      (f) => !/(^|\/)(config\.|split_)/i.test(f.name)
-    );
     const base =
       apkEntries.find((f) => f.name.toLowerCase() === `${pkg.toLowerCase()}.apk`) ||
-      nonSplit[0] ||
+      apkEntries.filter((f) => !/(^|\/)(config\.|split_)/i.test(f.name))[0] ||
       apkEntries[0];
-    fs.writeFileSync(apkPath, await base.async("nodebuffer"));
-    return { apkPath, fileName, version, splits: apkEntries.length - 1 };
+    const splits = apkEntries.length - 1;
+
+    if (splits === 0) {
+      // Single-apk bundle → serve the clean base apk.
+      const fileName = `${pkg}-${ver}.apk`;
+      const servePath = path.join(destDir, fileName);
+      fs.writeFileSync(servePath, await base.async("nodebuffer"));
+      return { servePath, fileName, verifyPath: servePath, version, splits: 0 };
+    }
+
+    // Split bundle → serve the whole XAPK (so all required splits install).
+    // Extract the base apk to a temp purely for signature verification.
+    const fileName = `${pkg}-${ver}.xapk`;
+    const servePath = path.join(destDir, fileName);
+    fs.copyFileSync(tmp, servePath);
+    const verifyPath = path.join(os.tmpdir(), `apkpure-verify-${pkg}-${Date.now()}.apk`);
+    fs.writeFileSync(verifyPath, await base.async("nodebuffer"));
+    return { servePath, fileName, verifyPath, version, splits };
   } finally {
     fs.rm(tmp, { force: true }, () => {});
   }
