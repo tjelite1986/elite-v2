@@ -37,13 +37,26 @@ export function syncArchiveCatalog(db: Database.Database): {
     WHERE id = @id
   `);
 
-  const delVersions = db.prepare("DELETE FROM app_versions WHERE app_id = ?");
+  // Rebuild ONLY the archive-sourced rows; never delete link-installed assets
+  // (apk_key/image_key prefixed "store:", e.g. an APK installed from APKPure or
+  // screenshots pulled from a Play/APKPure link) or the rescan would wipe them.
+  const delVersions = db.prepare(
+    "DELETE FROM app_versions WHERE app_id = ? AND (apk_key NOT LIKE 'store:%' OR apk_key IS NULL)"
+  );
   const insVersion = db.prepare(`
     INSERT OR IGNORE INTO app_versions
       (app_id, version, apk_key, file_name, file_size, is_current)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
-  const delShots = db.prepare("DELETE FROM app_screenshots WHERE app_id = ?");
+  const linkedVersions = db.prepare(
+    "SELECT id, version FROM app_versions WHERE app_id = ? AND apk_key LIKE 'store:%' ORDER BY id DESC"
+  );
+  const clearCurrent = db.prepare("UPDATE app_versions SET is_current = 0 WHERE app_id = ?");
+  const setCurrentById = db.prepare("UPDATE app_versions SET is_current = 1 WHERE id = ?");
+  const setAppCurrentVersion = db.prepare("UPDATE apps SET current_version = ? WHERE id = ?");
+  const delShots = db.prepare(
+    "DELETE FROM app_screenshots WHERE app_id = ? AND (image_key NOT LIKE 'store:%' OR image_key IS NULL)"
+  );
   const insShot = db.prepare(
     "INSERT INTO app_screenshots (app_id, image_key, sort_order) VALUES (?, ?, ?)"
   );
@@ -78,7 +91,10 @@ export function syncArchiveCatalog(db: Database.Database): {
         inserted++;
       }
 
-      // Rebuild versions + screenshots from the archive (source of truth).
+      // Rebuild the ARCHIVE versions (source of truth) but keep link-installed
+      // (store:) ones. A link-installed version (e.g. an APKPure install) stays
+      // current; otherwise the archive's newest is current.
+      const linked = linkedVersions.all(appId) as { id: number; version: string }[];
       delVersions.run(appId);
       app.versions.forEach((v, idx) => {
         insVersion.run(
@@ -87,10 +103,16 @@ export function syncArchiveCatalog(db: Database.Database): {
           v.apkKey,
           v.fileName,
           v.fileSize,
-          idx === 0 ? 1 : 0
+          !linked.length && idx === 0 ? 1 : 0
         );
       });
+      if (linked.length) {
+        clearCurrent.run(appId);
+        setCurrentById.run(linked[0].id);
+        setAppCurrentVersion.run(linked[0].version, appId);
+      }
 
+      // Rebuild archive screenshots; keep link-pulled (store:) ones.
       delShots.run(appId);
       app.screenshots.forEach((key, idx) => insShot.run(appId, key, idx));
     }

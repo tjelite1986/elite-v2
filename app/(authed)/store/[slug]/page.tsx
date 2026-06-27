@@ -46,6 +46,9 @@ export default async function StoreAppDetailPage({
   const hasArtifact = app.versions.length > 0;
   const websiteHref = safeHttpUrl(app.website);
   const playHref = safeHttpUrl(app.playUrl);
+  // The file the primary download serves (current version, else newest).
+  const primaryVersion = app.versions.find((v) => v.isCurrent) ?? app.versions[0];
+  const isXapk = !!primaryVersion?.fileName?.toLowerCase().endsWith(".xapk");
 
   return (
     <div className="mx-auto max-w-3xl px-3 pb-24 pt-28 text-white">
@@ -135,6 +138,18 @@ export default async function StoreAppDetailPage({
         </div>
       </div>
 
+      {/* XAPK install notice */}
+      {isXapk && (
+        <div className="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200/90">
+          <span className="font-semibold text-amber-300">XAPK (split APK).</span>{" "}
+          This download is a bundle of APKs, not a single file. Install it with an
+          XAPK-capable installer such as{" "}
+          <span className="font-medium">SAI (Split APKs Installer)</span> or the{" "}
+          <span className="font-medium">APKPure app</span> — a normal tap-to-install
+          won&apos;t open it.
+        </div>
+      )}
+
       {/* Screenshots */}
       {app.screenshots.length > 0 && (
         <div className="mb-6 flex gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -177,6 +192,11 @@ export default async function StoreAppDetailPage({
                   {v.isCurrent && (
                     <span className="ml-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300">
                       Latest
+                    </span>
+                  )}
+                  {v.fileName?.toLowerCase().endsWith(".xapk") && (
+                    <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                      XAPK
                     </span>
                   )}
                 </span>
