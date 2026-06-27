@@ -273,7 +273,7 @@ export async function linkPlay(
   appId: number,
   packageInput: string,
   opts: { refreshMeta?: boolean } = {}
-): Promise<{ playName: string; version: string | null; updateAvailable: boolean }> {
+): Promise<{ playName: string; version: string | null; updateAvailable: boolean; icon: boolean }> {
   const pkg = playstore_normalize(packageInput);
   const m = await playstore.fetchAppMeta(pkg); // validates the package exists
 
@@ -284,6 +284,7 @@ export async function linkPlay(
 
   db.prepare("UPDATE apps SET play_package = ? WHERE id = ?").run(pkg, appId);
 
+  let icon = false;
   if (opts.refreshMeta) {
     // Fill gaps only — never overwrite the app's own curated metadata.
     if (!app.description && m.description) {
@@ -291,6 +292,17 @@ export async function linkPlay(
     }
     if (!app.tagline && m.summary) {
       db.prepare("UPDATE apps SET tagline = ? WHERE id = ?").run(m.summary, appId);
+    }
+    // App icon — fill the gap when the app has none (e.g. a manually-added
+    // archive folder with no logo.png). Stored with the "store:" prefix so it
+    // resolves regardless of source (local apps otherwise serve from the
+    // read-only archive). Curated icons are kept (fill-only).
+    if (!app.icon_key && m.iconUrl) {
+      const rel = await downloadImage(m.iconUrl, STORE_DIR, `${app.slug}/assets`, "play-icon");
+      if (rel) {
+        db.prepare("UPDATE apps SET icon_key = ? WHERE id = ?").run(storeKey(rel), appId);
+        icon = true;
+      }
     }
     // Only import Play screenshots for apps whose assets live in the writable
     // store (github/fdroid/playstore). Local apps serve from the read-only
@@ -323,7 +335,7 @@ export async function linkPlay(
   }
 
   const result = await checkPlayPackage(appId);
-  return { playName: m.name, version: result.version, updateAvailable: result.updateAvailable };
+  return { playName: m.name, version: result.version, updateAvailable: result.updateAvailable, icon };
 }
 
 export function unlinkPlay(appId: number): void {
