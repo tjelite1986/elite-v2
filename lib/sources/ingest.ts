@@ -304,10 +304,9 @@ export async function linkPlay(
         icon = true;
       }
     }
-    // Only import Play screenshots for apps whose assets live in the writable
-    // store (github/fdroid/playstore). Local apps serve from the read-only
-    // archive, so a downloaded screenshot would not resolve — and they already
-    // ship their own screenshots anyway.
+    // Import Play screenshots when the app has none. Downloaded into STORE_DIR
+    // and keyed with the "store:" prefix so they resolve for ANY source —
+    // including local archive apps (which serve from the read-only archive).
     const shotCount =
       getOne<{ c: number }>(
         qb
@@ -315,19 +314,19 @@ export async function linkPlay(
           .select((eb) => eb.fn.countAll<number>().as("c"))
           .where("app_id", "=", appId)
       )?.c ?? 0;
-    if (app.source !== "local" && shotCount === 0 && m.screenshots.length) {
+    if (shotCount === 0 && m.screenshots.length) {
       let idx = 0;
       for (const url of m.screenshots) {
-        const key = await downloadImage(
+        const rel = await downloadImage(
           url,
           STORE_DIR,
           `${app.slug}/assets/screenshots`,
           `${idx}`
         );
-        if (key) {
+        if (rel) {
           db.prepare(
             "INSERT INTO app_screenshots (app_id, image_key, sort_order) VALUES (?, ?, ?)"
-          ).run(appId, key, idx);
+          ).run(appId, storeKey(rel), idx);
           idx++;
         }
       }
