@@ -11,6 +11,9 @@ import {
 } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { qb, getOne, getAll } from "@/lib/kysely";
+import WeatherWidget from "@/components/weather-widget";
+import ServerWidget from "@/components/server-widget";
+import ClockWidget from "@/components/clock-widget";
 
 export const dynamic = "force-dynamic";
 
@@ -89,12 +92,19 @@ export default async function Home() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-24 pt-20 text-white md:pt-24">
-      <header className="mb-8">
-        <h1 className="text-3xl font-semibold tracking-tight">Welcome back, {name}</h1>
-        <p className="mt-1 text-sm text-white/50">Here&apos;s what&apos;s in your library.</p>
+      <header className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Welcome back, {name}</h1>
+          <p className="mt-1 text-sm text-white/50">Here&apos;s what&apos;s in your library.</p>
+        </div>
+        <ClockWidget />
       </header>
 
-      <section className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <section className="mb-3">
+        <WeatherWidget />
+      </section>
+
+      <section className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {stats.map((s) => (
           <Link
             key={s.label}
@@ -110,6 +120,10 @@ export default async function Home() {
             </span>
           </Link>
         ))}
+      </section>
+
+      <section className="mb-8">
+        <ServerWidget />
       </section>
 
       <section className="mb-8">
