@@ -14,6 +14,7 @@ import { qb, getOne, getAll } from "@/lib/kysely";
 import WeatherWidget from "@/components/weather-widget";
 import ServerWidget from "@/components/server-widget";
 import ClockWidget from "@/components/clock-widget";
+import DockerWidget from "@/components/docker-widget";
 
 export const dynamic = "force-dynamic";
 
@@ -122,8 +123,9 @@ export default async function Home() {
         ))}
       </section>
 
-      <section className="mb-8">
+      <section className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ServerWidget />
+        <DockerWidget />
       </section>
 
       <section className="mb-8">
