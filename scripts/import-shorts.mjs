@@ -76,7 +76,36 @@ function splitExt(name) {
   return [name.slice(0, name.length - ext.length), ext];
 }
 
+// Bracket grammar shared with the per-user importer (lib/import-naming.ts):
+//   <title> [h_<tag>]... [f_<profile>] [id_<dbid>]
+// [f_] names the creator PROFILE, [h_] are hashtags, and the title is the text
+// before the first "[". Takes precedence over the legacy "<profile>_-_<title>".
+function parseBrackets(stem) {
+  const firstBracket = stem.indexOf("[");
+  const hasBrackets = firstBracket !== -1;
+  const title = (hasBrackets ? stem.slice(0, firstBracket) : stem)
+    .replace(/_/g, " ")
+    .trim();
+  let folder = null;
+  const hashtags = [];
+  const re = /\[([^\]]*)\]/g;
+  let m;
+  while ((m = re.exec(stem)) !== null) {
+    const tok = m[1].trim();
+    if (!tok) continue;
+    if (tok.startsWith("h_")) hashtags.push(tok.slice(2));
+    else if (tok.startsWith("f_")) {
+      const f = tok.slice(2).trim();
+      if (f) folder = f;
+    }
+    // [id_] is ignored here (the shared importer assigns its own ids).
+  }
+  return { hasBrackets, title, folder, hashtags };
+}
+
 function parseProfile(stem) {
+  const b = parseBrackets(stem);
+  if (b.folder) return b.folder;
   let m = stem.match(DASH_PROFILE_RE);
   if (m) {
     const p = m[1].trim();
@@ -91,11 +120,22 @@ function parseProfile(stem) {
 
 // Title for the caption: the part after the _-_ / ` - ` separator, else the stem.
 function parseTitle(stem) {
+  const b = parseBrackets(stem);
+  if (b.hasBrackets) return b.title;
   const idx = stem.indexOf("_-_");
   if (idx >= 0) return stem.slice(idx + 3).replace(/_/g, " ").trim();
   const sp = stem.indexOf(" - ");
   if (sp >= 0) return stem.slice(sp + 3).trim();
   return stem.replace(/_/g, " ").trim();
+}
+
+// Caption for a dropped file: the title plus any [h_] hashtags appended as
+// #tags, so shorts (which store hashtags inside the caption) keep them.
+function captionFromStem(stem) {
+  const b = parseBrackets(stem);
+  const title = b.hasBrackets ? b.title : parseTitle(stem);
+  const tags = b.hashtags.map((t) => `#${t}`).join(" ");
+  return [title, tags].filter(Boolean).join(" ").trim() || null;
 }
 
 function sanitizeStem(stem) {
@@ -282,7 +322,7 @@ for (const entry of entries) {
   insertShort.run(
     CHANNEL,
     profile.id,
-    (caption || parseTitle(stem)).slice(0, 2000) || null,
+    (caption || captionFromStem(stem) || "").slice(0, 2000) || null,
     `${slug}/${destVideoName}`,
     posterKey,
     mimeFor(ext),

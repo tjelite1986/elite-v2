@@ -16,9 +16,10 @@ import { canViewItem } from "@/lib/gallery-share";
 
 export const dynamic = "force-dynamic";
 
-// Serve a media variant. Viewable if the user owns the item OR it was shared
-// with them in a message. Files are read from the OWNER's storage (item.user_id).
-// The httpOnly session cookie rides same-origin <img> requests.
+// Serve a media variant. Viewable if the user owns the item, it was shared with
+// them in a message, OR they are an admin (needed for cross-user gallery
+// duplicate review in Settings). Files are read from the OWNER's storage
+// (item.user_id). The httpOnly session cookie rides same-origin <img> requests.
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -28,6 +29,7 @@ export async function GET(
     return new NextResponse("Unauthorized", { status: 401 });
   }
   const userId = Number(session.sub);
+  const isAdmin = session.role === "admin";
 
   const item = getOne<GalleryItemRow>(
     qb
@@ -39,7 +41,7 @@ export async function GET(
   if (!item) {
     return new NextResponse("Not found", { status: 404 });
   }
-  if (item.user_id !== userId && !canViewItem(userId, item.id)) {
+  if (item.user_id !== userId && !isAdmin && !canViewItem(userId, item.id)) {
     return new NextResponse("Forbidden", { status: 403 });
   }
   const ownerId = item.user_id;

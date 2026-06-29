@@ -267,7 +267,70 @@ function poolSignature(): string {
     .join("|");
 }
 
-// Live status of every pool cookie (alive / cooling / username), cached.
+// Guards against spawning more than one pool-status check at a time.
+let statusRefreshing = false;
+
+// Refresh the pool-status cache in the BACKGROUND. pool-status shells out to
+// Instaloader's test_login, which can hang for minutes when Instagram is slow;
+// running it synchronously on the request path froze the whole Node event loop
+// (one stuck `ig_profile.py pool-status` = the entire app stops responding). So
+// we spawn it async, cap it with a hard kill timeout, and only update the cache
+// on success — callers always get the last known value immediately.
+function refreshPoolStatusAsync(sig: string): void {
+  if (statusRefreshing) return;
+  statusRefreshing = true;
+  const script = path.join(process.cwd(), "scripts", "ig_profile.py");
+  const env = {
+    ...process.env,
+    HOME:
+      process.env.HOME && fs.existsSync(process.env.HOME)
+        ? process.env.HOME
+        : os.tmpdir(),
+  };
+  let out = "";
+  try {
+    const child = spawn("python3", [script, "pool-status"], { env });
+    const killer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }, 45_000);
+    child.stdout?.on("data", (d) => {
+      out += d.toString();
+    });
+    child.on("error", () => {
+      clearTimeout(killer);
+      statusRefreshing = false;
+    });
+    child.on("close", () => {
+      clearTimeout(killer);
+      statusRefreshing = false;
+      const last = out.trim().split("\n").pop();
+      try {
+        const parsed = JSON.parse(last || "[]");
+        if (Array.isArray(parsed)) {
+          const value = parsed as CookieStatus[];
+          const anyAlive = value.some((e) => e.alive);
+          statusCache = {
+            sig,
+            value,
+            expires: Date.now() + (anyAlive ? ALIVE_POS_TTL : ALIVE_NEG_TTL),
+          };
+        }
+      } catch {
+        /* keep the previous cache on parse failure */
+      }
+    });
+  } catch {
+    statusRefreshing = false;
+  }
+}
+
+// Live status of every pool cookie (alive / cooling / username), cached. Never
+// blocks: a stale/missing cache triggers a background refresh and returns the
+// last known value (empty until the first refresh completes).
 export function cookiePoolStatus(): CookieStatus[] {
   if (!hasCookies()) return [];
   const sig = poolSignature();
@@ -275,20 +338,8 @@ export function cookiePoolStatus(): CookieStatus[] {
   if (statusCache && statusCache.sig === sig && now < statusCache.expires) {
     return statusCache.value;
   }
-  let value: CookieStatus[] = [];
-  const out = runIgPython(["pool-status"]);
-  if (out) {
-    const last = out.trim().split("\n").pop();
-    try {
-      const parsed = JSON.parse(last || "[]");
-      if (Array.isArray(parsed)) value = parsed as CookieStatus[];
-    } catch {
-      /* leave empty on parse failure */
-    }
-  }
-  const anyAlive = value.some((e) => e.alive);
-  statusCache = { sig, value, expires: now + (anyAlive ? ALIVE_POS_TTL : ALIVE_NEG_TTL) };
-  return value;
+  refreshPoolStatusAsync(sig);
+  return statusCache?.value ?? [];
 }
 
 // Whether ANY pool cookie still has a valid session (Instagram rotates cookies
@@ -355,14 +406,18 @@ export async function fetchProfileInfo(
 // it). The avatar is set on the handle (shown everywhere) and IG bio links are
 // merged into the profile's links. Real user accounts only get the avatar — we
 // never overwrite a person's own name/bio. Best effort.
-async function applyToPeople(
+// `source` records where a freshly created post_creators row originated
+// ('instagram' by default; the TikTok sync passes 'tiktok'). Exported so
+// lib/tiktok.ts reuses the exact same name/bio/avatar/link application logic.
+export async function applyToPeople(
   targetHandle: string,
   meta: {
     displayName: string | null;
     bio: string | null;
     avatarUrl: string | null;
     links?: string[];
-  }
+  },
+  source = "instagram"
 ): Promise<void> {
   const handle = handleOf(targetHandle);
   if (!handle) return;
@@ -380,8 +435,8 @@ async function applyToPeople(
         ).run(meta.displayName, meta.bio, creator.id);
       } else {
         db.prepare(
-          "INSERT INTO post_creators (username, display_name, bio, source) VALUES (?, ?, ?, 'instagram')"
-        ).run(handle, meta.displayName, meta.bio);
+          "INSERT INTO post_creators (username, display_name, bio, source) VALUES (?, ?, ?, ?)"
+        ).run(handle, meta.displayName, meta.bio, source);
       }
     }
 

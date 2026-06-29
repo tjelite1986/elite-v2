@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { has18Access } from "@/lib/shorts-gate";
-import { resolvePerson } from "@/lib/directory";
+import { resolvePerson, handleOf } from "@/lib/directory";
 import PersonProfile from "@/components/person-profile";
 
 export const dynamic = "force-dynamic";
@@ -23,12 +23,15 @@ export default async function PersonPage({
   // governs only general surfaces (home/explore feeds, the people directory).
   const include18 = await has18Access();
 
-  const person = resolvePerson(
-    decodeURIComponent(params.handle),
-    viewerId,
-    include18
-  );
+  const requested = decodeURIComponent(params.handle);
+  const person = resolvePerson(requested, viewerId, include18);
   if (!person) notFound();
+
+  // A linked member resolves to its primary "face"; canonicalise the URL so the
+  // address bar and links use the primary handle.
+  if (handleOf(requested) !== handleOf(person.handle)) {
+    redirect(`/people/${encodeURIComponent(person.handle)}`);
+  }
 
   return <PersonProfile person={person} isAdmin={session.role === "admin"} />;
 }

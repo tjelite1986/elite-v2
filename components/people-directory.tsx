@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Search, Image as ImageIcon, Clapperboard, Lock } from "lucide-react";
+import { Search, Image as ImageIcon, Clapperboard } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
 import type { PersonEntry } from "@/lib/directory";
 
@@ -306,7 +306,7 @@ function PersonRow({ person: p }: { person: PersonEntry }) {
           {p.shorts18Id && (
             <Chip
               href={`/shorts18/profile/${p.shorts18Id}`}
-              icon={<Lock size={12} />}
+              icon={<Clapperboard size={12} />}
               label={`${p.shorts18} 18+`}
             />
           )}

@@ -11,7 +11,6 @@ const TABS = [
   { label: "Profiles", href: "/shorts/profiles" },
   { label: "Playlists", href: "/shorts/playlists" },
   { label: "Grab", href: "/shorts/grab" },
-  { label: "Settings", href: "/shorts/settings" },
 ];
 
 function activeHref(pathname: string): string {
@@ -21,22 +20,15 @@ function activeHref(pathname: string): string {
     return "/shorts/profiles";
   if (pathname.startsWith("/shorts/playlists")) return "/shorts/playlists";
   if (pathname.startsWith("/shorts/grab")) return "/shorts/grab";
-  if (
-    pathname.startsWith("/shorts/settings") ||
-    pathname.startsWith("/shorts/upload") ||
-    pathname.startsWith("/shorts/admin")
-  )
-    return "/shorts/settings";
   return "/shorts";
 }
 
 // Secondary tab bar for the Shorts section, floating just under the macOS menu
 // bar. Mirrors old elite's Videos / Explore / Profiles / Playlists tabs.
-export default function ShortsTabs({ canSettings = false }: { canSettings?: boolean }) {
+export default function ShortsTabs() {
   const pathname = usePathname();
   const active = activeHref(pathname);
-  // The Settings tab is admin-granted (shorts_settings permission); hide it otherwise.
-  const tabs = TABS.filter((t) => t.href !== "/shorts/settings" || canSettings);
+  const tabs = TABS;
 
   return (
     <div

@@ -19,6 +19,8 @@ export default function ProfileExtrasEditor({
   hasBanner,
   initialInstagram,
   initialIgAutoPoll,
+  initialTiktok,
+  initialTtAutoPoll,
 }: {
   handle: string;
   initialBio: string;
@@ -28,6 +30,8 @@ export default function ProfileExtrasEditor({
   hasBanner: boolean;
   initialInstagram: string;
   initialIgAutoPoll: boolean;
+  initialTiktok: string;
+  initialTtAutoPoll: boolean;
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -42,6 +46,8 @@ export default function ProfileExtrasEditor({
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [instagram, setInstagram] = useState(initialInstagram);
   const [igAutoPoll, setIgAutoPoll] = useState(initialIgAutoPoll);
+  const [tiktok, setTiktok] = useState(initialTiktok);
+  const [ttAutoPoll, setTtAutoPoll] = useState(initialTtAutoPoll);
   const [cookieState, setCookieState] = useState<"active" | "expired" | "missing" | null>(null);
   const [bannerBust, setBannerBust] = useState(hasBanner ? 1 : 0);
   const [busy, setBusy] = useState(false);
@@ -136,6 +142,8 @@ export default function ProfileExtrasEditor({
         fields: cleanFields,
         instagramHandle: instagram.trim(),
         igAutoPoll,
+        tiktokHandle: tiktok.trim(),
+        ttAutoPoll,
       }),
     });
     const d = await res.json().catch(() => ({}));
@@ -371,6 +379,30 @@ export default function ProfileExtrasEditor({
         {cookieState === "active" && (
           <p className="mt-1 text-xs text-emerald-400">Session cookies: active.</p>
         )}
+      </div>
+
+      {/* TikTok source */}
+      <div>
+        <span className="mb-1 block text-xs font-medium text-white/50">TikTok</span>
+        <input
+          value={tiktok}
+          onChange={(e) => setTiktok(e.target.value)}
+          placeholder="@username or tiktok.com/@username"
+          className="w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+        />
+        <label className="mt-2 flex items-center gap-2 text-sm text-white/70">
+          <input
+            type="checkbox"
+            checked={ttAutoPoll}
+            onChange={(e) => setTtAutoPoll(e.target.checked)}
+          />
+          Auto-poll daily (pull new posts automatically)
+        </label>
+        <p className="mt-1 text-xs text-white/40">
+          Connect a TikTok account to import its videos as shorts (and photo
+          posts as posts) on this profile. No login cookie is required — use the
+          “Sync from TikTok” button on the profile to pull now.
+        </p>
       </div>
 
       {error && <p className="text-sm text-rose-400">{error}</p>}

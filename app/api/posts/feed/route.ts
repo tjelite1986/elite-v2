@@ -3,6 +3,16 @@ import { getSession } from "@/lib/auth";
 import { has18Access } from "@/lib/shorts-gate";
 import { getShowAdultOutside } from "@/lib/profiles";
 import { getFeed, FeedScope } from "@/lib/posts";
+import { personContentIds } from "@/lib/profile-links";
+
+// Parse a comma-separated list of positive integer ids from a query param.
+function idList(raw: string | null): number[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
+}
 
 export const dynamic = "force-dynamic";
 
@@ -33,13 +43,19 @@ export async function GET(request: Request) {
       scope = { kind: "creator", creatorId: Number(url.searchParams.get("id")) };
       break;
     case "person": {
-      const u = Number(url.searchParams.get("userId"));
-      const c = Number(url.searchParams.get("creatorId"));
-      scope = {
-        kind: "person",
-        userId: Number.isInteger(u) && u > 0 ? u : null,
-        creatorId: Number.isInteger(c) && c > 0 ? c : null,
-      };
+      // A `handle` expands (server-side) to every linked member's ids; otherwise
+      // accept explicit comma-separated userId/creatorId lists (back-compat).
+      const handle = url.searchParams.get("handle");
+      if (handle) {
+        const ids = personContentIds(handle, true);
+        scope = { kind: "person", userIds: ids.userIds, creatorIds: ids.creatorIds };
+      } else {
+        scope = {
+          kind: "person",
+          userIds: idList(url.searchParams.get("userId")),
+          creatorIds: idList(url.searchParams.get("creatorId")),
+        };
+      }
       break;
     }
     case "tag":

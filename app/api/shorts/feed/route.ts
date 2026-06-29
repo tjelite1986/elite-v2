@@ -7,6 +7,7 @@ import {
   parseChannel,
 } from "@/lib/shorts";
 import { parseCategory } from "@/lib/shorts-categories";
+import { personContentIds } from "@/lib/profile-links";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,21 @@ export async function GET(request: Request) {
   // cross-channel scopes that don't constrain the channel themselves.
   const allow18 = await canAccessChannel("18plus");
 
+  // Linked-profile scope: a `handle` expands (server-side) to every member's
+  // profile + owner ids for THIS channel. An empty group matches nothing — never
+  // fall through to channel-wide browsing.
+  const handle = url.searchParams.get("handle");
+  let profileIds: number[] = [];
+  let ownerIds: number[] = [];
+  if (handle) {
+    const ids = personContentIds(handle, channel === "18plus");
+    profileIds = channel === "18plus" ? ids.shorts18Ids : ids.shortsMainIds;
+    ownerIds = ids.userIds;
+    if (profileIds.length === 0 && ownerIds.length === 0) {
+      return NextResponse.json({ items: [], nextCursor: null });
+    }
+  }
+
   const { items, nextCursor } = getFeed(
     channel,
     Number(session.sub),
@@ -63,7 +79,9 @@ export async function GET(request: Request) {
     isAdmin,
     mineOnly,
     ownerId,
-    allow18
+    allow18,
+    profileIds,
+    ownerIds
   );
 
   return NextResponse.json({ items, nextCursor });

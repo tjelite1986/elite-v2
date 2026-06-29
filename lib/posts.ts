@@ -130,7 +130,7 @@ export type FeedScope =
   | { kind: "explore" }
   | { kind: "user"; userId: number }
   | { kind: "creator"; creatorId: number }
-  | { kind: "person"; userId: number | null; creatorId: number | null }
+  | { kind: "person"; userIds: number[]; creatorIds: number[] }
   | { kind: "tag"; tag: string };
 
 // Cursor-paginated feed (newest first; cursor = last post id seen). Adult posts
@@ -181,15 +181,24 @@ export function getFeed(
     case "creator":
       q = q.where("p.author_creator_id", "=", scope.creatorId);
       break;
-    case "person":
-      // Union of a handle's user-authored and creator-authored posts.
+    case "person": {
+      // Union of a handle's user-authored and creator-authored posts, across all
+      // linked members. An empty group matches nothing.
+      const { userIds, creatorIds } = scope;
+      if (!userIds.length && !creatorIds.length) {
+        q = q.where("p.id", "=", -1);
+        break;
+      }
       q = q.where((eb) =>
-        eb.or([
-          eb("p.author_user_id", "=", scope.userId),
-          eb("p.author_creator_id", "=", scope.creatorId),
-        ])
+        eb.or(
+          [
+            userIds.length ? eb("p.author_user_id", "in", userIds) : null,
+            creatorIds.length ? eb("p.author_creator_id", "in", creatorIds) : null,
+          ].filter((c): c is NonNullable<typeof c> => c !== null)
+        )
       );
       break;
+    }
     case "tag":
       // A post carries each tag at most once (PK on post_id,tag), so an IN
       // subquery is equivalent to the old JOIN without changing row counts.

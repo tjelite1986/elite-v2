@@ -92,8 +92,15 @@ export function getFeed(
   // 18+ access: when false (and not admin), 18plus clips are excluded from EVERY
   // scope — including playlists, which otherwise skip the channel filter and
   // would leak adult clips to a viewer who hasn't unlocked the PIN.
-  allow18 = false
+  allow18 = false,
+  // Linked-group scope: extra profile ids / owner ids unioned with the single
+  // profileId/ownerId above, so a non-destructively linked person's clips from
+  // every member profile show on one unified profile.
+  profileIds: number[] = [],
+  ownerIds: number[] = []
 ): { items: FeedShort[]; nextCursor: number | null } {
+  const profIds = profileId !== null ? [profileId, ...profileIds] : [...profileIds];
+  const ownIds = ownerId !== null ? [ownerId, ...ownerIds] : [...ownerIds];
   // Structure (joins, filters, ordering, pagination) is built with the typed
   // builder. The correlated count/exists columns stay as sql`` fragments —
   // this is exactly the "gnarliest queries fall partly back to raw SQL" case.
@@ -147,12 +154,12 @@ export function getFeed(
     // Profile/owner scope: a clip belongs to the creator profile (profile_id) OR
     // the person's own uploads (uploader_id) — unioned so a user's uploads show
     // on their profile alongside the creator's imports.
-    .$if(profileId !== null || ownerId !== null, (q) =>
+    .$if(profIds.length > 0 || ownIds.length > 0, (q) =>
       q.where((eb) =>
         eb.or(
           [
-            profileId !== null ? eb("s.profile_id", "=", profileId) : null,
-            ownerId !== null ? eb("s.uploader_id", "=", ownerId) : null,
+            profIds.length ? eb("s.profile_id", "in", profIds) : null,
+            ownIds.length ? eb("s.uploader_id", "in", ownIds) : null,
           ].filter((c): c is NonNullable<typeof c> => c !== null)
         )
       )
@@ -161,7 +168,7 @@ export function getFeed(
     // uploader's 18+ clips don't leak into their main grid). A creator-profile-only
     // scope derives the channel from the profile, so it's skipped there.
     .$if(
-      (profileId === null && playlistId === null) || ownerId !== null,
+      (profIds.length === 0 && playlistId === null) || ownIds.length > 0,
       (q) => q.where("s.channel", "=", channel)
     )
     .$if(category !== null, (q) => q.where("s.category", "=", category!))
