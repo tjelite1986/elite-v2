@@ -2,6 +2,7 @@ import { sql } from "kysely";
 import { qb, getOne, getAll } from "./kysely";
 import { getProfileExtras, ProfileLink, ProfileField } from "./profiles";
 import { resolveBadges } from "./badges";
+import { getPrimaryHandle, personContentIds } from "./profile-links";
 
 // A badge as sent to the client — the BadgeDef's `earned` predicate is dropped
 // (a function prop would break server→client serialization).
@@ -99,6 +100,12 @@ export interface ResolvedPerson {
   igLastSyncedAt: string | null;
   igLastSyncError: string | null;
   igSyncing: boolean;
+  // TikTok sync config/status (from profile_extras), keyed by handle.
+  tiktokHandle: string | null;
+  ttAutoPoll: boolean;
+  ttLastSyncedAt: string | null;
+  ttLastSyncError: string | null;
+  ttSyncing: boolean;
 }
 
 // Resolve a handle to its identity across every section, for the unified
@@ -108,7 +115,10 @@ export function resolvePerson(
   viewerId: number,
   include18: boolean
 ): ResolvedPerson | null {
-  const h = handleOf(handle);
+  // Resolve the requested handle to its primary "face" (if linked), then gather
+  // every linked member's content ids so counts/feeds aggregate the whole group.
+  const h = getPrimaryHandle(handleOf(handle));
+  const ids = personContentIds(h, include18);
 
   const user = getOne<{
     user_id: number;
@@ -172,32 +182,40 @@ export function resolvePerson(
     return null;
   }
 
-  const countPosts = (
-    col: "author_user_id" | "author_creator_id",
-    id: number
-  ): number =>
-    getOne<{ c: number }>(
-      qb
-        .selectFrom("posts")
-        .select((eb) => eb.fn.countAll<number>().as("c"))
-        .where(col, "=", id)
-        .where("is_deleted", "=", 0)
-    )?.c ?? 0;
-
+  // Photos across every linked member's user/creator identities.
   const photos =
-    (user ? countPosts("author_user_id", user.user_id) : 0) +
-    (creator ? countPosts("author_creator_id", creator.id) : 0);
+    ids.userIds.length || ids.creatorIds.length
+      ? getOne<{ c: number }>(
+          qb
+            .selectFrom("posts")
+            .select((eb) => eb.fn.countAll<number>().as("c"))
+            .where("is_deleted", "=", 0)
+            .where((eb) =>
+              eb.or(
+                [
+                  ids.userIds.length
+                    ? eb("author_user_id", "in", ids.userIds)
+                    : null,
+                  ids.creatorIds.length
+                    ? eb("author_creator_id", "in", ids.creatorIds)
+                    : null,
+                ].filter((c): c is NonNullable<typeof c> => c !== null)
+              )
+            )
+        )?.c ?? 0
+      : 0;
 
   // Clips on a person's profile come from BOTH the creator profile (profile_id)
   // AND the person's own uploads (uploader_id), so a user's uploaded/imported
   // clips count here too — mirroring how posts union author_user_id. Privacy is
   // applied so the badge matches what the feed renders (public + viewer's own).
-  const ownerId = user?.user_id ?? null;
+  // Clips on a person's profile, unioned across every linked member's creator
+  // profiles (profile_id) and own uploads (uploader_id). Privacy still applies.
   const clipCount = (
-    profileId: number | null,
+    profileIds: number[],
     channel: "main" | "18plus"
   ): number => {
-    if (profileId === null && ownerId === null) return 0;
+    if (profileIds.length === 0 && ids.userIds.length === 0) return 0;
     return (
       getOne<{ c: number }>(
         qb
@@ -209,8 +227,8 @@ export function resolvePerson(
           .where((eb) =>
             eb.or(
               [
-                profileId !== null ? eb("profile_id", "=", profileId) : null,
-                ownerId !== null ? eb("uploader_id", "=", ownerId) : null,
+                profileIds.length ? eb("profile_id", "in", profileIds) : null,
+                ids.userIds.length ? eb("uploader_id", "in", ids.userIds) : null,
               ].filter((c): c is NonNullable<typeof c> => c !== null)
             )
           )
@@ -271,10 +289,11 @@ export function resolvePerson(
         .where("target_id", "=", id)
     )?.c ?? 0;
   let followers = 0;
-  if (user) followers += countFollowers("user", user.user_id);
-  if (creator) followers += countFollowers("creator", creator.id);
-  if (shortsMainId) followers += countFollowers("shorts", shortsMainId);
-  if (shorts18Id) followers += countFollowers("shorts", shorts18Id);
+  for (const uid of ids.userIds) followers += countFollowers("user", uid);
+  for (const cid of ids.creatorIds) followers += countFollowers("creator", cid);
+  for (const sid of ids.shortsMainIds) followers += countFollowers("shorts", sid);
+  if (include18)
+    for (const sid of ids.shorts18Ids) followers += countFollowers("shorts", sid);
   const following = user
     ? getOne<{ c: number }>(
         qb
@@ -315,11 +334,11 @@ export function resolvePerson(
     viewerFollows,
     photos,
     shortsMainId,
-    shortsMain: clipCount(shortsMainId, "main"),
+    shortsMain: clipCount(ids.shortsMainIds, "main"),
     shortsMainAutoPoll,
     shortsMainPollable,
     shorts18Id: include18 ? shorts18Id : null,
-    shorts18: include18 ? clipCount(shorts18Id, "18plus") : 0,
+    shorts18: include18 ? clipCount(ids.shorts18Ids, "18plus") : 0,
     shorts18AutoPoll: include18 ? shorts18AutoPoll : false,
     shorts18Pollable: include18 ? shorts18Pollable : false,
     instagramHandle: extras?.instagramHandle ?? null,
@@ -327,6 +346,11 @@ export function resolvePerson(
     igLastSyncedAt: extras?.igLastSyncedAt ?? null,
     igLastSyncError: extras?.igLastSyncError ?? null,
     igSyncing: extras?.igSyncing ?? false,
+    tiktokHandle: extras?.tiktokHandle ?? null,
+    ttAutoPoll: extras?.ttAutoPoll ?? false,
+    ttLastSyncedAt: extras?.ttLastSyncedAt ?? null,
+    ttLastSyncError: extras?.ttLastSyncError ?? null,
+    ttSyncing: extras?.ttSyncing ?? false,
   };
 }
 
@@ -433,6 +457,25 @@ export function getPeople(
       p.shortsMain += s.clips;
       if (s.clips > 0) p.shortsMainId = s.id;
     }
+  }
+
+  // Collapse non-destructively linked members into their primary "face": fold
+  // their counts/ids into the primary entry and drop the member from the list.
+  for (const [key, entry] of Array.from(people.entries())) {
+    const primary = getPrimaryHandle(key);
+    if (primary === key) continue;
+    const target = get(primary);
+    target.photos += entry.photos;
+    target.shortsMain += entry.shortsMain;
+    target.shorts18 += entry.shorts18;
+    if (target.userId === null && entry.userId !== null) target.userId = entry.userId;
+    if (!target.displayName && entry.displayName) target.displayName = entry.displayName;
+    if (!target.photosHref && entry.photosHref) target.photosHref = entry.photosHref;
+    if (target.shortsMainId === null && entry.shortsMainId !== null)
+      target.shortsMainId = entry.shortsMainId;
+    if (target.shorts18Id === null && entry.shorts18Id !== null)
+      target.shorts18Id = entry.shorts18Id;
+    people.delete(key);
   }
 
   // Filter: keep real users always; mirrored creators only when they have

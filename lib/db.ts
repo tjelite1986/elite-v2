@@ -483,6 +483,18 @@ function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Non-destructive profile links: a member handle is displayed under a
+    -- primary "face" handle. Both keep their own rows/content and keep syncing
+    -- independently; the unified profile page + people directory aggregate them.
+    -- One level only (a member is never itself a primary).
+    CREATE TABLE IF NOT EXISTS profile_links (
+      member_handle TEXT PRIMARY KEY,
+      primary_handle TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_profile_links_primary
+      ON profile_links(primary_handle);
+
     -- Cross-section profile extras keyed by handle: bio, a cover banner, a JSON
     -- array of labeled links ([{label,url}]), and the Instagram cookie-sync
     -- config/status for this person. Works for any identity type. The IG source
@@ -500,6 +512,11 @@ function migrate(db: Database.Database) {
       ig_last_synced_at TEXT,
       ig_last_sync_error TEXT,
       ig_syncing INTEGER NOT NULL DEFAULT 0,
+      tiktok_handle TEXT,
+      tt_auto_poll INTEGER NOT NULL DEFAULT 0,
+      tt_last_synced_at TEXT,
+      tt_last_sync_error TEXT,
+      tt_syncing INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
@@ -614,6 +631,58 @@ function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_gallery_tags_tag ON gallery_tags(tag);
 
+    -- Duplicate-image grouping for the gallery, mirroring post_dupe_groups.
+    -- Written by scripts/scan-gallery-duplicates.mjs for admin review; the scan
+    -- deletes nothing. One row per gallery item that belongs to a group, tied
+    -- together by group_key. The whole table is rewritten on each scan. The
+    -- gallery is per user, so group_key incorporates the owner's user_id and a
+    -- group never mixes two users — the same photo owned by two accounts is not
+    -- flagged as deletable.
+    CREATE TABLE IF NOT EXISTS gallery_dupe_groups (
+      group_key TEXT NOT NULL,
+      item_id INTEGER NOT NULL REFERENCES gallery_items(id) ON DELETE CASCADE,
+      match_type TEXT NOT NULL,            -- 'exact' | 'perceptual'
+      quality_score REAL NOT NULL DEFAULT 0,
+      is_best INTEGER NOT NULL DEFAULT 0,  -- the suggested image to keep
+      distance INTEGER NOT NULL DEFAULT 0, -- dHash Hamming to the best (0 = exact)
+      scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (group_key, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_gallery_dupe_item ON gallery_dupe_groups(item_id);
+
+    -- Pairs of items an admin marked "not duplicates" so the perceptual matcher
+    -- stops grouping them on future scans (a<b by item id). Exact byte-identical
+    -- matches are never ignored — only the fuzzy perceptual ones.
+    CREATE TABLE IF NOT EXISTS gallery_dupe_ignored (
+      a_item_id INTEGER NOT NULL,
+      b_item_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (a_item_id, b_item_id)
+    );
+
+    -- Single-row progress beacon for the gallery duplicate scan, so the admin UI
+    -- can poll while the detached scan runs.
+    CREATE TABLE IF NOT EXISTS gallery_dupe_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
+      started_at TEXT,
+      finished_at TEXT,
+      scanned INTEGER NOT NULL DEFAULT 0,
+      groups INTEGER NOT NULL DEFAULT 0,
+      message TEXT
+    );
+
+    -- Per-item fingerprint cache (sha256 + perceptual dHash) so repeat scans skip
+    -- hashing/decoding items whose file size is unchanged. Written by
+    -- scripts/scan-gallery-duplicates.mjs.
+    CREATE TABLE IF NOT EXISTS gallery_media_fp (
+      item_id INTEGER PRIMARY KEY REFERENCES gallery_items(id) ON DELETE CASCADE,
+      size_bytes INTEGER NOT NULL,
+      sha TEXT,
+      sig TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Auto-earned achievement badges (definitions live in lib/badges.ts).
     CREATE TABLE IF NOT EXISTS user_badges (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -648,6 +717,18 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE profile_extras ADD COLUMN ig_last_sync_error TEXT");
     if (!cols.includes("ig_syncing"))
       db.exec("ALTER TABLE profile_extras ADD COLUMN ig_syncing INTEGER NOT NULL DEFAULT 0");
+    // TikTok-sync columns mirror the Instagram ones, but TikTok syncing works
+    // without a session cookie (public profile download).
+    if (!cols.includes("tiktok_handle"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN tiktok_handle TEXT");
+    if (!cols.includes("tt_auto_poll"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN tt_auto_poll INTEGER NOT NULL DEFAULT 0");
+    if (!cols.includes("tt_last_synced_at"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN tt_last_synced_at TEXT");
+    if (!cols.includes("tt_last_sync_error"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN tt_last_sync_error TEXT");
+    if (!cols.includes("tt_syncing"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN tt_syncing INTEGER NOT NULL DEFAULT 0");
     if (!cols.includes("location"))
       db.exec("ALTER TABLE profile_extras ADD COLUMN location TEXT");
     // Custom profile fields: JSON array of {label, value, public}.
@@ -1339,6 +1420,16 @@ export interface PostCommentRow {
 }
 
 export interface PostDupeStateRow {
+  id: number;
+  status: "idle" | "running" | "done" | "error";
+  started_at: string | null;
+  finished_at: string | null;
+  scanned: number;
+  groups: number;
+  message: string | null;
+}
+
+export interface GalleryDupeStateRow {
   id: number;
   status: "idle" | "running" | "done" | "error";
   started_at: string | null;

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Camera, Pencil, X, Link as LinkIcon, MapPin, CalendarDays, Lock } from "lucide-react";
+import { Camera, Pencil, X, Link as LinkIcon, MapPin, CalendarDays, Lock, Upload } from "lucide-react";
 
 // "Member since June 2026" from a sqlite datetime string.
 function memberSinceLabel(value: string): string {
@@ -38,6 +38,8 @@ import ShortsGrid from "@/components/shorts-grid";
 import ProfileShortsSettings from "@/components/profile-shorts-settings";
 import ProfileMergeButton from "@/components/profile-merge-button";
 import ProfileInstagramSync from "@/components/profile-instagram-sync";
+import ProfileTiktokSync from "@/components/profile-tiktok-sync";
+import AvatarCropModal from "@/components/avatar-crop-modal";
 import type { ResolvedPerson } from "@/lib/directory";
 
 type Tab = "profile" | "photos" | "shorts" | "18plus";
@@ -63,20 +65,20 @@ export default function PersonProfile({
 }) {
   const router = useRouter();
   const canManage = person.isOwn || isAdmin;
-  const personQuery: Record<string, string> = { scope: "person" };
-  if (person.userId) personQuery.userId = String(person.userId);
-  if (person.creatorId) personQuery.creatorId = String(person.creatorId);
+  // Scope feeds by handle: the server expands it across every linked member
+  // (non-destructive profile links), unioning their posts/shorts under this face.
+  const personQuery: Record<string, string> = {
+    scope: "person",
+    handle: person.handle,
+  };
 
   // Shorts on a profile come from BOTH the creator profile (profile_id) AND the
-  // person's own uploads (uploader_id), so a user's uploaded/imported clips show
-  // here too — mirroring how posts union author_user_id/author_creator_id.
-  const shortsQuery = (channel: "main" | "18plus"): Record<string, string> => {
-    const profileId = channel === "18plus" ? person.shorts18Id : person.shortsMainId;
-    const q: Record<string, string> = { channel };
-    if (profileId) q.profile = String(profileId);
-    if (person.userId) q.owner = String(person.userId);
-    return q;
-  };
+  // person's own uploads (uploader_id), across all linked members — resolved
+  // server-side from the handle.
+  const shortsQuery = (channel: "main" | "18plus"): Record<string, string> => ({
+    channel,
+    handle: person.handle,
+  });
   // A creator profile has a dedicated watch page; owner-only clips (no profile)
   // open the immersive feed focused on the clip, like the "Mine" view.
   const shortsHref = (channel: "main" | "18plus"): string => {
@@ -98,6 +100,8 @@ export default function PersonProfile({
   const [selecting, setSelecting] = useState(false);
   const [avatarBust, setAvatarBust] = useState(0);
   const [busy, setBusy] = useState(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
 
   const hasInfo =
     Boolean(person.displayName && person.displayName !== person.handle) ||
@@ -105,27 +109,48 @@ export default function PersonProfile({
     person.links.length > 0 ||
     Boolean(person.instagramHandle);
 
-  // Set the avatar from a chosen post image or clip poster, then leave select
-  // mode and refresh so the new picture shows.
-  const setAvatar = async (endpoint: string, body: Record<string, number>) => {
+  // Picking a photo or a clip thumbnail opens the same crop modal as a file
+  // upload, so you can pan/zoom to fit the circular ring before it's saved
+  // (the cropped square is then uploaded to this profile's handle-scoped route).
+  const openCropFromUrl = async (url: string, name: string) => {
     if (busy) return;
     setBusy(true);
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Could not load image");
+      const blob = await res.blob();
+      setSelecting(false);
+      setCropFile(new File([blob], name, { type: blob.type || "image/jpeg" }));
+    } catch {
+      /* ignore — leave select mode open so the user can retry */
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pickPhoto = (mediaId: number) =>
+    openCropFromUrl(`/api/posts/media/${mediaId}`, `photo-${mediaId}.jpg`);
+  const pickShort = (shortId: number) =>
+    openCropFromUrl(`/api/shorts/${shortId}/poster`, `clip-${shortId}.jpg`);
+
+  // Upload an image file as this profile's picture. Handle-scoped so it works on
+  // any profile (admins) or your own, including profiles with no media of their
+  // own. The cropped 512px square is POSTed to the handle avatar route.
+  const uploadAvatar = async (blob: Blob) => {
+    if (busy) return;
+    setBusy(true);
+    const fd = new FormData();
+    fd.set("file", blob, "avatar.jpg");
+    const res = await fetch(
+      `/api/profiles/${encodeURIComponent(person.handle)}/avatar`,
+      { method: "POST", body: fd }
+    );
     setBusy(false);
     if (res.ok) {
-      setSelecting(false);
+      setCropFile(null);
       setAvatarBust(Date.now());
       router.refresh();
     }
   };
-  const pickPhoto = (mediaId: number) =>
-    setAvatar("/api/profile/avatar/from-media", { mediaId });
-  const pickShort = (shortId: number) =>
-    setAvatar("/api/profile/avatar/from-short", { shortId });
 
   return (
     <div className="mx-auto max-w-2xl px-4 pb-24 pt-20 text-white">
@@ -183,13 +208,35 @@ export default function PersonProfile({
             {isAdmin && person.userId === null && (
               <ProfileMergeButton targetHandle={person.handle} />
             )}
-            {canManage && (person.photos > 0 || person.shortsMain > 0 || person.shorts18 > 0) && (
-              <button
-                onClick={() => setSelecting((v) => !v)}
-                className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold transition hover:bg-white/15"
-              >
-                <Camera size={14} /> Profile photo
-              </button>
+            {canManage && (
+              <>
+                <input
+                  ref={avatarFileRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setCropFile(f);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  onClick={() => avatarFileRef.current?.click()}
+                  disabled={busy}
+                  className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold transition hover:bg-white/15 disabled:opacity-50"
+                >
+                  <Upload size={14} /> Profile photo
+                </button>
+                {(person.photos > 0 || person.shortsMain > 0 || person.shorts18 > 0) && (
+                  <button
+                    onClick={() => setSelecting((v) => !v)}
+                    className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold transition hover:bg-white/15"
+                  >
+                    <Camera size={14} /> From media
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -363,6 +410,19 @@ export default function PersonProfile({
                 />
               )}
 
+              {canManage && person.tiktokHandle && (
+                <ProfileTiktokSync
+                  handle={person.handle}
+                  initial={{
+                    tiktokHandle: person.tiktokHandle,
+                    autoPoll: person.ttAutoPoll,
+                    syncing: person.ttSyncing,
+                    lastSyncedAt: person.ttLastSyncedAt,
+                    lastSyncError: person.ttLastSyncError,
+                  }}
+                />
+              )}
+
               {isAdmin && (
                 <ProfileShortsSettings
                   channels={[
@@ -409,6 +469,14 @@ export default function PersonProfile({
             />
           )}
         </>
+      )}
+
+      {cropFile && (
+        <AvatarCropModal
+          file={cropFile}
+          onCancel={() => setCropFile(null)}
+          onCropped={uploadAvatar}
+        />
       )}
     </div>
   );

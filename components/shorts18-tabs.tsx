@@ -12,7 +12,6 @@ const TABS = [
   { label: "Mine", href: "/shorts18/mine" },
   { label: "Profiles", href: "/shorts18/profiles" },
   { label: "Playlists", href: "/shorts18/playlists" },
-  { label: "Settings", href: "/shorts18/settings" },
 ];
 
 function activeHref(pathname: string): string {
@@ -24,19 +23,13 @@ function activeHref(pathname: string): string {
   )
     return "/shorts18/profiles";
   if (pathname.startsWith("/shorts18/playlists")) return "/shorts18/playlists";
-  if (
-    pathname.startsWith("/shorts18/settings") ||
-    pathname.startsWith("/shorts18/upload")
-  )
-    return "/shorts18/settings";
   return "/shorts18";
 }
 
-export default function Shorts18Tabs({ canSettings = false }: { canSettings?: boolean }) {
+export default function Shorts18Tabs() {
   const pathname = usePathname();
   const active = activeHref(pathname);
-  // The Settings tab is admin-granted (shorts18_settings permission); hide otherwise.
-  const tabs = TABS.filter((t) => t.href !== "/shorts18/settings" || canSettings);
+  const tabs = TABS;
 
   return (
     <div

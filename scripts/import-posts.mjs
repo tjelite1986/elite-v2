@@ -68,7 +68,33 @@ function creatorUsername(name) {
   return s || "unknown";
 }
 
+// Bracket grammar shared with the per-user importer (lib/import-naming.ts):
+//   <title> [h_<tag>]... [f_<creator>]
+// [f_] names the creator and takes precedence over the legacy conventions below.
+function bracketCreator(stem) {
+  const m = stem.match(/\[f_([^\]]+)\]/);
+  return m && m[1].trim() ? m[1].trim() : null;
+}
+
+// Caption derived from a bracketed filename: the title (text before the first
+// "[") plus any [h_] hashtags as #tags. Null when the name carries no brackets.
+function captionFromStem(stem) {
+  const fb = stem.indexOf("[");
+  if (fb === -1) return null;
+  const title = stem.slice(0, fb).replace(/_/g, " ").trim();
+  const tags = [];
+  const re = /\[([^\]]*)\]/g;
+  let m;
+  while ((m = re.exec(stem)) !== null) {
+    const tok = m[1].trim();
+    if (tok.startsWith("h_")) tags.push(`#${tok.slice(2)}`);
+  }
+  return [title, tags.join(" ")].filter(Boolean).join(" ").trim() || null;
+}
+
 function parseCreator(stem) {
+  const f = bracketCreator(stem);
+  if (f) return f;
   // <creator>_-_<title> / <creator> - <title> (the shorts naming convention) —
   // checked first so an explicit handle always wins over the date/id heuristics.
   let m = stem.match(/^(.+?)(?:_-_|\s-\s)/);
@@ -341,7 +367,13 @@ async function processImage(username, srcPath, originalName) {
       width: meta.width ?? null,
       height: meta.height ?? null,
       contentHash,
-      caption: sidecar?.caption ?? null,
+      // Prefer a gallery-dl/IG sidecar caption; otherwise derive title + #tags
+      // from a bracketed filename ("title [h_tag][f_creator].jpg").
+      caption:
+        sidecar?.caption ??
+        captionFromStem(
+          originalName.slice(0, originalName.length - ext.length)
+        ),
       shortcode: sidecar?.shortcode ?? null,
     });
     imported++;

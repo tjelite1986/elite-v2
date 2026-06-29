@@ -9,7 +9,6 @@ const TABS = [
   { label: "Explore", href: "/posts/explore" },
   { label: "Create", href: "/posts/create" },
   { label: "Profile", href: "/posts/me" },
-  { label: "Settings", href: "/posts/settings" },
 ];
 
 function activeHref(pathname: string): string {
@@ -22,16 +21,14 @@ function activeHref(pathname: string): string {
     pathname.startsWith("/posts/edit")
   )
     return "/posts/me";
-  if (pathname.startsWith("/posts/settings")) return "/posts/settings";
   return "/posts";
 }
 
 // Secondary tab bar for the Photos section, mirroring the Shorts tab bar.
-export default function PostsTabs({ canSettings = false }: { canSettings?: boolean }) {
+export default function PostsTabs() {
   const pathname = usePathname();
   const active = activeHref(pathname);
-  // The Settings tab is admin-granted (posts_settings permission); hide otherwise.
-  const tabs = TABS.filter((t) => t.href !== "/posts/settings" || canSettings);
+  const tabs = TABS;
 
   return (
     <div className="fixed left-1/2 top-14 z-40 max-w-[96vw] -translate-x-1/2 overflow-x-auto">

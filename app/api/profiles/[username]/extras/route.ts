@@ -8,10 +8,12 @@ import {
   setProfileCustomFields,
   setProfileBanner,
   setProfileInstagram,
+  setProfileTiktok,
   setProfileLocation,
 } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
 import { parseInstagramUsername } from "@/lib/instagram";
+import { parseTiktokUsername } from "@/lib/tiktok";
 import { storeBanner } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +61,13 @@ export async function PATCH(
   if ("instagramHandle" in body) {
     const ig = parseInstagramUsername(String(body.instagramHandle ?? ""));
     setProfileInstagram(handle, ig, Boolean(body?.igAutoPoll));
+  }
+
+  // Optional TikTok source: a username/URL to pull media from, plus an
+  // auto-poll flag. Empty/invalid input disconnects it. No cookie required.
+  if ("tiktokHandle" in body) {
+    const tt = parseTiktokUsername(String(body.tiktokHandle ?? ""));
+    setProfileTiktok(handle, tt, Boolean(body?.ttAutoPoll));
   }
   return NextResponse.json({ ok: true, extras: getProfileExtras(handle) });
 }

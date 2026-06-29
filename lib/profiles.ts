@@ -161,6 +161,11 @@ export interface ProfileExtras {
   igLastSyncedAt: string | null;
   igLastSyncError: string | null;
   igSyncing: boolean;
+  tiktokHandle: string | null;
+  ttAutoPoll: boolean;
+  ttLastSyncedAt: string | null;
+  ttLastSyncError: string | null;
+  ttSyncing: boolean;
 }
 
 export function getProfileExtras(handle: string): ProfileExtras | null {
@@ -175,6 +180,11 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
     ig_last_synced_at: string | null;
     ig_last_sync_error: string | null;
     ig_syncing: number;
+    tiktok_handle: string | null;
+    tt_auto_poll: number;
+    tt_last_synced_at: string | null;
+    tt_last_sync_error: string | null;
+    tt_syncing: number;
   }>(
     qb
       .selectFrom("profile_extras")
@@ -189,6 +199,11 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
         "ig_last_synced_at",
         "ig_last_sync_error",
         "ig_syncing",
+        "tiktok_handle",
+        "tt_auto_poll",
+        "tt_last_synced_at",
+        "tt_last_sync_error",
+        "tt_syncing",
       ])
       .where("handle", "=", handle)
   );
@@ -230,6 +245,11 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
     igLastSyncedAt: row.ig_last_synced_at,
     igLastSyncError: row.ig_last_sync_error,
     igSyncing: !!row.ig_syncing,
+    tiktokHandle: row.tiktok_handle,
+    ttAutoPoll: !!row.tt_auto_poll,
+    ttLastSyncedAt: row.tt_last_synced_at,
+    ttLastSyncError: row.tt_last_sync_error,
+    ttSyncing: !!row.tt_syncing,
   };
 }
 
@@ -319,6 +339,20 @@ export function setProfileInstagram(
   upsertExtras(handle, {
     instagram_handle: instagramHandle,
     ig_auto_poll: autoPoll ? "1" : "0",
+  });
+}
+
+// Set (or clear) the TikTok source + auto-poll flag for a profile. The
+// tiktok_handle is the TikTok username to pull from; pass null to disconnect.
+// Unlike Instagram, TikTok syncing does not require a session cookie.
+export function setProfileTiktok(
+  handle: string,
+  tiktokHandle: string | null,
+  autoPoll: boolean
+): void {
+  upsertExtras(handle, {
+    tiktok_handle: tiktokHandle,
+    tt_auto_poll: autoPoll ? "1" : "0",
   });
 }
 

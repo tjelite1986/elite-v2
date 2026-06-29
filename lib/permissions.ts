@@ -7,6 +7,7 @@ export const PERMISSIONS = [
   { key: "shorts_settings", label: "Shorts settings" },
   { key: "shorts18_settings", label: "18+ settings" },
   { key: "posts_settings", label: "Posts settings" },
+  { key: "gallery_settings", label: "Gallery settings" },
 ] as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[number]["key"];

@@ -1,6 +1,4 @@
 import ShortsTabs from "@/components/shorts-tabs";
-import { getSession } from "@/lib/auth";
-import { hasPermission } from "@/lib/permissions";
 
 // Shared chrome for the Shorts section: the floating Videos/Explore/Profiles/
 // Playlists tab bar over each page. The immersive feed pages render full-bleed
@@ -10,11 +8,9 @@ export default async function ShortsLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getSession();
-  const canSettings = hasPermission(session, "shorts_settings");
   return (
     <>
-      <ShortsTabs canSettings={canSettings} />
+      <ShortsTabs />
       {children}
     </>
   );

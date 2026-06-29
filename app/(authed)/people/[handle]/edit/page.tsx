@@ -47,6 +47,8 @@ export default async function EditProfilePage({
         hasBanner={person.hasBanner}
         initialInstagram={extras?.instagramHandle ?? ""}
         initialIgAutoPoll={extras?.igAutoPoll ?? false}
+        initialTiktok={extras?.tiktokHandle ?? ""}
+        initialTtAutoPoll={extras?.ttAutoPoll ?? false}
       />
     </div>
   );

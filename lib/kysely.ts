@@ -19,6 +19,7 @@ import {
   type PostMediaRow,
   type PostCommentRow,
   type PostDupeStateRow,
+  type GalleryDupeStateRow,
   type FollowRow,
   type StoryRow,
   type AppRow,
@@ -57,6 +58,20 @@ interface PostDupeIgnoredRow {
   b_media_id: number;
   created_at: string;
 }
+interface GalleryDupeGroupRow {
+  group_key: string;
+  item_id: number;
+  match_type: string;
+  quality_score: number;
+  is_best: number;
+  scanned_at: string;
+  distance: number;
+}
+interface GalleryDupeIgnoredRow {
+  a_item_id: number;
+  b_item_id: number;
+  created_at: string;
+}
 interface PostHashtagRow {
   post_id: number;
   tag: string;
@@ -86,6 +101,11 @@ interface ProfileExtraRow {
   ig_last_synced_at: string | null;
   ig_last_sync_error: string | null;
   ig_syncing: number;
+  tiktok_handle: string | null;
+  tt_auto_poll: number;
+  tt_last_synced_at: string | null;
+  tt_last_sync_error: string | null;
+  tt_syncing: number;
 }
 interface SavedAppRow {
   user_id: number;
@@ -132,6 +152,10 @@ export interface DB {
   gallery_items: GalleryItemRow;
   gallery_albums: GalleryAlbumRow;
   gallery_album_items: GalleryAlbumItemRow;
+  gallery_dupe_groups: GalleryDupeGroupRow;
+  gallery_dupe_ignored: GalleryDupeIgnoredRow;
+  gallery_dupe_state: GalleryDupeStateRow;
+  gallery_media_fp: MediaFpRow & { item_id: number };
   shorts: ShortRow;
   short_comments: ShortCommentRow;
   short_likes: ShortLikeRow;

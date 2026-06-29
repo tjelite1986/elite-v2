@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { db } from "./db";
 import type { ShortChannel } from "./db";
 import { qb, getOne } from "./kysely";
@@ -10,7 +11,13 @@ import {
   renameShortFiles,
 } from "./shorts-storage";
 import { IMPORT_ROOT } from "./storage-roots";
-import { storePostImage, authorSlug, renamePostImageFiles } from "./posts-storage";
+import {
+  storePostImage,
+  authorSlug,
+  renamePostImageFiles,
+  mediaPathFor,
+  deletePostImageFiles,
+} from "./posts-storage";
 import { ingestMedia } from "./gallery-ingest";
 import { ingestUpload } from "./books";
 import { getAliasProfileId } from "./shorts";
@@ -213,6 +220,35 @@ function findOrCreatePlaylist(userId: number, name: string): number {
   );
 }
 
+// Normalize a drop-subfolder name to a post_creator handle — same rule as the
+// shared creator importer (scripts/import-posts.mjs creatorUsername) so the SAME
+// folder maps to the SAME creator whether it arrives via the shared posts/_import
+// or a user's u_<user>/posts/<creator>/ drop, and merges with an existing one.
+function creatorHandle(name: string): string {
+  const s = (name || "unknown")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._]+/g, "")
+    .replace(/^[._]+|[._]+$/g, "")
+    .slice(0, 30);
+  return s || "unknown";
+}
+
+function findOrCreatePostCreator(name: string): number {
+  const username = creatorHandle(name);
+  const row = getOne<{ id: number }>(
+    qb.selectFrom("post_creators").select("id").where("username", "=", username)
+  );
+  if (row) return row.id;
+  return Number(
+    db
+      .prepare(
+        "INSERT INTO post_creators (username, display_name, source) VALUES (?, ?, 'import')"
+      )
+      .run(username, name).lastInsertRowid
+  );
+}
+
 function findOrCreateAlbum(userId: number, name: string): number {
   const row = getOne<{ id: number }>(
     qb
@@ -274,7 +310,10 @@ async function importShortsSection(
     // used everywhere else) so folders/profiles/files stay consistent and a re-import
     // never makes a case-variant duplicate profile.
     let collection = parsed.collection;
-    if (channel === "18plus" && collection) {
+    // A drop subfolder / [f_] becomes a CREATOR PROFILE on BOTH channels now, so
+    // normalize its name to lowercase (the convention everywhere else) so a
+    // re-import never makes a case-variant duplicate profile.
+    if (collection) {
       collection = collection.toLowerCase();
       parsed.collection = collection;
     }
@@ -310,12 +349,14 @@ async function importShortsSection(
         subdir
       );
       const status = WEB_PLAYABLE.has(ext) ? "ready" : "pending";
-      // On the 18+ channel a subfolder / [f_] becomes a CREATOR PROFILE (shown in
-      // /shorts18/profiles) and its clips are PUBLIC, like the auto-poll creators.
-      // Everywhere else a collection stays a private playlist (current behavior).
-      const asProfile = channel === "18plus" && !!collection;
+      // A subfolder / [f_] becomes a CREATOR PROFILE on BOTH channels (shown in
+      // /shorts and /shorts18 profiles) and its clips are PUBLIC, like the
+      // auto-poll creators — so a user's drop folder named after a creator
+      // aggregates that creator's clips under one handle, merged across users.
+      // A loose file (no collection) stays the user's own private clip.
+      const asProfile = !!collection;
       const profileId = asProfile
-        ? findOrCreateShortProfile(collection as string, "18plus")
+        ? findOrCreateShortProfile(collection as string, channel)
         : null;
       const isPrivate = asProfile ? 0 : 1;
       const shortId = Number(
@@ -384,28 +425,47 @@ async function importPostsSection(
   dir: string,
   res: ImportSummary
 ) {
-  const slug = authorSlug(username ?? `u${userId}`);
+  const userSlug = authorSlug(username ?? `u${userId}`);
   const userHome = userHomeDir(userId, username);
-  const insertPost = db.prepare(
+  const insertUserPost = db.prepare(
     "INSERT INTO posts (author_user_id, caption) VALUES (?, ?)"
   );
+  const insertCreatorPost = db.prepare(
+    "INSERT INTO posts (author_creator_id, caption) VALUES (?, ?)"
+  );
   const insertMedia = db.prepare(
-    `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position)
-     VALUES (?, ?, ?, ?, ?, 0)`
+    `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position, content_hash)
+     VALUES (?, ?, ?, ?, ?, 0, ?)`
   );
   const insertHashtag = db.prepare(
     "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)"
   );
+  // Has this creator already got an image with this exact content? Per-creator
+  // dedup mirroring scripts/import-posts.mjs, so re-dropping a creator's images —
+  // or overlapping drops from several users — never duplicates.
+  const creatorHashSeen = db.prepare(
+    `SELECT 1 FROM post_media pm JOIN posts p ON p.id = pm.post_id
+      WHERE p.author_creator_id = ? AND pm.content_hash = ? LIMIT 1`
+  );
 
-  // One post per image — never auto-stack into carousels. Caption precedence:
-  // a "<stem>.md" sidecar, else the filename's [token] title; a plain filename
-  // or a subfolder name isn't treated as a caption.
+  // One post per image — never auto-stack into carousels. A DROP SUBFOLDER names a
+  // CREATOR: the image becomes that creator's public post (find-or-create by
+  // handle, merged across users), so a user's u_<user>/posts/<creator>/ folder
+  // aggregates under one /people profile (like @sophieraiin). A LOOSE file stays
+  // the user's own post. Caption: a "<stem>.md" sidecar, else the [token] title.
   for (const item of collectItems(dir)) {
     if (!isSupportedImage(item.name, "")) continue;
     const [stem] = splitExt(item.name);
     const parsed = parseImportName(stem);
     const md = readMdSidecar(item.abs);
-    if (parsed.siteId && rowExists("posts", "author_user_id", parsed.siteId, userId)) {
+    const asCreator = !!item.collection;
+    // [id_] re-import dedup only applies to a user's OWN posts; creator posts use
+    // the content-hash dedup below (their id namespace isn't the user's).
+    if (
+      !asCreator &&
+      parsed.siteId &&
+      rowExists("posts", "author_user_id", parsed.siteId, userId)
+    ) {
       consume(item.abs);
       if (md.sidecar) consume(md.sidecar);
       res.skipped++;
@@ -421,8 +481,45 @@ async function importPostsSection(
       continue;
     }
     try {
-      const stored = await storePostImage(slug, item.name, "", buffer, userHome);
-      const postId = Number(insertPost.run(userId, caption).lastInsertRowid);
+      const creatorId = asCreator
+        ? findOrCreatePostCreator(item.collection as string)
+        : null;
+      // Creator posts live under the shared POSTS_ROOT/<creator>/ layout (userHome
+      // omitted); a user's own posts live under PROFILE_ROOT/u_<user>/posts/.
+      const storeSlug = asCreator
+        ? authorSlug(creatorHandle(item.collection as string))
+        : userSlug;
+      const stored = await storePostImage(
+        storeSlug,
+        item.name,
+        "",
+        buffer,
+        asCreator ? null : userHome
+      );
+      let contentHash: string | null = null;
+      if (asCreator && creatorId) {
+        try {
+          contentHash = crypto
+            .createHash("sha256")
+            .update(fs.readFileSync(mediaPathFor(stored.storageKey)))
+            .digest("hex");
+        } catch {
+          /* unreadable just-written file — skip dedup, still import */
+        }
+        if (contentHash && creatorHashSeen.get(creatorId, contentHash)) {
+          deletePostImageFiles(stored.storageKey);
+          consume(item.abs);
+          if (md.sidecar) consume(md.sidecar);
+          res.skipped++;
+          continue; // already on this creator
+        }
+      }
+      const postId = Number(
+        (asCreator
+          ? insertCreatorPost.run(creatorId, caption)
+          : insertUserPost.run(userId, caption)
+        ).lastInsertRowid
+      );
       // Rename to a site-relevant self-describing name now that we know the id.
       let mediaKey = stored.storageKey;
       try {
@@ -430,7 +527,7 @@ async function importPostsSection(
       } catch {
         /* keep the original stored name if the rename fails */
       }
-      insertMedia.run(postId, mediaKey, "image/jpeg", stored.width, stored.height);
+      insertMedia.run(postId, mediaKey, "image/jpeg", stored.width, stored.height, contentHash);
       // Hashtags from the caption AND the filename's [h_] tokens.
       const tags = new Set<string>(parsed.hashtags);
       if (caption) for (const t of parseHashtags(caption)) tags.add(t);
