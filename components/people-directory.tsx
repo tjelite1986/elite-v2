@@ -4,20 +4,37 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Search, Image as ImageIcon, Clapperboard } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
-import type { PersonEntry } from "@/lib/directory";
+import type { PersonEntry, PeopleSort, PeopleFilter } from "@/lib/directory";
+
+const SORT_OPTIONS: { value: PeopleSort; label: string }[] = [
+  { value: "relevance", label: "Relevance" },
+  { value: "recent", label: "Recently added" },
+  { value: "name", label: "Name (A–Z)" },
+];
+
+// Multi-select conditions — several combine with AND.
+const FILTER_OPTIONS: { value: PeopleFilter; label: string }[] = [
+  { value: "no-avatar", label: "No profile picture" },
+  { value: "has-instagram", label: "Instagram linked" },
+  { value: "no-instagram", label: "Missing Instagram" },
+  { value: "has-tiktok", label: "TikTok linked" },
+  { value: "no-tiktok", label: "Missing TikTok" },
+];
 
 // Persisted in sessionStorage (survives a full remount/reload on back-nav, where
 // a module-level var would be re-initialized), so returning from a profile
 // restores the loaded list AND the scroll position instead of resetting to top.
 interface DirCache {
   q: string;
+  sort: PeopleSort;
+  filters: PeopleFilter[];
   items: PersonEntry[];
   offset: number;
   nextOffset: number | null;
   total: number | null;
   scrollY: number;
 }
-const CACHE_KEY = "people-dir-v2";
+const CACHE_KEY = "people-dir-v4";
 
 function readCache(): DirCache | null {
   if (typeof window === "undefined") return null;
@@ -37,6 +54,8 @@ export default function PeopleDirectory() {
   const cached = cachedRef.current;
 
   const [q, setQ] = useState(cached?.q ?? "");
+  const [sort, setSort] = useState<PeopleSort>(cached?.sort ?? "relevance");
+  const [filters, setFilters] = useState<PeopleFilter[]>(cached?.filters ?? []);
   const [items, setItems] = useState<PersonEntry[]>(cached?.items ?? []);
   const [offset, setOffset] = useState(cached?.offset ?? 0);
   // Start null on a fresh mount so the infinite-scroll observer can't fire a
@@ -49,8 +68,8 @@ export default function PeopleDirectory() {
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydrated = useRef(Boolean(cached));
   // Latest state, mirrored for the scroll handler to persist without re-binding.
-  const stateRef = useRef({ q, items, offset, nextOffset, total });
-  stateRef.current = { q, items, offset, nextOffset, total };
+  const stateRef = useRef({ q, sort, filters, items, offset, nextOffset, total });
+  stateRef.current = { q, sort, filters, items, offset, nextOffset, total };
   // Last known scroll position. Seeded from the cache so a mount/remount never
   // overwrites the saved position with the transient 0 it sits at before the
   // restore runs; only real scroll events advance it.
@@ -69,6 +88,8 @@ export default function PeopleDirectory() {
       try {
         const url = new URL("/api/people", window.location.origin);
         if (q.trim()) url.searchParams.set("q", q.trim());
+        if (sort !== "relevance") url.searchParams.set("sort", sort);
+        if (filters.length) url.searchParams.set("filters", filters.join(","));
         url.searchParams.set("offset", String(off));
         const res = await fetch(url.toString());
         if (res.ok) {
@@ -92,11 +113,11 @@ export default function PeopleDirectory() {
         setLoading(false);
       }
     },
-    [loading, offset, nextOffset, q]
+    [loading, offset, nextOffset, q, sort, filters]
   );
 
-  // Reload from the top whenever the query changes (debounced). Skip the very
-  // first run when we hydrated from cache — we already have those items.
+  // Reload from the top whenever the query, sort or filters change (debounced).
+  // Skip the very first run when we hydrated from cache — we already have those.
   useEffect(() => {
     if (hydrated.current) {
       hydrated.current = false;
@@ -113,7 +134,7 @@ export default function PeopleDirectory() {
       if (debounce.current) clearTimeout(debounce.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, [q, sort, filters]);
 
   // Restore scroll position once when returning from a profile. Next/the browser
   // can scroll back to top a moment after mount, so disable auto-restoration and
@@ -178,7 +199,7 @@ export default function PeopleDirectory() {
   }, []);
   useEffect(() => {
     persist();
-  }, [q, items, offset, nextOffset, total, persist]);
+  }, [q, sort, filters, items, offset, nextOffset, total, persist]);
   useEffect(() => {
     let raf = 0;
     const onScroll = () => {
@@ -208,14 +229,65 @@ export default function PeopleDirectory() {
   return (
     <div className="mx-auto max-w-4xl px-3 pb-24 pt-24 text-white">
       <h1 className="mb-4 text-2xl font-semibold tracking-tight">People</h1>
-      <div className="mb-4 flex items-center gap-2 rounded-full bg-white/10 px-4 py-2.5">
-        <Search size={16} className="text-white/70" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search people"
-          className="w-full bg-transparent text-sm placeholder-white/60 focus:outline-none"
-        />
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-1 items-center gap-2 rounded-full bg-white/10 px-4 py-2.5">
+          <Search size={16} className="text-white/70" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search people"
+            className="w-full bg-transparent text-sm placeholder-white/60 focus:outline-none"
+          />
+        </div>
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as PeopleSort)}
+          className="rounded-full bg-white/10 px-4 py-2.5 text-sm text-white focus:outline-none"
+          aria-label="Sort people"
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value} className="bg-neutral-900">
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Multi-select filters: tap to toggle; several combine with AND. */}
+      <div className="mb-3 flex flex-wrap gap-2">
+        {FILTER_OPTIONS.map((f) => {
+          const active = filters.includes(f.value);
+          return (
+            <button
+              key={f.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() =>
+                setFilters((prev) =>
+                  prev.includes(f.value)
+                    ? prev.filter((x) => x !== f.value)
+                    : [...prev, f.value]
+                )
+              }
+              className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                active
+                  ? "bg-white text-neutral-900"
+                  : "bg-white/10 text-white/80 hover:bg-white/15 hover:text-white"
+              }`}
+            >
+              {f.label}
+            </button>
+          );
+        })}
+        {filters.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setFilters([])}
+            className="rounded-full px-3 py-1.5 text-xs font-medium text-white/50 hover:text-white"
+          >
+            Clear
+          </button>
+        )}
       </div>
 
       {total !== null && (

@@ -31,7 +31,40 @@ export interface PersonEntry {
   shortsMainId: number | null;
   shorts18: number;
   shorts18Id: number | null;
+  hasAvatar: boolean; // any avatar set (handle_avatars or legacy columns)
+  createdAt: string | null; // when this identity was added (earliest source)
+  hasInstagram: boolean; // an Instagram handle is linked (profile_extras)
+  hasTiktok: boolean; // a TikTok handle is linked (profile_extras)
 }
+
+// Sort order for the /people directory (single choice). "relevance" is the
+// default (users first, then most content); the rest are explicit user choices.
+export type PeopleSort = "relevance" | "recent" | "name";
+export const PEOPLE_SORTS: PeopleSort[] = ["relevance", "recent", "name"];
+
+// Boolean conditions that narrow the list. Multi-select: several combine with
+// AND (e.g. "has-instagram" + "no-avatar" = linked-IG people with no picture).
+export type PeopleFilter =
+  | "no-avatar"
+  | "has-instagram"
+  | "no-instagram"
+  | "has-tiktok"
+  | "no-tiktok";
+export const PEOPLE_FILTERS: PeopleFilter[] = [
+  "no-avatar",
+  "has-instagram",
+  "no-instagram",
+  "has-tiktok",
+  "no-tiktok",
+];
+
+const FILTER_PREDICATES: Record<PeopleFilter, (p: PersonEntry) => boolean> = {
+  "no-avatar": (p) => !p.hasAvatar,
+  "has-instagram": (p) => p.hasInstagram,
+  "no-instagram": (p) => !p.hasInstagram,
+  "has-tiktok": (p) => p.hasTiktok,
+  "no-tiktok": (p) => !p.hasTiktok,
+};
 
 // Same slug rule used for short_profiles names elsewhere, so a clip creator maps
 // to the shared handle namespace. Exported so shorts pages can link a creator
@@ -55,7 +88,18 @@ function blank(handle: string): PersonEntry {
     shortsMainId: null,
     shorts18: 0,
     shorts18Id: null,
+    hasAvatar: false,
+    createdAt: null,
+    hasInstagram: false,
+    hasTiktok: false,
   };
+}
+
+// Keep the earliest of two "added" timestamps (either may be null/absent).
+function earliest(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;
 }
 
 export interface ResolvedPerson {
@@ -355,10 +399,47 @@ export function resolvePerson(
 }
 
 export function getPeople(
-  opts: { q?: string; include18?: boolean } = {}
+  opts: {
+    q?: string;
+    include18?: boolean;
+    sort?: PeopleSort;
+    filters?: PeopleFilter[];
+  } = {}
 ): PersonEntry[] {
   const include18 = Boolean(opts.include18);
+  const sort: PeopleSort = opts.sort || "relevance";
+  const filters = opts.filters || [];
   const people = new Map<string, PersonEntry>();
+
+  // Handles that have a chosen avatar (handle_avatars takes precedence over the
+  // legacy per-table avatar_key columns). Loaded once so "no avatar" sorting and
+  // the hasAvatar flag don't need a per-person query.
+  const avatarHandles = new Set(
+    getAll<{ handle: string }>(qb.selectFrom("handle_avatars").select("handle")).map(
+      (r) => r.handle
+    )
+  );
+
+  // Linked social accounts (Instagram / TikTok) live on profile_extras, keyed by
+  // the same lowercased handle. Loaded once so the has/missing sorts don't need a
+  // per-person query. A non-empty handle counts as "linked".
+  const socialByHandle = new Map(
+    getAll<{
+      handle: string;
+      instagram_handle: string | null;
+      tiktok_handle: string | null;
+    }>(
+      qb
+        .selectFrom("profile_extras")
+        .select(["handle", "instagram_handle", "tiktok_handle"])
+    ).map((r) => [
+      r.handle,
+      {
+        hasInstagram: Boolean(r.instagram_handle && r.instagram_handle.trim()),
+        hasTiktok: Boolean(r.tiktok_handle && r.tiktok_handle.trim()),
+      },
+    ])
+  );
   const get = (handle: string) => {
     let p = people.get(handle);
     if (!p) {
@@ -376,6 +457,8 @@ export function getPeople(
     user_id: number;
     username: string;
     display_name: string | null;
+    avatar_key: string | null;
+    created_at: string | null;
     photos: number;
   }>(
     qb
@@ -384,6 +467,8 @@ export function getPeople(
         "up.user_id",
         "up.username",
         "up.display_name",
+        "up.avatar_key",
+        "up.created_at",
         sql<number>`(SELECT COUNT(*) FROM posts p WHERE p.author_user_id = up.user_id AND p.is_deleted = 0${adultFilter})`.as(
           "photos"
         ),
@@ -396,12 +481,16 @@ export function getPeople(
     p.userId = u.user_id;
     p.photos += u.photos;
     p.photosHref = `/posts/u/${u.username}`;
+    if (u.avatar_key) p.hasAvatar = true;
+    p.createdAt = earliest(p.createdAt, u.created_at);
   }
 
   // Mirrored photo creators.
   const creators = getAll<{
     username: string;
     display_name: string | null;
+    avatar_key: string | null;
+    created_at: string | null;
     photos: number;
   }>(
     qb
@@ -409,6 +498,8 @@ export function getPeople(
       .select([
         "pc.username",
         "pc.display_name",
+        "pc.avatar_key",
+        "pc.created_at",
         sql<number>`(SELECT COUNT(*) FROM posts p WHERE p.author_creator_id = pc.id AND p.is_deleted = 0${adultFilter})`.as(
           "photos"
         ),
@@ -416,6 +507,8 @@ export function getPeople(
   );
   for (const c of creators) {
     const p = get(handleOf(c.username));
+    if (c.avatar_key) p.hasAvatar = true;
+    p.createdAt = earliest(p.createdAt, c.created_at);
     if (!p.userId) {
       if (!p.displayName) p.displayName = c.display_name;
       p.photos += c.photos;
@@ -428,6 +521,7 @@ export function getPeople(
     id: number;
     name: string;
     channel: string;
+    created_at: string | null;
     clips: number;
   }>(
     qb
@@ -436,6 +530,7 @@ export function getPeople(
         "sp.id",
         "sp.name",
         "sp.channel",
+        "sp.created_at",
         // Count only PUBLIC clips in the directory list — it has no viewer
         // context, so counting private clips would leak their existence to
         // everyone. The accurate "public + viewer's own" count is shown on the
@@ -448,6 +543,7 @@ export function getPeople(
   for (const s of shorts) {
     const p = get(handleOf(s.name));
     if (!p.displayName) p.displayName = s.name;
+    p.createdAt = earliest(p.createdAt, s.created_at);
     if (s.channel === "18plus") {
       // Only surface 18+ counts/links when the viewer may see adult content.
       if (!include18) continue;
@@ -456,6 +552,16 @@ export function getPeople(
     } else {
       p.shortsMain += s.clips;
       if (s.clips > 0) p.shortsMainId = s.id;
+    }
+  }
+
+  // Linked-social flags per handle, set before the collapse so a linked member's
+  // Instagram/TikTok is folded into the primary "face" below.
+  for (const [key, entry] of Array.from(people.entries())) {
+    const social = socialByHandle.get(key);
+    if (social) {
+      if (social.hasInstagram) entry.hasInstagram = true;
+      if (social.hasTiktok) entry.hasTiktok = true;
     }
   }
 
@@ -475,7 +581,17 @@ export function getPeople(
       target.shortsMainId = entry.shortsMainId;
     if (target.shorts18Id === null && entry.shorts18Id !== null)
       target.shorts18Id = entry.shorts18Id;
+    if (entry.hasAvatar) target.hasAvatar = true;
+    if (entry.hasInstagram) target.hasInstagram = true;
+    if (entry.hasTiktok) target.hasTiktok = true;
+    target.createdAt = earliest(target.createdAt, entry.createdAt);
     people.delete(key);
+  }
+
+  // A chosen handle avatar (handle_avatars) wins over the legacy columns, so it
+  // marks the person as having a picture regardless of the per-table flags.
+  for (const [key, entry] of Array.from(people.entries())) {
+    if (avatarHandles.has(key)) entry.hasAvatar = true;
   }
 
   // Filter: keep real users always; mirrored creators only when they have
@@ -495,16 +611,39 @@ export function getPeople(
     );
   }
 
-  // Users first, then by total visible content desc, then handle.
-  list.sort((a, b) => {
-    if ((b.userId !== null ? 1 : 0) !== (a.userId !== null ? 1 : 0)) {
-      return (b.userId !== null ? 1 : 0) - (a.userId !== null ? 1 : 0);
-    }
-    const at = a.photos + a.shortsMain + (include18 ? a.shorts18 : 0);
-    const bt = b.photos + b.shortsMain + (include18 ? b.shorts18 : 0);
-    if (bt !== at) return bt - at;
-    return a.handle.localeCompare(b.handle);
-  });
+  // Multi-select conditions: every selected filter must match (AND).
+  for (const f of filters) {
+    const pred = FILTER_PREDICATES[f];
+    if (pred) list = list.filter(pred);
+  }
+
+  const byName = (a: PersonEntry, b: PersonEntry) =>
+    (a.displayName || a.handle).localeCompare(b.displayName || b.handle);
+
+  if (sort === "name") {
+    list.sort(byName);
+  } else if (sort === "recent") {
+    // Most recently added first; unknown dates sort last, then by name.
+    list.sort((a, b) => {
+      if (a.createdAt !== b.createdAt) {
+        if (!a.createdAt) return 1;
+        if (!b.createdAt) return -1;
+        return b.createdAt.localeCompare(a.createdAt);
+      }
+      return byName(a, b);
+    });
+  } else {
+    // relevance (default): users first, then by total visible content desc, then handle.
+    list.sort((a, b) => {
+      if ((b.userId !== null ? 1 : 0) !== (a.userId !== null ? 1 : 0)) {
+        return (b.userId !== null ? 1 : 0) - (a.userId !== null ? 1 : 0);
+      }
+      const at = a.photos + a.shortsMain + (include18 ? a.shorts18 : 0);
+      const bt = b.photos + b.shortsMain + (include18 ? b.shorts18 : 0);
+      if (bt !== at) return bt - at;
+      return a.handle.localeCompare(b.handle);
+    });
+  }
 
   return list;
 }
