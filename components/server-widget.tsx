@@ -58,7 +58,12 @@ export default function ServerWidget() {
     function load() {
       fetch("/api/server-stats")
         .then((r) => (r.ok ? r.json() : null))
-        .then((d) => !cancelled && setData(d));
+        .then((d) => {
+          if (!cancelled && d) setData(d);
+        })
+        .catch(() => {
+          /* transient failure — keep the last data */
+        });
     }
     load();
     const id = setInterval(load, 10000);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Play, Heart, Pencil, Trash2, FolderInput, X, Plus, Check, Lock } from "lucide-react";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
+import { useBackDismiss } from "@/lib/use-back-dismiss";
 
 interface PickerProfile {
   id: number;
@@ -57,6 +58,8 @@ export default function ShortsGrid({
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [moveId, setMoveId] = useState<number | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
+  // Device Back closes the move sheet instead of leaving the page.
+  useBackDismiss(moveId !== null, () => setMoveId(null));
 
   const load = useCallback(async () => {
     if (loading || !hasMore) return;

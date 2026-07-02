@@ -28,7 +28,12 @@ export default function DockerWidget() {
     function load() {
       fetch("/api/docker")
         .then((r) => (r.ok ? r.json() : null))
-        .then((d) => !cancelled && setData(d));
+        .then((d) => {
+          if (!cancelled && d) setData(d);
+        })
+        .catch(() => {
+          /* transient failure — keep the last data */
+        });
     }
     load();
     const id = setInterval(load, 15000);

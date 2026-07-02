@@ -206,30 +206,50 @@ export default function GalleryClient() {
     if (res.ok) setAlbums((await res.json()).albums);
   }, []);
 
+  // Generation guard: `load` re-runs on every tab/album/tag switch; without it
+  // a slow older response could land after a newer one and render the wrong
+  // list under the current tab (e.g. Photos items shown under Trash, where
+  // bulk "Delete permanently" would then target the wrong items).
+  const loadGen = React.useRef(0);
+
   const load = React.useCallback(async () => {
+    const gen = ++loadGen.current;
+    const current = () => gen === loadGen.current;
     setLoading(true);
     setSelected(new Set());
     try {
       if (activeSmartAlbum !== null) {
         const res = await fetch(`/api/gallery/smart-albums/${activeSmartAlbum}/items`);
-        if (res.ok) setItems((await res.json()).items);
+        if (res.ok) {
+          const d = await res.json();
+          if (current()) setItems(d.items);
+        }
       } else if (memoriesView) {
         const res = await fetch("/api/gallery/memories");
-        if (res.ok) setItems((await res.json()).items);
+        if (res.ok) {
+          const d = await res.json();
+          if (current()) setItems(d.items);
+        }
       } else if (tab === "albums" && !activeAlbum) {
         await loadAlbums();
-        setItems([]);
+        if (current()) setItems([]);
       } else if (tab === "albums" && activeAlbum) {
         const res = await fetch(`/api/gallery/albums/${activeAlbum.id}`);
-        if (res.ok) setItems((await res.json()).items);
+        if (res.ok) {
+          const d = await res.json();
+          if (current()) setItems(d.items);
+        }
       } else {
         const fetchTab = tab === "map" ? "photos" : tab;
         const tagQ = activeTag ? `&tag=${encodeURIComponent(activeTag)}` : "";
         const res = await fetch(`/api/gallery/items?tab=${fetchTab}${tagQ}`);
-        if (res.ok) setItems((await res.json()).items);
+        if (res.ok) {
+          const d = await res.json();
+          if (current()) setItems(d.items);
+        }
       }
     } finally {
-      setLoading(false);
+      if (current()) setLoading(false);
     }
   }, [tab, activeAlbum, activeTag, memoriesView, activeSmartAlbum, loadAlbums]);
 
@@ -604,15 +624,21 @@ export default function GalleryClient() {
     return () => window.removeEventListener("keydown", onKey);
   }, [lightboxId, stepLightbox, infoOpen]);
 
-  // Fetch full info when the panel is open (and when navigating).
+  // Fetch full info when the panel is open (and when navigating). The active
+  // flag stops a slow response for photo A landing after arrow-keying to photo
+  // B — edits made through infoItem would then PATCH the wrong item.
   React.useEffect(() => {
     if (!infoOpen || lightboxId === null) return;
     setEditing(false);
     setInfoItem(null);
+    let active = true;
     fetch(`/api/gallery/${lightboxId}`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setInfoItem(d.item))
+      .then((d) => active && d && setInfoItem(d.item))
       .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, [infoOpen, lightboxId]);
 
   const startEdit = () => {

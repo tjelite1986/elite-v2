@@ -79,11 +79,21 @@ export default function PeopleDirectory() {
   // the saved position.
   const restoringRef = useRef(Boolean(cached) && (cached?.scrollY ?? 0) > 0);
 
+  // Request generation: a filter/query reset must both proceed while a page
+  // fetch is in flight AND invalidate that fetch's response — otherwise the
+  // old page (old filters) lands on the just-emptied list, or the reset is
+  // silently skipped and the view sticks on "No people found".
+  const loadGen = useRef(0);
+  const loadingRef = useRef(false);
+
   const load = useCallback(
     async (reset: boolean) => {
-      if (loading) return;
+      // Only serialize infinite-scroll pages; resets always run.
+      if (!reset && loadingRef.current) return;
       const off = reset ? 0 : offset;
       if (!reset && nextOffset === null) return;
+      const gen = ++loadGen.current;
+      loadingRef.current = true;
       setLoading(true);
       try {
         const url = new URL("/api/people", window.location.origin);
@@ -94,6 +104,7 @@ export default function PeopleDirectory() {
         const res = await fetch(url.toString());
         if (res.ok) {
           const d = await res.json();
+          if (gen !== loadGen.current) return; // superseded by a newer load
           // Dedupe by handle when appending: a re-fired observer or an
           // overlapping page must never add a person already in the list
           // (handles are the React keys and are unique per person).
@@ -110,10 +121,13 @@ export default function PeopleDirectory() {
           setTotal(d.total);
         }
       } finally {
-        setLoading(false);
+        if (gen === loadGen.current) {
+          loadingRef.current = false;
+          setLoading(false);
+        }
       }
     },
-    [loading, offset, nextOffset, q, sort, filters]
+    [offset, nextOffset, q, sort, filters]
   );
 
   // Reload from the top whenever the query, sort or filters change (debounced).

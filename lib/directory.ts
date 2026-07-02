@@ -565,6 +565,13 @@ export function getPeople(
     }
   }
 
+  // A chosen handle avatar (handle_avatars) wins over the legacy columns —
+  // applied BEFORE the collapse (like the social flags above) so a member's
+  // chosen avatar also counts for its primary "face".
+  for (const [key, entry] of Array.from(people.entries())) {
+    if (avatarHandles.has(key)) entry.hasAvatar = true;
+  }
+
   // Collapse non-destructively linked members into their primary "face": fold
   // their counts/ids into the primary entry and drop the member from the list.
   for (const [key, entry] of Array.from(people.entries())) {
@@ -586,12 +593,6 @@ export function getPeople(
     if (entry.hasTiktok) target.hasTiktok = true;
     target.createdAt = earliest(target.createdAt, entry.createdAt);
     people.delete(key);
-  }
-
-  // A chosen handle avatar (handle_avatars) wins over the legacy columns, so it
-  // marks the person as having a picture regardless of the per-table flags.
-  for (const [key, entry] of Array.from(people.entries())) {
-    if (avatarHandles.has(key)) entry.hasAvatar = true;
   }
 
   // Filter: keep real users always; mirrored creators only when they have

@@ -30,7 +30,7 @@ interface ScanState {
 }
 
 function fmtRes(w: number | null, h: number | null): string {
-  return w && h ? `${w}×${h}` : "okänd";
+  return w && h ? `${w}×${h}` : "unknown";
 }
 
 // dHash is 64-bit, so similarity = 1 - distance/64.
@@ -138,7 +138,7 @@ export default function GalleryDuplicates() {
     if (ids.length === 0) return;
     if (
       !window.confirm(
-        `Flytta ${ids.length} bild(er) till papperskorgen? Om en hel grupp markeras behålls dess bästa automatiskt.`
+        `Move ${ids.length} image(s) to the trash? If a whole group is selected its best is kept automatically.`
       )
     )
       return;
@@ -153,9 +153,9 @@ export default function GalleryDuplicates() {
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
         const kept = d.keptBest
-          ? ` (${d.keptBest} bästa behölls automatiskt)`
+          ? ` (${d.keptBest} best kept automatically)`
           : "";
-        setMsg(`Flyttade ${d.deleted ?? 0} bild(er) till papperskorgen${kept}.`);
+        setMsg(`Moved ${d.deleted ?? 0} image(s) to the trash${kept}.`);
         await load();
         router.refresh();
       } else {
@@ -187,7 +187,7 @@ export default function GalleryDuplicates() {
           for (const id of ids) next.delete(id);
           return next;
         });
-        setMsg("Markerade som inte dubbletter.");
+        setMsg("Marked as not duplicates.");
       } else {
         setMsg(d.error || "Failed.");
       }

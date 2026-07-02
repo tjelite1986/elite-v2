@@ -63,7 +63,7 @@ export default function ShortsCleanup({
     if (!orphans || orphans.length === 0) return;
     if (
       !window.confirm(
-        `Ta bort ${orphans.length} klipp vars fil saknas? De går inte att spela ändå.`
+        `Remove ${orphans.length} clip(s) whose file is missing? They cannot be played anyway.`
       )
     )
       return;
@@ -77,7 +77,7 @@ export default function ShortsCleanup({
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
-        setMsg(`Tog bort ${d.deleted ?? 0} trasiga klipp.`);
+        setMsg(`Removed ${d.deleted ?? 0} broken clip(s).`);
         await scan();
         router.refresh();
       } else {
@@ -92,7 +92,7 @@ export default function ShortsCleanup({
 
   const removePlaylists = async () => {
     if (!playlists || playlists.length === 0) return;
-    if (!window.confirm(`Ta bort ${playlists.length} tomma spellistor?`)) return;
+    if (!window.confirm(`Remove ${playlists.length} empty playlists?`)) return;
     setBusy("playlists");
     setMsg(null);
     try {
@@ -103,7 +103,7 @@ export default function ShortsCleanup({
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
-        setMsg(`Tog bort ${d.deleted ?? 0} tomma spellistor.`);
+        setMsg(`Removed ${d.deleted ?? 0} empty playlists.`);
         await scan();
         router.refresh();
       } else {
