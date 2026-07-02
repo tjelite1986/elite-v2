@@ -46,7 +46,7 @@ function fmtDuration(sec: number | null): string {
 }
 
 function fmtRes(w: number | null, h: number | null): string {
-  return w && h ? `${w}×${h}` : "okänd";
+  return w && h ? `${w}×${h}` : "unknown";
 }
 
 // Admin tool: scan the shorts library for byte-identical or perceptually
@@ -149,7 +149,7 @@ export default function ShortsDuplicates({
     if (ids.length === 0) return;
     if (
       !window.confirm(
-        `Radera ${ids.length} dubblett-klipp? De bäst-kvalitativa behålls. Detta tar bort filerna.`
+        `Delete ${ids.length} duplicate clip(s)? The best-quality ones are kept. This removes the files.`
       )
     )
       return;
@@ -163,7 +163,7 @@ export default function ShortsDuplicates({
       });
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
-        setMsg(`Raderade ${d.deleted ?? 0} klipp.`);
+        setMsg(`Deleted ${d.deleted ?? 0} clip(s).`);
         await load();
         router.refresh();
       } else {

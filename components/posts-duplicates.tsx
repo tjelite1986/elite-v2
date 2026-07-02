@@ -31,7 +31,7 @@ interface ScanState {
 }
 
 function fmtRes(w: number | null, h: number | null): string {
-  return w && h ? `${w}×${h}` : "okänd";
+  return w && h ? `${w}×${h}` : "unknown";
 }
 
 // dHash is 64-bit, so similarity = 1 - distance/64.
@@ -138,7 +138,7 @@ export default function PostsDuplicates() {
     if (ids.length === 0) return;
     if (
       !window.confirm(
-        `Radera ${ids.length} bild(er)? Om en hel grupp markeras behålls dess bästa automatiskt. Detta tar bort filerna.`
+        `Delete ${ids.length} image(s)? If a whole group is selected its best is kept automatically. This removes the files.`
       )
     )
       return;
@@ -153,9 +153,9 @@ export default function PostsDuplicates() {
       const d = await res.json().catch(() => ({}));
       if (res.ok) {
         const kept = d.keptBest
-          ? ` (${d.keptBest} bästa behölls automatiskt)`
+          ? ` (${d.keptBest} best kept automatically)`
           : "";
-        setMsg(`Raderade ${d.deleted ?? 0} bild(er)${kept}.`);
+        setMsg(`Deleted ${d.deleted ?? 0} image(s)${kept}.`);
         await load();
         router.refresh();
       } else {
@@ -187,7 +187,7 @@ export default function PostsDuplicates() {
           for (const id of ids) next.delete(id);
           return next;
         });
-        setMsg("Markerade som inte dubbletter.");
+        setMsg("Marked as not duplicates.");
       } else {
         setMsg(d.error || "Failed.");
       }
