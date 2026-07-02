@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-// Consolidated into the central Settings page (Sync category).
+// Consolidated into the central Settings page (Shorts → Sources).
 export default function ShortsAdminPage() {
-  redirect("/settings#sync");
+  redirect("/settings#shorts:sources");
 }
