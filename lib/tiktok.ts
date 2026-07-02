@@ -1,7 +1,13 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+// Async exec: a synchronous gallery-dl call here would freeze the whole
+// single-process server (HTTP, websockets and the job scheduler) for up to the
+// full timeout.
+const execFileAsync = promisify(execFile);
 import { qb, getAll } from "./kysely";
 import { setProfileTiktok } from "./profiles";
 import { applyToPeople } from "./instagram";
@@ -67,7 +73,7 @@ interface TtUser {
 // Pull the first item of a TikTok profile via gallery-dl (-j) and read the
 // author metadata from it. gallery-dl's TikTok support is light, so this is
 // best-effort: null on any failure. Cookie is added only when present.
-function ttUser(handle: string): TtUser | null {
+async function ttUser(handle: string): Promise<TtUser | null> {
   const url = `https://www.tiktok.com/@${encodeURIComponent(handle)}`;
   const args = ["-j", "--range", "1-1"];
   const cookie = tiktokCookiePath();
@@ -83,12 +89,13 @@ function ttUser(handle: string): TtUser | null {
   };
   let out: string;
   try {
-    out = execFileSync(GALLERY_DL, args, {
+    const res = await execFileAsync(GALLERY_DL, args, {
       encoding: "utf8",
       timeout: 120_000,
       maxBuffer: 64 * 1024 * 1024,
       env,
     });
+    out = res.stdout;
   } catch (err) {
     const e = err as { stdout?: string };
     if (!e.stdout) return null;
@@ -129,15 +136,16 @@ function ttUser(handle: string): TtUser | null {
       };
     }
   }
-  // Reaching here means the profile resolved but carried no author metadata;
-  // treat the account as existing so existence checks stay permissive.
-  return { exists: true, username: handle, displayName: null, avatarUrl: null };
+  // Reaching here means the request resolved but carried no author metadata —
+  // typically a blocked or rate-limited scrape. Treat as unknown so existence
+  // checks (auto-connect) never link an unverified account.
+  return null;
 }
 
 // True when a TikTok account for this handle is reachable. Best-effort; returns
 // false on a transient failure so auto-connect never links a wrong account.
-export function tiktokAccountExists(handle: string): boolean {
-  const u = ttUser(handle);
+export async function tiktokAccountExists(handle: string): Promise<boolean> {
+  const u = await ttUser(handle);
   return !!u && u.exists;
 }
 
@@ -154,7 +162,7 @@ export async function fetchProfileInfo(
   avatarUrl: string | null;
   postCount: number | null;
 } | null> {
-  const user = ttUser(tiktokUsername);
+  const user = await ttUser(tiktokUsername);
   if (!user || !user.exists) return null;
 
   const meta = {
@@ -173,12 +181,12 @@ export async function fetchProfileInfo(
 // Auto-connect post-creator folders to TikTok where the folder name is a real
 // TikTok account. Skips creators already connected. Bounded per call — returns
 // counts so the caller can run it again for the rest.
-export function autoConnectTiktok(limit = 40): {
+export async function autoConnectTiktok(limit = 40): Promise<{
   candidates: number;
   checked: number;
   connected: number;
   remaining: number;
-} {
+}> {
   const rows = getAll<{ handle: string }>(
     qb
       .selectFrom("post_creators as pc")
@@ -201,7 +209,7 @@ export function autoConnectTiktok(limit = 40): {
   let connected = 0;
   for (const handle of batch) {
     checked++;
-    if (tiktokAccountExists(handle)) {
+    if (await tiktokAccountExists(handle)) {
       setProfileTiktok(handle, handle, false);
       connected++;
     }
