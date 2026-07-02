@@ -54,12 +54,7 @@ export default function UserPermissions() {
   }
 
   return (
-    <section className="mb-10">
-      <h2 className="mb-1 text-lg font-semibold text-white">Permissions</h2>
-      <p className="mb-4 text-sm text-white/50">
-        Grant a user access to a section&apos;s settings page. Admins have every
-        permission automatically.
-      </p>
+    <section>
       <div className="space-y-2">
         {users.map((u) => (
           <div

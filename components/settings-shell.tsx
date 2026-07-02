@@ -18,6 +18,9 @@ import {
   Users,
   Upload,
   PenLine,
+  UserPlus,
+  CalendarClock,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
@@ -41,6 +44,9 @@ import InstagramAutoConnect from "@/components/instagram-auto-connect";
 import TiktokAutoConnect from "@/components/tiktok-auto-connect";
 import ShortsAdmin from "@/components/shorts-admin";
 import RenameTools from "@/components/rename-tools";
+import AdminInvites from "@/components/admin-invites";
+import JobsManager from "@/components/jobs-manager";
+import UserPermissions from "@/components/user-permissions";
 
 interface SettingsShellProps {
   isAdmin: boolean;
@@ -66,7 +72,10 @@ type CategoryKey =
   | "adult"
   | SectionKey
   | "profiles"
-  | "rename";
+  | "rename"
+  | "members"
+  | "jobs"
+  | "permissions";
 
 interface NavItem {
   key: CategoryKey;
@@ -196,11 +205,22 @@ export default function SettingsShell({
     if (hasAnySection) {
       tools.push({ key: "rename", label: "Rename", icon: <PenLine size={16} /> });
     }
-    return { personal, library, tools };
+
+    const admin: NavItem[] = isAdmin
+      ? [
+          { key: "members", label: "Members", icon: <UserPlus size={16} /> },
+          { key: "jobs", label: "Background jobs", icon: <CalendarClock size={16} /> },
+          { key: "permissions", label: "Permissions", icon: <ShieldCheck size={16} /> },
+        ]
+      : [];
+    return { personal, library, tools, admin };
   }, [isAdmin, perms, hasAnySection]);
 
   const allKeys = useMemo(
-    () => [...nav.personal, ...nav.library, ...nav.tools].map((c) => c.key),
+    () =>
+      [...nav.personal, ...nav.library, ...nav.tools, ...nav.admin].map(
+        (c) => c.key
+      ),
     [nav]
   );
 
@@ -236,36 +256,47 @@ export default function SettingsShell({
 
   // Deep-link via URL hash — "#gallery" or "#gallery:duplicates" — without
   // pulling in useSearchParams (which would force a Suspense boundary). Legacy
-  // pre-redesign hashes are mapped so old bookmarks keep working.
+  // pre-redesign hashes are mapped so old bookmarks keep working. Also listens
+  // for hashchange so in-page navigation (e.g. the top-nav admin shortcut while
+  // already on /settings) switches category.
   useEffect(() => {
-    const raw = window.location.hash.replace("#", "");
-    if (!raw) return;
-    const [cat, sub] = raw.split(":");
-    const firstSection = (["shorts", "shorts18", "posts", "gallery"] as const).find(
-      (s) => perms[s]
-    );
-    const legacy: Record<string, [CategoryKey, string] | undefined> = {
-      import: firstSection ? [firstSection, "import"] : undefined,
-      duplicates: firstSection ? [firstSection, "duplicates"] : undefined,
-      cleaning: firstSection ? [firstSection, "cleaning"] : undefined,
-      fetch: ["shorts", "titles"],
-      sync: ["profiles", "connect"],
-      merge: ["profiles", "link"],
-      danger: ["account", ""],
+    const applyHash = () => {
+      const raw = window.location.hash.replace("#", "");
+      if (!raw) return;
+      const [cat, sub] = raw.split(":");
+      const firstSection = (["shorts", "shorts18", "posts", "gallery"] as const).find(
+        (s) => perms[s]
+      );
+      const legacy: Record<string, [CategoryKey, string] | undefined> = {
+        import: firstSection ? [firstSection, "import"] : undefined,
+        duplicates: firstSection ? [firstSection, "duplicates"] : undefined,
+        cleaning: firstSection ? [firstSection, "cleaning"] : undefined,
+        fetch: ["shorts", "titles"],
+        sync: ["profiles", "connect"],
+        merge: ["profiles", "link"],
+        danger: ["account", ""],
+      };
+      let target: CategoryKey | null = null;
+      let targetTool = sub ?? "";
+      if (allKeys.includes(cat as CategoryKey)) {
+        target = cat as CategoryKey;
+      } else if (legacy[cat] && allKeys.includes(legacy[cat]![0])) {
+        [target, targetTool] = legacy[cat]!;
+      }
+      if (!target) return;
+      const tabs = toolsFor(target);
+      setActive(target);
+      setTool(
+        tabs.length
+          ? tabs.some((t) => t.key === targetTool)
+            ? targetTool
+            : tabs[0].key
+          : ""
+      );
     };
-    let target: CategoryKey | null = null;
-    let targetTool = sub ?? "";
-    if (allKeys.includes(cat as CategoryKey)) {
-      target = cat as CategoryKey;
-    } else if (legacy[cat] && allKeys.includes(legacy[cat]![0])) {
-      [target, targetTool] = legacy[cat]!;
-    }
-    if (!target) return;
-    const tabs = toolsFor(target);
-    setActive(target);
-    setTool(
-      tabs.length ? (tabs.some((t) => t.key === targetTool) ? targetTool : tabs[0].key) : ""
-    );
+    applyHash();
+    window.addEventListener("hashchange", applyHash);
+    return () => window.removeEventListener("hashchange", applyHash);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allKeys]);
 
@@ -330,8 +361,8 @@ export default function SettingsShell({
 
         {/* Mobile: horizontal pill nav */}
         <div className="mb-4 flex gap-1 overflow-x-auto md:hidden">
-          {[...nav.personal, ...nav.library, ...nav.tools].map((c) =>
-            navButton(c, true)
+          {[...nav.personal, ...nav.library, ...nav.tools, ...nav.admin].map(
+            (c) => navButton(c, true)
           )}
         </div>
 
@@ -342,6 +373,7 @@ export default function SettingsShell({
               {navGroup("Personal", nav.personal)}
               {navGroup("Library", nav.library)}
               {navGroup("Tools", nav.tools)}
+              {navGroup("Admin", nav.admin)}
             </div>
           </nav>
 
@@ -490,6 +522,34 @@ export default function SettingsShell({
                   desc="Re-title media and fix hashtags — the file on disk is renamed to match."
                 />
                 <RenameTools isAdmin={isAdmin} perms={perms} />
+              </div>
+            )}
+
+            {active === "members" && isAdmin && (
+              <div>
+                <PanelHeader
+                  title="Members"
+                  desc="Approve invite requests and manage registration codes."
+                />
+                <AdminInvites />
+              </div>
+            )}
+            {active === "jobs" && isAdmin && (
+              <div>
+                <PanelHeader
+                  title="Background jobs"
+                  desc="The in-app scheduler: imports, cleanups, syncs and scans."
+                />
+                <JobsManager />
+              </div>
+            )}
+            {active === "permissions" && isAdmin && (
+              <div>
+                <PanelHeader
+                  title="Permissions"
+                  desc="Grant users access to individual library sections in Settings."
+                />
+                <UserPermissions />
               </div>
             )}
           </div>
