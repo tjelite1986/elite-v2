@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { hasShortsPermission } from "@/lib/permissions";
 import { deleteDuplicates } from "@/lib/shorts-duplicates";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,8 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.role !== "admin") {
+  // Selected group ids may span both channels, so require both permissions.
+  if (!hasShortsPermission(session)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

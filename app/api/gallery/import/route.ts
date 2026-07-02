@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import fs from "node:fs";
 import path from "node:path";
 import { getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import { ingestMedia } from "@/lib/gallery-ingest";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,11 @@ export async function POST() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // The drop folder is SHARED — sweeping it claims every file in it for the
+  // calling user's gallery, so gate it like the rest of the gallery settings.
+  if (!hasPermission(session, "gallery_settings")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const userId = Number(session.sub);
 
   if (!fs.existsSync(IMPORT_DIR)) {
@@ -54,14 +60,14 @@ export async function POST() {
 
   for (const file of files) {
     try {
-      const buffer = fs.readFileSync(file);
       let mtime: number | null = null;
       try {
         mtime = fs.statSync(file).mtimeMs;
       } catch {
         /* ignore */
       }
-      const id = await ingestMedia(userId, path.basename(file), "", buffer, mtime);
+      // Pass the source PATH — videos are copied instead of buffered in memory.
+      const id = await ingestMedia(userId, path.basename(file), "", file, mtime);
       if (id) {
         imported++;
         // Move the source into .processed (non-destructive) instead of deleting,

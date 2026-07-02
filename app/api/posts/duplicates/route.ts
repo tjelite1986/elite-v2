@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import { getPostDupeGroups, getPostDupeState } from "@/lib/posts-duplicates";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.role !== "admin") {
+  if (!hasPermission(session, "posts_settings")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

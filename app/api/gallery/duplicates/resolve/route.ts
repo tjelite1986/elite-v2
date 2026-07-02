@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import { deleteGalleryDuplicates } from "@/lib/gallery-duplicates";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.role !== "admin") {
+  if (!hasPermission(session, "gallery_settings")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

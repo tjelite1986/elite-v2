@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import {
   findOrphanGalleryItems,
   cleanupOrphanGalleryItems,
@@ -18,7 +19,7 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.role !== "admin") {
+  if (!hasPermission(session, "gallery_settings")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -33,9 +34,9 @@ export async function POST(request: Request) {
   const session = await getSession();
   const secret = process.env.IMPORT_CRON_SECRET;
   const presented = request.headers.get("x-import-secret");
-  const isAdmin = session?.role === "admin";
+  const isAllowed = hasPermission(session, "gallery_settings");
   const isCron = Boolean(secret) && presented === secret;
-  if (!isAdmin && !isCron) {
+  if (!isAllowed && !isCron) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
