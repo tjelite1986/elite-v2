@@ -1,6 +1,14 @@
 import fs from "node:fs";
 import { db } from "./db";
-import { mediaPathFor, deletePostImageFiles } from "./posts-storage";
+import { mediaPathFor, deletePostImageFiles, POSTS_ROOT } from "./posts-storage";
+import { PROFILE_ROOT, storageRootAvailable } from "./storage-roots";
+
+// Post media resolves under POSTS_ROOT (creators/imports) or PROFILE_ROOT
+// (user uploads); if either bind mount is missing, "file not found" means
+// nothing and orphan handling must stand down.
+function mediaRootsAvailable(): boolean {
+  return storageRootAvailable(POSTS_ROOT) && storageRootAvailable(PROFILE_ROOT);
+}
 
 // Library maintenance for posts, mirroring lib/shorts-maintenance.ts. Two kinds
 // of dead entries accumulate as files move/disappear on the host:
@@ -23,6 +31,14 @@ export interface OrphanMedia {
 // One fs.stat per image, so it's fast enough to run inline in the request (no
 // detached job like the dupe scanner).
 export function findOrphanMedia(): OrphanMedia[] {
+  // Unmounted-volume guard: with a media root missing every row would look
+  // like an orphan and the hourly cleanup job would wipe the library.
+  if (!mediaRootsAvailable()) {
+    console.error(
+      "[posts-maintenance] storage root missing or empty, skipping orphan scan"
+    );
+    return [];
+  }
   const rows = db
     .prepare(
       `SELECT m.id, m.post_id, m.storage_key, p.caption, p.created_at,
@@ -48,6 +64,31 @@ export function cleanupOrphanMedia(ids: number[]): { deleted: number } {
     new Set(ids.filter((n) => Number.isInteger(n) && n > 0))
   );
   if (clean.length === 0) return { deleted: 0 };
+
+  // Same unmounted-volume guard as the scan, plus a blast-radius cap: deleting
+  // more than 20% of a non-trivial library in one sweep is far more likely a
+  // mount problem than genuine rot — refuse and leave the rows for a human.
+  if (!mediaRootsAvailable()) {
+    console.error(
+      "[posts-maintenance] storage root missing or empty, refusing cleanup"
+    );
+    return { deleted: 0 };
+  }
+  const total = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n
+           FROM post_media m
+           JOIN posts p ON p.id = m.post_id AND p.is_deleted = 0`
+      )
+      .get() as { n: number }
+  ).n;
+  if (clean.length > 20 && clean.length > total * 0.2) {
+    console.error(
+      `[posts-maintenance] refusing to delete ${clean.length} of ${total} media rows (>20%) — storage mount problem?`
+    );
+    return { deleted: 0 };
+  }
 
   const getMedia = db.prepare(
     `SELECT m.id, m.storage_key
