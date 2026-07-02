@@ -126,12 +126,9 @@ export default function JobsManager() {
   };
 
   return (
-    <section className="mb-10">
-      <h2 className="mb-1 text-lg font-medium">Background jobs</h2>
+    <section>
       <p className="mb-4 text-sm text-white/50">
         Enable a job to run it automatically on a schedule, or run it once now.
-        Replaces the host systemd timers — the scheduler runs inside the app
-        server.
       </p>
 
       {!loaded ? (

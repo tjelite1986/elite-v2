@@ -63,8 +63,18 @@ export default function TopNav({
     router.refresh();
   };
 
+  // Hash-only changes through router.push don't fire hashchange; when already
+  // on /settings, set location.hash directly so the shell switches category.
+  const goAdminSettings = () => {
+    if (window.location.pathname === "/settings") {
+      window.location.hash = "members";
+    } else {
+      router.push("/settings#members");
+    }
+  };
+
   const handleAction = (action: string) => {
-    if (action === "admin-codes") router.push("/admin");
+    if (action === "admin-codes") goAdminSettings();
     if (action === "dashboard") router.push("/");
     if (action === "messages") router.push("/messages");
     if (action === "people") router.push("/people");
@@ -101,7 +111,7 @@ export default function TopNav({
               email={email}
               role={role}
               onLogout={logout}
-              onAdmin={() => router.push("/admin")}
+              onAdmin={goAdminSettings}
               onProfile={() => router.push(`/people/${username}`)}
               onSettings={() => router.push("/settings")}
             />
