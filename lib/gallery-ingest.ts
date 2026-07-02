@@ -88,21 +88,24 @@ export async function ingestVideo(
   userId: number,
   filename: string,
   mime: string,
-  buffer: Buffer,
+  source: Buffer | string,
   fallbackMs: number | null = null
 ): Promise<number | null> {
   if (!isSupportedVideo(filename, mime)) return null;
 
   // ffprobe/ffmpeg need a file path, and we must know taken_at (which decides
   // the originals/<yyyy>/<mm> folder) before planning the final path — so probe
-  // a temp copy first.
+  // a temp copy first. `source` may be a path to a file already on disk (the
+  // folder importers) — copy it instead of pulling a multi-GB video through a
+  // Buffer in the Next process.
   const tmp = path.join(os.tmpdir(), `${randomUUID()}-${path.basename(filename)}`);
-  fs.writeFileSync(tmp, buffer);
+  if (typeof source === "string") fs.copyFileSync(source, tmp);
+  else fs.writeFileSync(tmp, source);
   try {
     const meta = readVideoMeta(tmp);
     const takenAt = resolveTakenAt(meta.takenAt, filename, fallbackMs);
     const paths = planIngest(userId, filename, takenAt);
-    fs.writeFileSync(paths.originalPath, buffer);
+    fs.copyFileSync(tmp, paths.originalPath);
 
     let width = meta.width;
     let height = meta.height;
@@ -130,7 +133,7 @@ export async function ingestVideo(
         filename,
         paths.storageKey,
         mime || videoMimeFor(filename),
-        buffer.length,
+        typeof source === "string" ? fs.statSync(tmp).size : source.length,
         width,
         height,
         meta.latitude,
@@ -154,13 +157,15 @@ export async function ingestMedia(
   userId: number,
   filename: string,
   mime: string,
-  buffer: Buffer,
+  source: Buffer | string,
   fallbackMs: number | null = null
 ): Promise<number | null> {
   if (isSupportedVideo(filename, mime)) {
-    return ingestVideo(userId, filename, mime, buffer, fallbackMs);
+    return ingestVideo(userId, filename, mime, source, fallbackMs);
   }
   if (isSupportedImage(filename, mime)) {
+    // Images are small enough to buffer (sharp/EXIF want one anyway).
+    const buffer = typeof source === "string" ? fs.readFileSync(source) : source;
     return ingestImage(userId, filename, mime, buffer, fallbackMs);
   }
   return null;

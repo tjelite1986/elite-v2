@@ -46,6 +46,41 @@ const THUMB_SIZE = 600;
 const log = (m) => console.log(`[import-posts] ${m}`);
 const result = (obj) => console.log(`RESULT ${JSON.stringify(obj)}`);
 
+// --- Single-run lock (same pattern as tiktok-sync.mjs) ----------------------
+// The API route and the scheduled job can both trigger this script; without a
+// lock two overlapping runs list the same drop files before either deletes
+// them and every image imports twice.
+const LOCK = "/tmp/elitev2-import-posts.lock";
+let lockFd;
+try {
+  lockFd = fs.openSync(LOCK, "wx");
+  fs.writeSync(lockFd, String(process.pid));
+} catch (err) {
+  if (err.code === "EEXIST") {
+    try {
+      const pid = Number(fs.readFileSync(LOCK, "utf8").trim());
+      process.kill(pid, 0);
+      log("another import is running; exiting");
+      result({ imported: 0, creatorsNew: 0, videosRouted: 0, deduped: 0, skipped: 0, alreadyRunning: true });
+      process.exit(0);
+    } catch {
+      fs.rmSync(LOCK, { force: true });
+      lockFd = fs.openSync(LOCK, "wx");
+      fs.writeSync(lockFd, String(process.pid));
+    }
+  } else {
+    throw err;
+  }
+}
+process.on("exit", () => {
+  try {
+    fs.closeSync(lockFd);
+    fs.rmSync(LOCK, { force: true });
+  } catch {
+    /* best effort */
+  }
+});
+
 // Mirror authorSlug() in lib/posts-storage.ts so a creator maps to one folder.
 function slug(name) {
   const s = (name || "unknown")
