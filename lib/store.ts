@@ -370,27 +370,33 @@ export function getAppDetail(
 // --- Mutations ---
 
 export function installApp(userId: number, appId: number): void {
-  const info = db
-    .prepare(
-      `INSERT OR IGNORE INTO user_app_installs (user_id, app_id) VALUES (?, ?)`
-    )
-    .run(userId, appId);
-  if (info.changes > 0) {
-    db.prepare("UPDATE apps SET install_count = install_count + 1 WHERE id = ?").run(
-      appId
-    );
-  }
+  // The install row and the counter commit together so a crash between them
+  // can never leave the counter drifting from the actual installs.
+  db.transaction(() => {
+    const info = db
+      .prepare(
+        `INSERT OR IGNORE INTO user_app_installs (user_id, app_id) VALUES (?, ?)`
+      )
+      .run(userId, appId);
+    if (info.changes > 0) {
+      db.prepare(
+        "UPDATE apps SET install_count = install_count + 1 WHERE id = ?"
+      ).run(appId);
+    }
+  })();
 }
 
 export function uninstallApp(userId: number, appId: number): void {
-  const info = db
-    .prepare("DELETE FROM user_app_installs WHERE user_id = ? AND app_id = ?")
-    .run(userId, appId);
-  if (info.changes > 0) {
-    db.prepare(
-      "UPDATE apps SET install_count = MAX(0, install_count - 1) WHERE id = ?"
-    ).run(appId);
-  }
+  db.transaction(() => {
+    const info = db
+      .prepare("DELETE FROM user_app_installs WHERE user_id = ? AND app_id = ?")
+      .run(userId, appId);
+    if (info.changes > 0) {
+      db.prepare(
+        "UPDATE apps SET install_count = MAX(0, install_count - 1) WHERE id = ?"
+      ).run(appId);
+    }
+  })();
 }
 
 export function setSaved(userId: number, appId: number, saved: boolean): void {

@@ -68,11 +68,16 @@ export function createChannel(
   name: string,
   description: string | null
 ): ChannelRow {
-  const result = db
-    .prepare("INSERT INTO channels (name, description, created_by) VALUES (?, ?, ?)")
-    .run(name.slice(0, 80), description?.slice(0, 280) || null, userId);
-  const id = Number(result.lastInsertRowid);
-  joinChannel(id, userId);
+  // Channel + creator membership commit together so a crash between them can
+  // never leave a channel with no members.
+  const id = db.transaction(() => {
+    const result = db
+      .prepare("INSERT INTO channels (name, description, created_by) VALUES (?, ?, ?)")
+      .run(name.slice(0, 80), description?.slice(0, 280) || null, userId);
+    const channelId = Number(result.lastInsertRowid);
+    joinChannel(channelId, userId);
+    return channelId;
+  })();
   return getChannel(id)!;
 }
 
