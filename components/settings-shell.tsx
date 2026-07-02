@@ -602,8 +602,11 @@ function ImportPanel({
           </code>
           <p className="mt-2 text-sm text-white/50">
             Name a file{" "}
-            <code className="text-white/70">title [h_tag][f_collection].mp4</code>{" "}
-            to set caption, hashtags and playlist.
+            <code className="text-white/70">title [h_tag][f_profile].mp4</code>{" "}
+            to set caption and hashtags —{" "}
+            <code className="text-white/70">[f_profile]</code> (or a subfolder)
+            publishes the clip PUBLICLY under that creator profile. Loose files
+            stay your own private clips.
           </p>
           <Link
             href="/shorts/upload"
