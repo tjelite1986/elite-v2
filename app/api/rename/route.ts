@@ -111,7 +111,7 @@ export async function POST(request: Request) {
   try {
     if (section === "gallery") {
       const item = db
-        .prepare("SELECT * FROM gallery_items WHERE id = ?")
+        .prepare("SELECT * FROM gallery_items WHERE id = ? AND is_deleted = 0")
         .get(id) as GalleryItemRow | undefined;
       if (!item) return NextResponse.json({ error: "Not found." }, { status: 404 });
       if (item.user_id !== userId && !isAdmin) {
@@ -147,13 +147,18 @@ export async function POST(request: Request) {
           "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)"
         );
         for (const tag of hashtags) insertTag.run(post.id, tag);
-        for (const m of media) {
-          const newKey = renamePostImageFiles(m.storage_key, canonicalStem(meta, m.id));
-          db.prepare(
-            "UPDATE post_media SET storage_key = ?, media_version = media_version + 1 WHERE id = ?"
-          ).run(newKey, m.id);
-        }
       })();
+      // Physical renames stay OUTSIDE the transaction and each row is updated
+      // right after its file moves: a mid-loop failure then leaves every image
+      // self-consistent (renamed + updated, or untouched) instead of rolling
+      // back the DB under already-renamed files.
+      const updateMedia = db.prepare(
+        "UPDATE post_media SET storage_key = ?, media_version = media_version + 1 WHERE id = ?"
+      );
+      for (const m of media) {
+        const newKey = renamePostImageFiles(m.storage_key, canonicalStem(meta, m.id));
+        updateMedia.run(newKey, m.id);
+      }
       return NextResponse.json({ ok: true, caption });
     }
 
@@ -173,9 +178,23 @@ export async function POST(request: Request) {
       short.poster_key,
       newStem
     );
-    db.prepare(
-      "UPDATE shorts SET caption = ?, storage_key = ?, poster_key = ? WHERE id = ?"
-    ).run(buildCaption(title, hashtags), storageKey, posterKey, short.id);
+    try {
+      db.prepare(
+        "UPDATE shorts SET caption = ?, storage_key = ?, poster_key = ? WHERE id = ?"
+      ).run(buildCaption(title, hashtags), storageKey, posterKey, short.id);
+    } catch (err) {
+      // Compensate: move the files back so disk and DB stay consistent.
+      const oldStem = path.basename(
+        short.storage_key,
+        path.extname(short.storage_key)
+      );
+      try {
+        renameShortFiles(channel, storageKey, posterKey, oldStem);
+      } catch {
+        /* leave for the orphan report */
+      }
+      throw err;
+    }
     return NextResponse.json({ ok: true, storage_key: storageKey });
   } catch (err) {
     console.error("rename failed", err);

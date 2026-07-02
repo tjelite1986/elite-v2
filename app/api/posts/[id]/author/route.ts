@@ -75,17 +75,19 @@ export async function PATCH(
   );
 
   try {
-    db.transaction(() => {
-      const upd = db.prepare("UPDATE post_media SET storage_key = ? WHERE id = ?");
-      for (const m of media) {
-        const newKey = movePostImageToAuthor(m.storage_key, creator!.username);
-        upd.run(newKey, m.id);
-      }
-      // Switch authorship to the creator (clears any user authorship).
-      db.prepare(
-        "UPDATE posts SET author_creator_id = ?, author_user_id = NULL WHERE id = ?"
-      ).run(creator!.id, post.id);
-    })();
+    // File moves stay OUTSIDE the transaction and each row is updated right
+    // after its file moves: a mid-loop failure then leaves every image
+    // self-consistent (moved + updated, or untouched) instead of rolling the
+    // DB back under already-moved files.
+    const upd = db.prepare("UPDATE post_media SET storage_key = ? WHERE id = ?");
+    for (const m of media) {
+      const newKey = movePostImageToAuthor(m.storage_key, creator!.username);
+      upd.run(newKey, m.id);
+    }
+    // Switch authorship to the creator (clears any user authorship).
+    db.prepare(
+      "UPDATE posts SET author_creator_id = ?, author_user_id = NULL WHERE id = ?"
+    ).run(creator!.id, post.id);
   } catch (err) {
     console.error("[posts] author reassign failed:", err);
     return NextResponse.json({ error: "Reassign failed." }, { status: 500 });

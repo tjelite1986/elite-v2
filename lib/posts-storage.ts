@@ -154,6 +154,19 @@ export async function storeAvatar(
   return key;
 }
 
+// rename(2) fails with EXDEV when source and destination sit on different bind
+// mounts (a user upload under PROFILE_ROOT moving to a creator folder under
+// POSTS_ROOT — separate volumes in production) — fall back to copy + unlink.
+function moveFile(src: string, dest: string): void {
+  try {
+    fs.renameSync(src, dest);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+    fs.copyFileSync(src, dest);
+    fs.unlinkSync(src);
+  }
+}
+
 // Move a post image (display + thumbnail) into another author's folder, keeping
 // the basename so the by-id media route resolves unchanged. Used when an admin
 // reassigns a post to a different author. Returns the new storage_key. On a
@@ -180,13 +193,13 @@ export function movePostImageToAuthor(
   }
 
   // Move the display image, then its thumbnail alongside.
-  fs.renameSync(srcDisplay, destDisplay);
+  moveFile(srcDisplay, destDisplay);
   const newKey = `${slug}/${base}`;
 
   const srcThumb = mediaPathFor(thumbKeyFor(storageKey));
   if (fs.existsSync(srcThumb)) {
     try {
-      fs.renameSync(srcThumb, mediaPathFor(thumbKeyFor(newKey)));
+      moveFile(srcThumb, mediaPathFor(thumbKeyFor(newKey)));
     } catch {
       /* best effort — thumbnail can be regenerated */
     }

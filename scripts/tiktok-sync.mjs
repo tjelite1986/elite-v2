@@ -73,6 +73,19 @@ try {
       const pid = Number(fs.readFileSync(LOCK, "utf8").trim());
       process.kill(pid, 0);
       log("another sync is running; exiting");
+      // The API route already flipped tt_syncing=1 for the requested handle —
+      // clear it, or the UI polls a "syncing" that never ends.
+      if (handleArg) {
+        try {
+          const tmpDb = new Database(DB_PATH);
+          tmpDb
+            .prepare("UPDATE profile_extras SET tt_syncing = 0 WHERE handle = ?")
+            .run(handleArg);
+          tmpDb.close();
+        } catch {
+          /* best effort */
+        }
+      }
       process.exit(0);
     } catch {
       fs.rmSync(LOCK, { force: true });
@@ -220,6 +233,15 @@ function downloadProfile(localHandle, ttUsername) {
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+
+// We hold the single-run lock, so any tt_syncing=1 left in the DB is a stale
+// flag from a crashed/killed run — clear them all (they are re-set per handle
+// below) so the UI never shows an eternal "syncing".
+try {
+  db.prepare("UPDATE profile_extras SET tt_syncing = 0 WHERE tt_syncing = 1").run();
+} catch {
+  /* best effort */
+}
 
 const targets = handleArg
   ? db

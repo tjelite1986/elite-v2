@@ -80,15 +80,20 @@ export default function UnifiedMergeProfiles() {
     let ok = 0;
     let fail = 0;
     let lastErr = "";
-    for (const src of sources) {
+    for (let i = 0; i < sources.length; i++) {
+      const src = sources[i];
       try {
+        // Only the LAST call carries the rename: renaming on the first call
+        // changes the kept handle, and every later call would then hit the
+        // "name already taken" clash against the just-renamed profile.
+        const isLast = i === sources.length - 1;
         const r = await fetch("/api/profiles/merge", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             targetHandle: keep,
             sourceHandle: src,
-            newName: newName.trim() || undefined,
+            newName: isLast ? newName.trim() || undefined : undefined,
           }),
         });
         const d = await r.json().catch(() => ({}));
