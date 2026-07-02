@@ -108,7 +108,7 @@ export function computeTrips(userId: number): Trip[] {
     const start = seg[0].taken_at;
     const end = seg[seg.length - 1].taken_at;
     if (!name) {
-      name = `Trip · ${new Date(start.replace(" ", "T")).toLocaleDateString(
+      name = `Trip · ${new Date(start.replace(" ", "T") + "Z").toLocaleDateString(
         "en-US",
         { month: "short", year: "numeric", timeZone: "UTC" }
       )}`;
