@@ -16,6 +16,6 @@ export async function POST(request: Request) {
   }
   const body = (await request.json().catch(() => ({}))) as { limit?: number };
   const limit = Math.max(1, Math.min(Number(body.limit) || 60, 200));
-  const result = autoConnectInstagram(limit);
+  const result = await autoConnectInstagram(limit);
   return NextResponse.json({ ok: true, ...result });
 }

@@ -1,7 +1,13 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+// Async exec: a synchronous child process here would freeze the whole
+// single-process server (HTTP, websockets and the job scheduler) for up to the
+// full timeout — this file's own pool-status comment records that lesson.
+const execFileAsync = promisify(execFile);
 import { db } from "./db";
 import { qb, getOne, getAll } from "./kysely";
 import { handleOf } from "./directory";
@@ -119,7 +125,7 @@ export function hasCookies(): boolean {
 // specialized and self-paces (RateController), so it survives the rate limits a
 // raw web_profile_info loop trips. Returns stdout, or null on failure. `input`
 // feeds stdin (batch mode).
-function runIgPython(args: string[], input?: string): string | null {
+function runIgPython(args: string[], input?: string): Promise<string | null> {
   const script = path.join(process.cwd(), "scripts", "ig_profile.py");
   const env = {
     ...process.env,
@@ -130,18 +136,46 @@ function runIgPython(args: string[], input?: string): string | null {
         ? process.env.HOME
         : os.tmpdir(),
   };
-  try {
-    return execFileSync("python3", [script, ...args], {
-      encoding: "utf8",
-      input,
-      env,
-      timeout: 280_000,
-      maxBuffer: 64 * 1024 * 1024,
+  // spawn (not execFile) because batch mode feeds stdin. Like the old sync
+  // version, whatever stdout accumulated is returned even when the process
+  // fails or is killed on timeout.
+  return new Promise((resolve) => {
+    let out = "";
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killer);
+      resolve(out || null);
+    };
+    const child = spawn("python3", [script, ...args], { env });
+    const killer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }, 280_000);
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => {
+      out += d;
+      if (out.length > 64 * 1024 * 1024) {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
     });
-  } catch (err) {
-    const e = err as { stdout?: string };
-    return e.stdout ? String(e.stdout) : null;
-  }
+    child.on("error", finish);
+    child.on("close", finish);
+    try {
+      if (input !== undefined) child.stdin.write(input);
+      child.stdin.end();
+    } catch {
+      /* stdin already closed */
+    }
+  });
 }
 
 // Normalized IG profile, or null on request failure. `exists:false` means the
@@ -171,8 +205,8 @@ function parseIgUser(json: Record<string, unknown>): IgUser {
 // Fetch one IG profile. Tries Instaloader first; on failure falls back to
 // gallery-dl, because Instagram now 403-blocks Instaloader's graphql profile
 // query even with a valid session. null = couldn't fetch.
-function igUser(username: string): IgUser | null {
-  const out = runIgPython(["user", username]);
+async function igUser(username: string): Promise<IgUser | null> {
+  const out = await runIgPython(["user", username]);
   if (out) {
     const last = out.trim().split("\n").pop();
     if (last) {
@@ -190,17 +224,18 @@ function igUser(username: string): IgUser | null {
 // Fallback profile fetch via gallery-dl: it reaches the owner's name + avatar
 // through the posts feed (no graphql 403). Bio is profile-level and not in post
 // metadata, so it stays null (applyToPeople keeps the existing bio via COALESCE).
-function igUserViaGalleryDl(username: string): IgUser | null {
+async function igUserViaGalleryDl(username: string): Promise<IgUser | null> {
   const url = `https://www.instagram.com/${encodeURIComponent(username)}/posts/`;
   const cookiePath = firstEligibleCookie()?.path || COOKIES_PATH;
   const args = ["-j", "--range", "1-1", "--cookies", cookiePath, url];
   let out: string;
   try {
-    out = execFileSync(GALLERY_DL, args, {
+    const res = await execFileAsync(GALLERY_DL, args, {
       encoding: "utf8",
       timeout: 120_000,
       maxBuffer: 64 * 1024 * 1024,
     });
+    out = res.stdout;
   } catch (err) {
     const e = err as { stdout?: string };
     if (!e.stdout) return null;
@@ -369,8 +404,8 @@ export function parseInstagramUsername(input: string): string | null {
 // True only when an Instagram account with EXACTLY this username exists — used by
 // auto-connect to link a posts folder to IG only on a 100% match. Returns false
 // on a transient failure too, so a wrong account is never linked.
-export function instagramAccountExists(username: string): boolean {
-  const u = igUser(username);
+export async function instagramAccountExists(username: string): Promise<boolean> {
+  const u = await igUser(username);
   return !!u && u.exists && (u.username ?? "").toLowerCase() === username.toLowerCase();
 }
 
@@ -385,7 +420,7 @@ export async function fetchProfileInfo(
   avatarUrl: string | null;
   postCount: number | null;
 } | null> {
-  const user = igUser(igUsername);
+  const user = await igUser(igUsername);
   if (!user || !user.exists) return null;
 
   const meta = {
@@ -441,7 +476,7 @@ export async function applyToPeople(
     }
 
     if (meta.avatarUrl) {
-      const buf = downloadToBuffer(meta.avatarUrl);
+      const buf = await downloadToBuffer(meta.avatarUrl);
       if (buf && buf.length > 0) {
         const key = await storeAvatar("avatar.jpg", "image/jpeg", buf);
         db.prepare(
@@ -487,18 +522,19 @@ function mergeProfileLinks(handle: string, urls: string[]): void {
   ).run(handle, JSON.stringify(links.slice(0, 10)));
 }
 
-function downloadToBuffer(url: string): Buffer | null {
+async function downloadToBuffer(url: string): Promise<Buffer | null> {
   // Reject non-http(s) URLs and pass "--" so curl can't read a URL that starts
   // with "-" as a flag (argument injection); the avatar URL comes from a remote
   // API response, so treat it as untrusted.
   const safe = safeHttpUrl(url);
   if (!safe) return null;
   try {
-    return execFileSync(
+    const { stdout } = await execFileAsync(
       "curl",
       ["-s", "-L", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
-      { maxBuffer: 32 * 1024 * 1024, timeout: 25_000 }
+      { maxBuffer: 32 * 1024 * 1024, timeout: 25_000, encoding: "buffer" }
     );
+    return stdout;
   } catch {
     return null;
   }
@@ -512,12 +548,12 @@ function downloadToBuffer(url: string): Buffer | null {
 // RateController paces across the whole batch (instead of tripping the rate
 // limit a per-request loop hits). Bounded per call — returns counts so the
 // caller can run it again for the rest.
-export function autoConnectInstagram(limit = 40): {
+export async function autoConnectInstagram(limit = 40): Promise<{
   candidates: number;
   checked: number;
   connected: number;
   remaining: number;
-} {
+}> {
   const rows = getAll<{ handle: string }>(
     qb
       .selectFrom("post_creators as pc")
@@ -539,7 +575,7 @@ export function autoConnectInstagram(limit = 40): {
   let checked = 0;
   let connected = 0;
   if (batch.length > 0) {
-    const out = runIgPython(["batch"], batch.join("\n"));
+    const out = await runIgPython(["batch"], batch.join("\n"));
     if (out) {
       for (const line of out.split("\n")) {
         const t = line.trim();
