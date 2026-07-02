@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { db } from "./db";
 import { originalPathFor, deleteMediaFiles } from "./gallery-storage";
+import { PROFILE_ROOT, storageRootAvailable } from "./storage-roots";
 
 // Library maintenance for the gallery, mirroring lib/posts-maintenance.ts.
 // Gallery items are standalone (no parent "post"), so there's only one kind of
@@ -22,6 +23,15 @@ export interface OrphanItem {
 // fs.stat per item, so it's fast enough to run inline in the request (no
 // detached job like the dupe scanner).
 export function findOrphanGalleryItems(): OrphanItem[] {
+  // If the media root is missing or empty the volume is almost certainly not
+  // mounted — every row would look like an orphan, and the hourly cleanup job
+  // would hard-delete the whole library. Report nothing instead.
+  if (!storageRootAvailable(PROFILE_ROOT)) {
+    console.error(
+      `[gallery-maintenance] storage root missing or empty, skipping orphan scan: ${PROFILE_ROOT}`
+    );
+    return [];
+  }
   const rows = db
     .prepare(
       `SELECT gi.id, gi.user_id, gi.filename, gi.storage_key, gi.taken_at,
@@ -48,6 +58,27 @@ export function cleanupOrphanGalleryItems(ids: number[]): { deleted: number } {
     new Set(ids.filter((n) => Number.isInteger(n) && n > 0))
   );
   if (clean.length === 0) return { deleted: 0 };
+
+  // Same unmounted-volume guard as the scan, plus a blast-radius cap: deleting
+  // more than 20% of a non-trivial library in one sweep is far more likely a
+  // mount problem than genuine rot — refuse and leave the rows for a human.
+  if (!storageRootAvailable(PROFILE_ROOT)) {
+    console.error(
+      `[gallery-maintenance] storage root missing or empty, refusing cleanup: ${PROFILE_ROOT}`
+    );
+    return { deleted: 0 };
+  }
+  const total = (
+    db
+      .prepare("SELECT COUNT(*) AS n FROM gallery_items WHERE is_deleted = 0")
+      .get() as { n: number }
+  ).n;
+  if (clean.length > 20 && clean.length > total * 0.2) {
+    console.error(
+      `[gallery-maintenance] refusing to delete ${clean.length} of ${total} items (>20%) — storage mount problem?`
+    );
+    return { deleted: 0 };
+  }
 
   const getItem = db.prepare(
     `SELECT id, user_id, storage_key

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 // Single source of truth for elite-v2 storage roots and the per-user folder
@@ -32,6 +33,19 @@ export const PROFILE_SECTIONS = [
   "shorts18",
   "cookies",
 ] as const;
+
+// True when the directory exists and holds at least one entry. A production
+// media root is a bind mount that always has content, so a missing or empty
+// root almost certainly means the volume is not mounted — callers must not
+// treat "file not found" as meaningful in that state (e.g. orphan scans would
+// classify the entire library as deletable).
+export function storageRootAvailable(dir: string): boolean {
+  try {
+    return fs.readdirSync(dir).length > 0;
+  } catch {
+    return false;
+  }
+}
 
 // Per-user drop sections under IMPORT_ROOT/u_<user>/. Books IS present here — the
 // dropped file is staged per user but ingested into the shared BOOKS_ROOT.
