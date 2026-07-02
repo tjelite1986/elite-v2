@@ -282,6 +282,26 @@ for (const entry of entries) {
     continue;
   }
 
+  // Insert the row IMMEDIATELY after the video lands — poster generation below
+  // can take seconds per clip, and a kill in that window used to leave a moved
+  // file with no DB row (invisible, and never re-importable since the source is
+  // gone). Poster/caption are filled in with an UPDATE afterwards.
+  // *.web.mp4 is already web-optimized → ready immediately (transcoder skips it).
+  // Anything else comes in pending for the transcoder to convert + poster.
+  const status = ext === ".web.mp4" ? "ready" : "pending";
+  const shortId = Number(
+    insertShort.run(
+      CHANNEL,
+      profile.id,
+      (captionFromStem(stem) || "").slice(0, 2000) || null,
+      `${slug}/${destVideoName}`,
+      null,
+      mimeFor(ext),
+      sourceId,
+      status
+    ).lastInsertRowid
+  );
+
   // Move a matching poster/sidecars next to the video. A .md sidecar holds the
   // caption (e.g. an Instagram post's text routed here from import-posts).
   let posterKey = null;
@@ -315,20 +335,11 @@ for (const entry of entries) {
     }
   }
 
-  // *.web.mp4 is already web-optimized → ready immediately (transcoder skips it).
-  // Anything else comes in pending for the transcoder to convert + poster.
-  const status = ext === ".web.mp4" ? "ready" : "pending";
-
-  insertShort.run(
-    CHANNEL,
-    profile.id,
-    (caption || captionFromStem(stem) || "").slice(0, 2000) || null,
-    `${slug}/${destVideoName}`,
-    posterKey,
-    mimeFor(ext),
-    sourceId,
-    status
-  );
+  if (posterKey || caption) {
+    db.prepare(
+      "UPDATE shorts SET poster_key = COALESCE(?, poster_key), caption = COALESCE(?, caption) WHERE id = ?"
+    ).run(posterKey, caption ? caption.slice(0, 2000) : null, shortId);
+  }
   imported++;
 }
 

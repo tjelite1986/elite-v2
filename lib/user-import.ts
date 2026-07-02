@@ -48,12 +48,12 @@ import {
 //   2. name a file  "<title> [<collection>].<ext>"  -> e.g.
 //      "hoppa rep ar roligt [hoppa rep].jpg" lands in the collection "hoppa rep"
 //      with the caption/title "hoppa rep ar roligt".
-// The collection maps to the natural per-section grouping, always owned by the
-// user: a short_playlists row for shorts and a gallery_albums row for gallery.
-// Posts are NOT grouped — every image becomes its own post so the user can stack
-// them into a carousel themselves afterwards; the token only supplies a caption.
-// Files with no token/subfolder import loose. Imported sources are deleted on
-// success so re-runs don't duplicate.
+// What a collection maps to differs per section: for shorts/shorts18 it names a
+// CREATOR PROFILE (public, merged across users — like the auto-poll creators);
+// for gallery it is a private gallery_albums row owned by the user; for posts a
+// subfolder names a creator (public post) while a token only supplies a caption.
+// Files with no token/subfolder import loose as the user's own private content.
+// Imported sources are deleted on success so re-runs don't duplicate.
 
 // Browser-playable video extensions are inserted 'ready'; everything else comes
 // in 'pending' for the host transcoder (matches app/api/shorts/upload).
@@ -64,6 +64,9 @@ export interface ImportSummary {
   imported: number;
   skipped: number;
   details: string[];
+  // Set when a run was refused because another one was already sweeping the
+  // same drop tree.
+  alreadyRunning?: boolean;
 }
 
 interface DropItem {
@@ -155,6 +158,36 @@ function consume(abs: string): boolean {
   }
 }
 
+// Consume an imported source; if the unlink fails, rename the source in place to
+// carry the [id_<id>] token so the round-trip dedup skips it on every future run
+// instead of re-importing it forever. Logs into the summary when neither works.
+function consumeImported(
+  abs: string,
+  parsed: ParsedImportName,
+  id: number,
+  kind: "clip" | "post" | undefined,
+  section: string,
+  res: ImportSummary
+): void {
+  if (consume(abs)) return;
+  try {
+    const [, ext] = splitExt(path.basename(abs));
+    const marked = path.join(
+      path.dirname(abs),
+      `${canonicalStem(parsed, id, kind)}${ext}`
+    );
+    if (marked !== abs) {
+      fs.renameSync(abs, marked);
+      return;
+    }
+  } catch {
+    /* can't rename either */
+  }
+  res.details.push(
+    `${section} ${path.basename(abs)}: imported as #${id} but the source could not be deleted — fix the drop folder permissions or it may re-import`
+  );
+}
+
 // Remove now-empty collection subfolders so the drop tree stays tidy (the four
 // section roots themselves are left in place). Best effort.
 function pruneEmptyDirs(sectionDir: string) {
@@ -201,22 +234,6 @@ function findOrCreateShortProfile(name: string, channel: ShortChannel): number {
         "INSERT INTO short_profiles (name, channel, source_type, source_ref, auto_poll, videos_limit) VALUES (?, ?, 'manual', '', 0, 20)"
       )
       .run(lname, channel).lastInsertRowid
-  );
-}
-
-function findOrCreatePlaylist(userId: number, name: string): number {
-  const row = getOne<{ id: number }>(
-    qb
-      .selectFrom("short_playlists")
-      .select("id")
-      .where("user_id", "=", userId)
-      .where("name", "=", name)
-  );
-  if (row) return row.id;
-  return Number(
-    db
-      .prepare("INSERT INTO short_playlists (user_id, name) VALUES (?, ?)")
-      .run(userId, name).lastInsertRowid
   );
 }
 
@@ -326,18 +343,13 @@ async function importShortsSection(
       continue;
     }
     const caption = captionWithHashtags(md.caption ?? (title || null), parsed.hashtags);
-    let buffer: Buffer;
-    try {
-      buffer = fs.readFileSync(item.abs);
-    } catch {
-      res.skipped++;
-      continue;
-    }
     try {
       // Subfolder precedence: an explicit collection (drop subfolder or
       // "[bracket]" token) wins; otherwise a "profilname_-_title" filename lands
       // in that creator's folder; otherwise storeShortUpload uses its shared
       // fallback dir — so an imported clip is never stored loose either.
+      // The source is passed as a PATH so multi-GB videos are copied, not
+      // buffered through the Next process.
       const subdir = collection ?? profileFromFilename(item.name) ?? undefined;
       const stored = await storeShortUpload(
         channel,
@@ -345,7 +357,7 @@ async function importShortsSection(
         title,
         item.name,
         "",
-        buffer,
+        item.abs,
         subdir
       );
       const status = WEB_PLAYABLE.has(ext) ? "ready" : "pending";
@@ -383,12 +395,6 @@ async function importShortsSection(
             isPrivate
           ).lastInsertRowid
       );
-      if (collection && !asProfile) {
-        const playlistId = findOrCreatePlaylist(userId, collection);
-        db.prepare(
-          "INSERT OR IGNORE INTO short_playlist_items (playlist_id, short_id) VALUES (?, ?)"
-        ).run(playlistId, shortId);
-      }
       // Rename to the canonical self-describing name now that we know the id.
       // 18+ stored filenames are lowercased to match the lowercase folder/profile
       // (the caption keeps its original casing).
@@ -408,7 +414,7 @@ async function importShortsSection(
       } catch {
         /* keep the original stored name if the rename fails */
       }
-      consume(item.abs);
+      consumeImported(item.abs, parsed, shortId, "clip", `shorts/${channel}`, res);
       if (md.sidecar) consume(md.sidecar);
       res.imported++;
     } catch (err) {
@@ -514,25 +520,31 @@ async function importPostsSection(
           continue; // already on this creator
         }
       }
-      const postId = Number(
-        (asCreator
-          ? insertCreatorPost.run(creatorId, caption)
-          : insertUserPost.run(userId, caption)
-        ).lastInsertRowid
-      );
-      // Rename to a site-relevant self-describing name now that we know the id.
-      let mediaKey = stored.storageKey;
-      try {
-        mediaKey = renamePostImageFiles(stored.storageKey, canonicalStem(parsed, postId, "post"));
-      } catch {
-        /* keep the original stored name if the rename fails */
-      }
-      insertMedia.run(postId, mediaKey, "image/jpeg", stored.width, stored.height, contentHash);
       // Hashtags from the caption AND the filename's [h_] tokens.
       const tags = new Set<string>(parsed.hashtags);
       if (caption) for (const t of parseHashtags(caption)) tags.add(t);
-      for (const tag of Array.from(tags)) insertHashtag.run(postId, tag);
-      consume(item.abs);
+      // Post + media + hashtags commit atomically so a mid-write failure never
+      // leaves an empty posts row behind (which would re-import as a duplicate).
+      const postId = db.transaction(() => {
+        const pid = Number(
+          (asCreator
+            ? insertCreatorPost.run(creatorId, caption)
+            : insertUserPost.run(userId, caption)
+          ).lastInsertRowid
+        );
+        insertMedia.run(pid, stored.storageKey, "image/jpeg", stored.width, stored.height, contentHash);
+        for (const tag of Array.from(tags)) insertHashtag.run(pid, tag);
+        return pid;
+      })();
+      // Rename to a site-relevant self-describing name now that we know the id
+      // (outside the transaction — a disk rename must never be rolled back under).
+      try {
+        const mediaKey = renamePostImageFiles(stored.storageKey, canonicalStem(parsed, postId, "post"));
+        db.prepare("UPDATE post_media SET storage_key = ? WHERE post_id = ?").run(mediaKey, postId);
+      } catch {
+        /* keep the original stored name if the rename fails */
+      }
+      consumeImported(item.abs, parsed, postId, "post", "posts", res);
       if (md.sidecar) consume(md.sidecar);
       res.imported++;
     } catch (err) {
@@ -561,17 +573,16 @@ async function importGallerySection(
     const [, ext] = splitExt(item.name);
     // Store under a clean name (drop the [collection] token) but keep the title.
     const storeName = `${title || "media"}${ext}`;
-    let buffer: Buffer;
     let mtimeMs: number | null = null;
     try {
-      buffer = fs.readFileSync(item.abs);
       mtimeMs = fs.statSync(item.abs).mtimeMs;
     } catch {
       res.skipped++;
       continue;
     }
     try {
-      const id = await ingestMedia(userId, storeName, "", buffer, mtimeMs);
+      // Pass the source PATH — videos are copied instead of buffered in memory.
+      const id = await ingestMedia(userId, storeName, "", item.abs, mtimeMs);
       if (!id) {
         res.skipped++;
         continue;
@@ -601,7 +612,7 @@ async function importGallerySection(
         );
         for (const t of parsed.hashtags) insTag.run(id, t);
       }
-      consume(item.abs);
+      consumeImported(item.abs, parsed, id, undefined, "gallery", res);
       res.imported++;
     } catch (err) {
       res.skipped++;
@@ -652,7 +663,12 @@ async function importBooksSection(
     }
     try {
       await ingestUpload({ buffer, filename: item.name, title, addedBy: userId });
-      consume(item.abs);
+      if (!consume(item.abs)) {
+        // Title-based dedup will skip it next run, but surface the stuck file.
+        res.details.push(
+          `books ${item.name}: imported but the source could not be deleted — fix the drop folder permissions`
+        );
+      }
       res.imported++;
     } catch (err) {
       res.skipped++;
@@ -685,9 +701,37 @@ function resolveUser(home: string): { userId: number; username: string | null } 
   return null;
 }
 
+// Concurrency lock: two overlapping runs (admin button + cron secret, or a
+// double-click) would both list the same drop files before either consumes
+// them, importing everything twice. Single process (custom server), so a
+// module-level promise is enough — same pattern as statusRefreshing in
+// lib/instagram.ts.
+let importInFlight: Promise<ImportSummary> | null = null;
+
 // Walk every user's _import tree and import each section. Pass onlyUser (a home
 // folder name or username) to limit the run to one account.
 export async function runUserFolderImport(opts?: {
+  onlyUser?: string;
+}): Promise<ImportSummary> {
+  if (importInFlight) {
+    return {
+      users: 0,
+      imported: 0,
+      skipped: 0,
+      details: ["Another user-folder import is already running."],
+      alreadyRunning: true,
+    };
+  }
+  const run = runUserFolderImportInner(opts);
+  importInFlight = run;
+  try {
+    return await run;
+  } finally {
+    importInFlight = null;
+  }
+}
+
+async function runUserFolderImportInner(opts?: {
   onlyUser?: string;
 }): Promise<ImportSummary> {
   const res: ImportSummary = { users: 0, imported: 0, skipped: 0, details: [] };

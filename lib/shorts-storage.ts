@@ -190,7 +190,10 @@ export async function storeShortUpload(
   caption: string | null,
   filename: string,
   mime: string,
-  buffer: Buffer,
+  // Buffer (interactive uploads) or a path to a file already on disk (the
+  // folder importers) — the path form copies without buffering a multi-GB
+  // video through the Next process.
+  source: Buffer | string,
   subdir?: string | null
 ): Promise<StoredShort> {
   if (!isSupportedVideo(filename, mime)) {
@@ -218,7 +221,8 @@ export async function storeShortUpload(
   // PROFILE_ROOT automatically.
   const storageKey = `${rel}/${base}${ext}`;
   const videoPath = path.join(PROFILE_ROOT, storageKey);
-  fs.writeFileSync(videoPath, buffer);
+  if (typeof source === "string") fs.copyFileSync(source, videoPath);
+  else fs.writeFileSync(videoPath, source);
 
   const meta = readVideoMeta(videoPath);
 
@@ -250,7 +254,8 @@ export async function storeShortUpload(
     width: meta.width,
     height: meta.height,
     duration: durationFromProbe(videoPath),
-    sizeBytes: buffer.length,
+    sizeBytes:
+      typeof source === "string" ? fs.statSync(videoPath).size : source.length,
   };
 }
 
@@ -376,7 +381,16 @@ export function moveShortToProfile(
       base = `${stem}_${randomUUID().slice(0, 8)}${ext}`;
       dest = path.join(destDir, base);
     }
-    fs.renameSync(src, dest);
+    // rename(2) fails with EXDEV when the clip moves between bind mounts (a
+    // user upload under PROFILE_ROOT → the shared SHORTS_ROOT profile folder,
+    // separate volumes in production) — fall back to copy + unlink.
+    try {
+      fs.renameSync(src, dest);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+      fs.copyFileSync(src, dest);
+      fs.unlinkSync(src);
+    }
     return `${slug}/${base}`;
   };
 
@@ -411,7 +425,7 @@ export function renameShortFiles(
   const [, ext] = splitExt(path.basename(storageKey));
   const dir = path.dirname(storageKey); // unchanged; relative to PROFILE_ROOT
   const safe =
-    newStem.replace(/[/:*?"<>| ]+/g, " ").replace(/\s+/g, " ").trim() ||
+    newStem.replace(/[/:*?"<>|\x00-\x1f]+/g, " ").replace(/\s+/g, " ").trim() ||
     "clip";
 
   const keyFor = (stem: string, e: string) =>
