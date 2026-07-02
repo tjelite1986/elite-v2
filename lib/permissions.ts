@@ -44,6 +44,21 @@ export function hasPermission(
   );
 }
 
+// Section guard for the shorts APIs: channel-scoped calls need that channel's
+// settings permission; cross-channel calls (dupe scan/resolve, action=all)
+// need both. Admins pass implicitly via hasPermission.
+export function hasShortsPermission(
+  session: { sub?: string | number; role?: string } | null | undefined,
+  channel?: "main" | "18plus"
+): boolean {
+  if (channel === "18plus") return hasPermission(session, "shorts18_settings");
+  if (channel === "main") return hasPermission(session, "shorts_settings");
+  return (
+    hasPermission(session, "shorts_settings") &&
+    hasPermission(session, "shorts18_settings")
+  );
+}
+
 // Replace a user's granted permissions with the given valid set (admin action).
 export function setUserPermissions(userId: number, keys: string[]): void {
   const valid = Array.from(new Set(keys.filter(isKey)));

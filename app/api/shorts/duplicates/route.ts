@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { hasShortsPermission } from "@/lib/permissions";
 import { parseChannel } from "@/lib/shorts";
 import { getDupeGroups, getDupeState } from "@/lib/shorts-duplicates";
 
@@ -12,12 +13,11 @@ export async function GET(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const param = new URL(request.url).searchParams.get("channel");
   const channel = param ? parseChannel(param) : undefined;
+  if (!hasShortsPermission(session, channel)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   return NextResponse.json({
     state: getDupeState(),

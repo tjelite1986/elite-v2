@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "kysely";
 import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
+import { has18Access } from "@/lib/shorts-gate";
 import { handleOf } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
@@ -49,15 +50,22 @@ export async function GET(request: Request) {
       .limit(20)
   );
 
-  const tags = getAll<{ tag: string; count: number }>(
-    qb
-      .selectFrom("post_hashtags")
-      .select((eb) => ["tag", eb.fn.countAll<number>().as("count")])
-      .where("tag", "like", like)
-      .groupBy("tag")
-      .orderBy("count", "desc")
-      .limit(10)
-  );
+  // Without 18+ access, tags that only exist on adult posts must not surface —
+  // even the tag name is a leak.
+  const adult = await has18Access();
+  let tagsQuery = qb
+    .selectFrom("post_hashtags")
+    .innerJoin("posts", "posts.id", "post_hashtags.post_id")
+    .select((eb) => ["tag", eb.fn.countAll<number>().as("count")])
+    .where("tag", "like", like)
+    .where("posts.is_deleted", "=", 0)
+    .groupBy("tag")
+    .orderBy("count", "desc")
+    .limit(10);
+  if (!adult) {
+    tagsQuery = tagsQuery.where("posts.is_adult", "=", 0);
+  }
+  const tags = getAll<{ tag: string; count: number }>(tagsQuery);
 
   // Dedupe by handle, preferring user > photo creator > video creator.
   const byHandle = new Map<string, { username: string; display_name: string | null; type: "user" | "creator" }>();

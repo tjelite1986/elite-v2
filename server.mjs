@@ -10,7 +10,24 @@ const port = Number(process.env.PORT) || 3000;
 const hostname = process.env.HOSTNAME || "0.0.0.0";
 
 const SESSION_COOKIE = "elite_session";
-const secret = new TextEncoder().encode(process.env.JWT_SECRET || "");
+if (!process.env.JWT_SECRET) {
+  // A silent empty-key fallback would verify tokens against an empty HMAC key —
+  // refuse to start instead.
+  throw new Error("JWT_SECRET is not set; refusing to start.");
+}
+const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+
+// Hosts allowed as WebSocket Origin. Browsers always send Origin on the WS
+// handshake; a mismatch means a foreign page is riding the user's cookie
+// (cross-site WebSocket hijacking).
+const APP_URL = process.env.APP_URL || "https://elitev2.mecloud.win";
+const allowedOriginHost = (() => {
+  try {
+    return new URL(APP_URL).host;
+  } catch {
+    return null;
+  }
+})();
 
 // Separate connection (same process, WAL) used only to stamp last_seen when a
 // user goes offline. The app's main connection lives in the Next route handlers.
@@ -37,6 +54,20 @@ function markLastSeen(userId) {
       .run(userId);
   } catch {
     /* column may not exist yet */
+  }
+}
+
+// Mirror of lib/sessions.ts sessionExists() for the upgrade path: a JWT whose
+// session row was revoked in Settings must not open new sockets. Fail closed —
+// if the DB isn't ready no session can exist either.
+function sessionActive(jti) {
+  if (!presenceDb || !jti) return false;
+  try {
+    return Boolean(
+      presenceDb.prepare("SELECT 1 FROM sessions WHERE jti = ?").get(jti)
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -112,6 +143,25 @@ server.on("upgrade", async (req, socket, head) => {
       return;
     }
 
+    // Reject cross-site handshakes: a present Origin must match our host.
+    // (Non-browser clients that omit Origin are allowed through to the JWT check.)
+    const origin = req.headers.origin;
+    if (origin) {
+      let originHost = null;
+      try {
+        originHost = new URL(origin).host;
+      } catch {
+        /* malformed Origin */
+      }
+      if (
+        !originHost ||
+        (originHost !== allowedOriginHost && originHost !== req.headers.host)
+      ) {
+        socket.destroy();
+        return;
+      }
+    }
+
     const cookies = parseCookies(req.headers.cookie || "");
     const token = cookies[SESSION_COOKIE];
     if (!token) {
@@ -121,12 +171,16 @@ server.on("upgrade", async (req, socket, head) => {
 
     const { payload } = await jwtVerify(token, secret);
     const userId = Number(payload.sub);
-    if (!userId) {
+    if (!userId || !sessionActive(payload.jti)) {
       socket.destroy();
       return;
     }
 
     wss.handleUpgrade(req, socket, head, (ws) => {
+      ws.isAlive = true;
+      ws.on("pong", () => {
+        ws.isAlive = true;
+      });
       const wasOffline = !clients.get(userId)?.size;
       if (!clients.has(userId)) clients.set(userId, new Set());
       clients.get(userId).add(ws);
@@ -167,6 +221,24 @@ server.on("upgrade", async (req, socket, head) => {
     socket.destroy();
   }
 });
+
+// Heartbeat: dead TCP peers (phone drops off Wi-Fi) never fire "close" on their
+// own, leaving the socket in `clients` and the user shown online forever.
+// Terminating an unresponsive socket triggers the normal close cleanup.
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      /* socket closing */
+    }
+  }
+}, 30_000);
 
 server.listen(port, hostname, () => {
   console.log(`> Ready on http://${hostname}:${port} (custom server + ws)`);

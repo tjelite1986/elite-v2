@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { hasShortsPermission } from "@/lib/permissions";
 import { parseChannel } from "@/lib/shorts";
 import {
   findOrphanShorts,
@@ -22,12 +23,11 @@ export async function GET(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (session.role !== "admin") {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const param = new URL(request.url).searchParams.get("channel");
   const channel = param ? parseChannel(param) : undefined;
+  if (!hasShortsPermission(session, channel)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   return NextResponse.json({
     orphans: findOrphanShorts(channel),
@@ -41,11 +41,7 @@ export async function POST(request: Request) {
   const session = await getSession();
   const secret = process.env.IMPORT_CRON_SECRET;
   const presented = request.headers.get("x-import-secret");
-  const isAdmin = session?.role === "admin";
   const isCron = Boolean(secret) && presented === secret;
-  if (!isAdmin && !isCron) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   const url = new URL(request.url);
   const body = await request.json().catch(() => ({}));
@@ -54,6 +50,11 @@ export async function POST(request: Request) {
   const action = body.action ?? url.searchParams.get("action");
   const param = url.searchParams.get("channel");
   const channel = param ? parseChannel(param) : undefined;
+
+  const isAllowed = hasShortsPermission(session, channel);
+  if (!isAllowed && !isCron) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   // Orphan cleanup rescans now so we only ever remove rows whose file is
   // genuinely missing at delete time (not whatever the client last saw).
