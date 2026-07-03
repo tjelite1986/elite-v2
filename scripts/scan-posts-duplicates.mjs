@@ -389,16 +389,26 @@ try {
       components.get(root).push(c);
     }
 
+    // Hard floor: a copy stays in the group only if it is confirmed against the
+    // KEPT image itself, not merely pulled in through a transitive A~B~C chain.
+    // Without this, union-find can attach a tail that is < SSIM_CONFIRM similar
+    // to the best copy; dropping it keeps even the unfiltered view free of
+    // sub-threshold look-alikes.
+    const MIN_KEEP = Math.round(SSIM_CONFIRM * 100);
     for (const members of components.values()) {
       if (members.length < 2) continue;
-      const groupKey = `g:${++groupCounter}`;
-      const allSameHash =
-        members[0].sha != null &&
-        members.every((m) => m.sha === members[0].sha);
-      const matchType = allSameHash ? "exact" : "perceptual";
       const ranked = sortByQuality(members);
       const best = ranked[0];
-      ranked.forEach((m, idx) => {
+      const kept = ranked
+        .map((m) => ({ m, sim: memberSimilarity(m, best) }))
+        .filter((x, idx) => idx === 0 || x.sim >= MIN_KEEP);
+      if (kept.length < 2) continue; // nothing left but the kept image
+      const groupKey = `g:${++groupCounter}`;
+      const allSameHash =
+        kept[0].m.sha != null && kept.every((x) => x.m.sha === kept[0].m.sha);
+      const matchType = allSameHash ? "exact" : "perceptual";
+      kept.forEach((x, idx) => {
+        const m = x.m;
         // How far this copy is from the kept image, surfaced as a similarity %.
         const distance =
           idx === 0 || !m.fp || !best.fp ? 0 : hamming(m.fp.hash, best.fp.hash);
@@ -414,7 +424,7 @@ try {
           // byte-identical or the kept image itself = 100; otherwise the SSIM of
           // the actual pixels, falling back to the coarse dHash when a signature
           // is unavailable.
-          similarity: memberSimilarity(m, best),
+          similarity: x.sim,
         });
       });
     }
