@@ -7,8 +7,11 @@
 //
 // Two images count as duplicates when either:
 //   - exact:      their original files hash to the same sha256, or
-//   - perceptual: their dHash fingerprints are within a small Hamming distance
-//                 (catches the same photo re-cropped or re-compressed).
+//   - perceptual: a coarse dHash proposes them as a candidate (small Hamming
+//                 distance) AND an SSIM comparison of the actual decoded pixels
+//                 confirms them (catches the same photo re-cropped or
+//                 re-compressed, while rejecting same-shoot frames — e.g. eyes
+//                 open vs closed — that merely share a coarse hash).
 //
 // Duplicates are scoped per OWNER (a user's own gallery) so the same photo owned
 // by two different accounts is never flagged as deletable — group_key carries
@@ -30,6 +33,13 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
+import {
+  hamming,
+  HASH_TOL,
+  ssim,
+  SSIM_CONFIRM,
+  structuralSignature as sharedStructuralSignature,
+} from "./lib/image-dupe.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const DB_PATH = path.join(DATA_DIR, "elitev2.db");
@@ -39,10 +49,6 @@ const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const PROFILE_ROOT = process.env.PROFILE_ROOT || path.join(DATA_DIR, "profile");
 const GALLERY_ROOT = process.env.GALLERY_ROOT || path.join(DATA_DIR, "gallery");
 const LEGACY_ORIGINALS_DIR = path.join(GALLERY_ROOT, "originals");
-
-// Perceptual matching: max Hamming distance (of a 64-bit dHash) for two images
-// to count as the same photo.
-const HASH_TOL = 10;
 
 const log = (m) => console.log(`[scan-gallery-dupes] ${m}`);
 const result = (obj) => console.log(`RESULT ${JSON.stringify(obj)}`);
@@ -163,16 +169,29 @@ async function imageFingerprint(filePath) {
   return { hash: bits, gray: satSum / 72 < GRAY_SAT ? 1 : 0 };
 }
 
-function popcount(x) {
-  let count = 0n;
-  while (x > 0n) {
-    count += x & 1n;
-    x >>= 1n;
+// SSIM confirmation signature, HEIC-aware. Converts HEIC originals to a temp
+// JPEG (like imageFingerprint) before delegating the 64x64 grayscale decode to
+// the shared helper. hamming()/ssim()/HASH_TOL come from lib/image-dupe.mjs.
+async function structuralSignature(filePath) {
+  let decodePath = filePath;
+  let tmp = null;
+  if (isHeicPath(filePath)) {
+    tmp = heicToJpegFile(filePath);
+    if (!tmp) return null;
+    decodePath = tmp;
   }
-  return Number(count);
+  try {
+    return await sharedStructuralSignature(decodePath);
+  } finally {
+    if (tmp) {
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        /* best effort */
+      }
+    }
+  }
 }
-
-const hamming = (a, b) => popcount(a ^ b);
 
 // --- union-find -----------------------------------------------------------
 class UnionFind {
@@ -445,18 +464,33 @@ try {
       for (let i = 1; i < same.length; i++) uf.union(same[0].id, same[i].id);
     }
 
-    // Perceptual: pairwise within the owner (small sets). Union when the dHash
-    // is within tolerance AND both images are colour or both grayscale (so a B&W
-    // copy never matches its colour original) AND the pair isn't admin-ignored.
+    // Perceptual, two-stage. Stage 1: the coarse dHash proposes CANDIDATE pairs
+    // within the owner (within Hamming tolerance, same grayscale-ness, not
+    // admin-ignored). A 9x8 hash collapses same-shoot frames (eyes open vs
+    // closed) onto near-identical hashes, so this is high-recall, not a verdict.
     const withFp = list.filter((c) => c.fp != null);
+    const candPairs = [];
     for (let i = 0; i < withFp.length; i++) {
       for (let j = i + 1; j < withFp.length; j++) {
         const a = withFp[i], b = withFp[j];
-        if (uf.find(a.id) === uf.find(b.id)) continue;
         if (a.fp.gray !== b.fp.gray) continue;
         if (isIgnored(a.id, b.id)) continue;
-        if (hamming(a.fp.hash, b.fp.hash) <= HASH_TOL) uf.union(a.id, b.id);
+        if (hamming(a.fp.hash, b.fp.hash) <= HASH_TOL) candPairs.push([a, b]);
       }
+    }
+    // Stage 2: confirm each candidate by comparing the ACTUAL decoded pixels
+    // (windowed SSIM on a 64x64 render). Only decode signatures for images that
+    // have a candidate partner. A re-compressed/re-cropped copy scores ~1.0; a
+    // different frame from the same burst falls below SSIM_CONFIRM and is kept
+    // apart. Exact sha matches (above) already unioned regardless.
+    const involved = new Set();
+    for (const [a, b] of candPairs) { involved.add(a); involved.add(b); }
+    for (const c of involved) {
+      if (c.sig === undefined) c.sig = await structuralSignature(c.file);
+    }
+    for (const [a, b] of candPairs) {
+      if (uf.find(a.id) === uf.find(b.id)) continue;
+      if (ssim(a.sig, b.sig) >= SSIM_CONFIRM) uf.union(a.id, b.id);
     }
 
     // Collect components with more than one member.

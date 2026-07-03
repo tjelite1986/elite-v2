@@ -7,8 +7,11 @@
 //
 // Two images count as duplicates when either:
 //   - exact:      their display files hash to the same sha256, or
-//   - perceptual: their dHash fingerprints are within a small Hamming distance
-//                 (catches the same photo re-cropped or re-compressed).
+//   - perceptual: a coarse dHash proposes them as a candidate (small Hamming
+//                 distance) AND an SSIM comparison of the actual decoded pixels
+//                 confirms them (catches the same photo re-cropped or
+//                 re-compressed, while rejecting same-shoot frames — e.g. eyes
+//                 open vs closed — that merely share a coarse hash).
 //
 // Duplicates are scoped per author (a creator's or a user's own images) so the
 // same photo posted by two different authors is never flagged as deletable.
@@ -25,15 +28,18 @@ import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import sharp from "sharp";
+import {
+  imageFingerprint,
+  hamming,
+  HASH_TOL,
+  structuralSignature,
+  ssim,
+  SSIM_CONFIRM,
+} from "./lib/image-dupe.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const POSTS_ROOT = process.env.POSTS_ROOT || "/posts-store";
-
-// Perceptual matching: max Hamming distance (of a 64-bit dHash) for two images
-// to count as the same photo.
-const HASH_TOL = 10;
 
 const log = (m) => console.log(`[scan-post-dupes] ${m}`);
 const result = (obj) => console.log(`RESULT ${JSON.stringify(obj)}`);
@@ -59,58 +65,9 @@ function sha256File(filePath) {
   return hash.digest("hex");
 }
 
-// Perceptual fingerprint of one image: a 64-bit dHash plus a grayscale flag.
-// We decode a tiny 9x8 sRGB thumbnail once, then derive both from it:
-//   - dHash: per-pixel luminance, compare each pixel with its right-hand
-//            neighbour (8 rows * 8 comparisons = 64 bits as a BigInt).
-//   - gray:  average colour saturation; a black & white copy reads as gray so we
-//            never match it against the colour original (their dHash is nearly
-//            identical because dHash throws colour away).
-// toColourspace('srgb') guarantees 3 channels even for grayscale-encoded files.
-// Returns null on any decode failure.
-const GRAY_SAT = 14; // mean (max-min) channel spread below this = grayscale
-
-async function imageFingerprint(filePath) {
-  let buf;
-  try {
-    buf = await sharp(filePath)
-      .resize(9, 8, { fit: "fill" })
-      .toColourspace("srgb")
-      .removeAlpha()
-      .raw()
-      .toBuffer();
-  } catch {
-    return null;
-  }
-  if (!buf || buf.length < 9 * 8 * 3) return null;
-  const lum = new Array(72);
-  let satSum = 0;
-  for (let p = 0; p < 72; p++) {
-    const r = buf[p * 3], g = buf[p * 3 + 1], b = buf[p * 3 + 2];
-    lum[p] = 0.299 * r + 0.587 * g + 0.114 * b;
-    satSum += Math.max(r, g, b) - Math.min(r, g, b);
-  }
-  let bits = 0n;
-  for (let row = 0; row < 8; row++) {
-    for (let col = 0; col < 8; col++) {
-      const i = row * 9 + col;
-      bits <<= 1n;
-      if (lum[i] < lum[i + 1]) bits |= 1n;
-    }
-  }
-  return { hash: bits, gray: satSum / 72 < GRAY_SAT ? 1 : 0 };
-}
-
-function popcount(x) {
-  let count = 0n;
-  while (x > 0n) {
-    count += x & 1n;
-    x >>= 1n;
-  }
-  return Number(count);
-}
-
-const hamming = (a, b) => popcount(a ^ b);
+// Perceptual fingerprinting (imageFingerprint/hamming) and the SSIM confirmation
+// pass (structuralSignature/ssim) live in scripts/lib/image-dupe.mjs so the
+// posts and gallery scanners share one implementation.
 
 // --- union-find -----------------------------------------------------------
 class UnionFind {
@@ -378,18 +335,33 @@ try {
       for (let i = 1; i < same.length; i++) uf.union(same[0].id, same[i].id);
     }
 
-    // Perceptual: pairwise within the author (small sets). Union when the dHash
-    // is within tolerance AND both images are colour or both grayscale (so a B&W
-    // copy never matches its colour original) AND the pair isn't admin-ignored.
+    // Perceptual, two-stage. Stage 1: the coarse dHash proposes CANDIDATE pairs
+    // within the author (within Hamming tolerance, same grayscale-ness, not
+    // admin-ignored). A 9x8 hash collapses same-shoot frames (eyes open vs
+    // closed) onto near-identical hashes, so this is high-recall, not a verdict.
     const withFp = list.filter((c) => c.fp != null);
+    const candPairs = [];
     for (let i = 0; i < withFp.length; i++) {
       for (let j = i + 1; j < withFp.length; j++) {
         const a = withFp[i], b = withFp[j];
-        if (uf.find(a.id) === uf.find(b.id)) continue;
         if (a.fp.gray !== b.fp.gray) continue;
         if (isIgnored(a.id, b.id)) continue;
-        if (hamming(a.fp.hash, b.fp.hash) <= HASH_TOL) uf.union(a.id, b.id);
+        if (hamming(a.fp.hash, b.fp.hash) <= HASH_TOL) candPairs.push([a, b]);
       }
+    }
+    // Stage 2: confirm each candidate by comparing the ACTUAL decoded pixels
+    // (windowed SSIM on a 64x64 render). Only decode signatures for images that
+    // have a candidate partner. A re-compressed/re-cropped copy scores ~1.0; a
+    // different frame from the same burst falls below SSIM_CONFIRM and is kept
+    // apart. Exact sha matches (above) already unioned regardless.
+    const involved = new Set();
+    for (const [a, b] of candPairs) { involved.add(a); involved.add(b); }
+    for (const c of involved) {
+      if (c.sig === undefined) c.sig = await structuralSignature(c.file);
+    }
+    for (const [a, b] of candPairs) {
+      if (uf.find(a.id) === uf.find(b.id)) continue;
+      if (ssim(a.sig, b.sig) >= SSIM_CONFIRM) uf.union(a.id, b.id);
     }
 
     // Collect components with more than one member.
