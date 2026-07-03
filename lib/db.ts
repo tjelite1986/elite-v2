@@ -372,6 +372,7 @@ function migrate(db: Database.Database) {
       quality_score REAL NOT NULL DEFAULT 0,
       is_best INTEGER NOT NULL DEFAULT 0,  -- the suggested image to keep
       distance INTEGER NOT NULL DEFAULT 0, -- dHash Hamming to the best (0 = exact)
+      similarity INTEGER NOT NULL DEFAULT 0, -- SSIM % to the best (100 = identical)
       scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (group_key, media_id)
     );
@@ -645,6 +646,7 @@ function migrate(db: Database.Database) {
       quality_score REAL NOT NULL DEFAULT 0,
       is_best INTEGER NOT NULL DEFAULT 0,  -- the suggested image to keep
       distance INTEGER NOT NULL DEFAULT 0, -- dHash Hamming to the best (0 = exact)
+      similarity INTEGER NOT NULL DEFAULT 0, -- SSIM % to the best (100 = identical)
       scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (group_key, item_id)
     );
@@ -859,6 +861,27 @@ function migrate(db: Database.Database) {
   if (postDupeCols.length > 0 && !postDupeCols.includes("distance")) {
     db.exec(
       "ALTER TABLE post_dupe_groups ADD COLUMN distance INTEGER NOT NULL DEFAULT 0"
+    );
+  }
+  if (postDupeCols.length > 0 && !postDupeCols.includes("similarity")) {
+    db.exec(
+      "ALTER TABLE post_dupe_groups ADD COLUMN similarity INTEGER NOT NULL DEFAULT 0"
+    );
+  }
+
+  // similarity/distance columns on an already-created gallery_dupe_groups (SSIM %
+  // and dHash Hamming to the kept image, surfaced in the review UI).
+  const galleryDupeCols = (
+    db.prepare("PRAGMA table_info(gallery_dupe_groups)").all() as { name: string }[]
+  ).map((c) => c.name);
+  if (galleryDupeCols.length > 0 && !galleryDupeCols.includes("distance")) {
+    db.exec(
+      "ALTER TABLE gallery_dupe_groups ADD COLUMN distance INTEGER NOT NULL DEFAULT 0"
+    );
+  }
+  if (galleryDupeCols.length > 0 && !galleryDupeCols.includes("similarity")) {
+    db.exec(
+      "ALTER TABLE gallery_dupe_groups ADD COLUMN similarity INTEGER NOT NULL DEFAULT 0"
     );
   }
 

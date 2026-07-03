@@ -10,6 +10,7 @@ export interface GalleryDupeMember {
   user_id: number;
   is_best: boolean;
   distance: number; // dHash Hamming to the kept image (0 = exact / the best)
+  similarity: number; // SSIM % to the kept image (100 = identical)
   storage_key: string;
   width: number | null;
   height: number | null;
@@ -45,6 +46,7 @@ export function getGalleryDupeGroups(): GalleryDupeGroup[] {
         "g.is_best",
         "g.quality_score",
         "g.distance",
+        "g.similarity",
         "gi.id as item_id",
         "gi.user_id",
         "gi.storage_key",
@@ -74,6 +76,7 @@ export function getGalleryDupeGroups(): GalleryDupeGroup[] {
       user_id: r.user_id,
       is_best: r.is_best === 1,
       distance: r.distance,
+      similarity: r.similarity,
       storage_key: r.storage_key,
       width: r.width,
       height: r.height,

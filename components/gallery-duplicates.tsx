@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Loader2, ScanSearch, Trash2, Crown, Ban } from "lucide-react";
+import {
+  Copy,
+  Loader2,
+  ScanSearch,
+  Trash2,
+  Crown,
+  Ban,
+  Maximize2,
+  Minimize2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Member {
@@ -10,6 +19,7 @@ interface Member {
   user_id: number;
   is_best: boolean;
   distance: number;
+  similarity: number;
   width: number | null;
   height: number | null;
   owner_name: string | null;
@@ -33,10 +43,25 @@ function fmtRes(w: number | null, h: number | null): string {
   return w && h ? `${w}×${h}` : "unknown";
 }
 
-// dHash is 64-bit, so similarity = 1 - distance/64.
-function fmtSimilarity(distance: number): string {
-  return `${Math.max(0, Math.round((1 - distance / 64) * 100))}% match`;
+function fmtSimilarity(similarity: number): string {
+  return `${Math.max(0, Math.min(100, Math.round(similarity)))}% match`;
 }
+
+// Lowest non-best similarity in a group — how confident the whole group is a
+// duplicate set. Drives the "100% only" filter.
+function groupMinSimilarity(members: Member[]): number {
+  const others = members.filter((m) => !m.is_best);
+  if (others.length === 0) return 100;
+  return Math.min(...others.map((m) => m.similarity));
+}
+
+// Similarity filter thresholds for the review UI.
+const SIM_FILTERS = [
+  { label: "All", min: 0 },
+  { label: "100% match", min: 100 },
+  { label: "≥ 99%", min: 99 },
+  { label: "≥ 95%", min: 95 },
+] as const;
 
 // Admin tool: scan the gallery library for byte-identical or perceptually
 // identical images, then review each group and trash the redundant copies. The
@@ -52,7 +77,20 @@ export default function GalleryDuplicates() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // Review controls: minimum similarity to show, and a large (uncropped) view
+  // so identical-looking copies can actually be told apart.
+  const [minSim, setMinSim] = useState(0);
+  const [large, setLarge] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Groups passing the current similarity filter, and the set of image ids they
+  // contain (so selection/delete never touch a filtered-out group).
+  const visibleGroups = groups.filter(
+    (g) => groupMinSimilarity(g.members) >= minSim
+  );
+  const visibleIds = new Set<number>();
+  for (const g of visibleGroups)
+    for (const m of g.members) visibleIds.add(m.item_id);
 
   const load = useCallback(async () => {
     try {
@@ -134,7 +172,8 @@ export default function GalleryDuplicates() {
   };
 
   const deleteSelected = async () => {
-    const ids = Array.from(selected);
+    // Only trash images that are currently visible under the active filter.
+    const ids = Array.from(selected).filter((id) => visibleIds.has(id));
     if (ids.length === 0) return;
     if (
       !window.confirm(
@@ -199,7 +238,9 @@ export default function GalleryDuplicates() {
   };
 
   const running = state?.status === "running";
-  const selectedCount = selected.size;
+  const selectedCount = Array.from(selected).filter((id) =>
+    visibleIds.has(id)
+  ).length;
 
   return (
     <section className="mb-8">
@@ -237,6 +278,33 @@ export default function GalleryDuplicates() {
         )}
       </div>
 
+      {groups.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="mr-1 text-xs text-white/40">Show:</span>
+          {SIM_FILTERS.map((f) => (
+            <button
+              key={f.label}
+              onClick={() => setMinSim(f.min)}
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-medium transition",
+                minSim === f.min
+                  ? "bg-white/20 text-white"
+                  : "bg-white/5 text-white/50 hover:bg-white/10"
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+          <button
+            onClick={() => setLarge((v) => !v)}
+            className="ml-auto flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1 text-xs font-medium text-white/60 transition hover:bg-white/10"
+          >
+            {large ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            {large ? "Compact" : "Large view"}
+          </button>
+        </div>
+      )}
+
       {running && (
         <p className="mt-2 text-xs text-white/50">
           Scanned {state?.scanned ?? 0} image(s)…
@@ -254,9 +322,14 @@ export default function GalleryDuplicates() {
             : "No scan results yet."}
         </p>
       )}
+      {!running && groups.length > 0 && visibleGroups.length === 0 && (
+        <p className="mt-4 text-sm text-white/40">
+          No groups at this similarity. Lower the filter to see more.
+        </p>
+      )}
 
       <div className="mt-4 space-y-4">
-        {groups.map((g) => (
+        {visibleGroups.map((g) => (
           <div
             key={g.group_key}
             className="rounded-2xl border border-white/10 bg-white/5 p-3"
@@ -285,7 +358,14 @@ export default function GalleryDuplicates() {
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+            <div
+              className={cn(
+                "grid gap-2",
+                large
+                  ? "grid-cols-1 sm:grid-cols-2"
+                  : "grid-cols-2 sm:grid-cols-3 md:grid-cols-4"
+              )}
+            >
               {g.members.map((m) => {
                 const isSel = selected.has(m.item_id);
                 return (
@@ -303,10 +383,15 @@ export default function GalleryDuplicates() {
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={`/api/gallery/${m.item_id}/media?variant=thumb`}
+                      src={`/api/gallery/${m.item_id}/media?variant=${large ? "preview" : "thumb"}`}
                       alt=""
                       loading="lazy"
-                      className="aspect-square w-full bg-black/40 object-cover"
+                      className={cn(
+                        "w-full bg-black/40",
+                        large
+                          ? "max-h-[70vh] object-contain"
+                          : "aspect-square object-cover"
+                      )}
                     />
                     <span
                       className={cn(
@@ -333,9 +418,16 @@ export default function GalleryDuplicates() {
                     <div className="space-y-0.5 p-2 text-[11px] leading-tight text-white/70">
                       <p className="font-medium text-white/90">
                         {fmtRes(m.width, m.height)}
-                        {!m.is_best && g.match_type === "perceptual" && (
-                          <span className="ml-1 font-normal text-white/40">
-                            · {fmtSimilarity(m.distance)}
+                        {!m.is_best && (
+                          <span
+                            className={cn(
+                              "ml-1 font-normal",
+                              m.similarity >= 100
+                                ? "text-emerald-300/80"
+                                : "text-white/40"
+                            )}
+                          >
+                            · {fmtSimilarity(m.similarity)}
                           </span>
                         )}
                       </p>
