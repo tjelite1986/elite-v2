@@ -20,10 +20,13 @@ import sharp from "sharp";
 export const HASH_TOL = 12;
 
 // Structural confirmation bar. A candidate pair is a duplicate only when the
-// mean windowed SSIM of their 64x64 grayscale renders is at least this. 0.90 is
-// deliberately strict: JPEG re-compression of the same photo stays ~0.96-0.99,
-// while a different frame from the same burst falls below it.
-export const SSIM_CONFIRM = 0.9;
+// mean windowed SSIM of their grayscale renders is at least this. 0.93 at
+// SSIM_SIZE=128 is deliberately strict: a re-encode of the SAME photo stays
+// ~0.99, while a different-but-similar frame (same pose, eyes open vs closed,
+// or a near-identical shot) drops to ~0.76-0.92 once compared at this
+// resolution. A coarser 64px render inflated those non-duplicates into the
+// 0.90-0.97 range and produced false matches; 128px pulls them apart.
+export const SSIM_CONFIRM = 0.93;
 
 const GRAY_SAT = 14; // mean (max-min) channel spread below this = grayscale
 
@@ -71,10 +74,12 @@ export function popcount(x) {
 
 export const hamming = (a, b) => popcount(a ^ b);
 
-// Side length of the grayscale render used for SSIM. 64x64 in 8x8 windows keeps
-// the comparison cheap while still resolving a face-sized region into several
-// windows.
-const SSIM_SIZE = 64;
+// Side length of the grayscale render used for SSIM. 128x128 in 8x8 windows
+// (256 windows) resolves local differences — a face, a changed expression, a
+// small edit — into enough windows that a non-duplicate's SSIM drops clearly
+// below a re-encode's. A coarser 64px render blurred those differences away and
+// scored distinct photos as high as 0.97, causing false matches.
+const SSIM_SIZE = 128;
 const WIN = 8;
 
 // Decode one image to a flat SSIM_SIZE*SSIM_SIZE grayscale Uint8Array. Returns
