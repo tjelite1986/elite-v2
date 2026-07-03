@@ -10,6 +10,7 @@ export interface PostDupeMember {
   post_id: number;
   is_best: boolean;
   distance: number; // dHash Hamming to the kept image (0 = exact / the best)
+  similarity: number; // SSIM % to the kept image (100 = identical)
   storage_key: string;
   width: number | null;
   height: number | null;
@@ -48,6 +49,7 @@ export function getPostDupeGroups(): PostDupeGroup[] {
         "g.is_best",
         "g.quality_score",
         "g.distance",
+        "g.similarity",
         "pm.id as media_id",
         "pm.post_id",
         "pm.storage_key",
@@ -81,6 +83,7 @@ export function getPostDupeGroups(): PostDupeGroup[] {
       post_id: r.post_id,
       is_best: r.is_best === 1,
       distance: r.distance,
+      similarity: r.similarity,
       storage_key: r.storage_key,
       width: r.width,
       height: r.height,

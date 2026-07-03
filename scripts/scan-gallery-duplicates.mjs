@@ -216,6 +216,19 @@ class UnionFind {
   }
 }
 
+// A member's 0-100 similarity to the kept image, for the review UI. Byte-
+// identical copies (or the kept image itself) are 100; otherwise the SSIM of the
+// actual decoded pixels, falling back to a coarse dHash percentage only when a
+// structural signature could not be computed.
+function memberSimilarity(m, best) {
+  if (m.id === best.id) return 100;
+  if (m.sha != null && m.sha === best.sha) return 100;
+  if (m.sig && best.sig) return Math.round(ssim(m.sig, best.sig) * 100);
+  if (m.fp && best.fp)
+    return Math.max(0, Math.round((1 - hamming(m.fp.hash, best.fp.hash) / 64) * 100));
+  return 0;
+}
+
 // Quality comparator: higher = better. Returns images sorted best-first.
 function sortByQuality(items) {
   return [...items].sort((a, b) => {
@@ -243,6 +256,7 @@ db.exec(`
     quality_score REAL NOT NULL DEFAULT 0,
     is_best INTEGER NOT NULL DEFAULT 0,
     distance INTEGER NOT NULL DEFAULT 0,
+    similarity INTEGER NOT NULL DEFAULT 0,
     scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (group_key, item_id)
   );
@@ -277,6 +291,9 @@ const dupeCols = db
   .prepare("PRAGMA table_info(gallery_dupe_groups)")
   .all()
   .map((c) => c.name);
+if (!dupeCols.includes("similarity")) {
+  db.exec("ALTER TABLE gallery_dupe_groups ADD COLUMN similarity INTEGER NOT NULL DEFAULT 0");
+}
 if (!dupeCols.includes("distance")) {
   db.exec("ALTER TABLE gallery_dupe_groups ADD COLUMN distance INTEGER NOT NULL DEFAULT 0");
 }
@@ -522,6 +539,8 @@ try {
           quality_score: (m.width || 0) * (m.height || 0),
           is_best: idx === 0 ? 1 : 0,
           distance,
+          // Trustworthy 0-100 similarity for the review UI (filter + label).
+          similarity: memberSimilarity(m, best),
         });
       });
     }
@@ -529,8 +548,8 @@ try {
 
   const insertGroup = db.prepare(
     `INSERT INTO gallery_dupe_groups
-       (group_key, item_id, match_type, quality_score, is_best, distance)
-     VALUES (@group_key, @item_id, @match_type, @quality_score, @is_best, @distance)`
+       (group_key, item_id, match_type, quality_score, is_best, distance, similarity)
+     VALUES (@group_key, @item_id, @match_type, @quality_score, @is_best, @distance, @similarity)`
   );
   const write = db.transaction((rowsToWrite) => {
     db.prepare("DELETE FROM gallery_dupe_groups").run();

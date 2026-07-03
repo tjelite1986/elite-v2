@@ -52,6 +52,7 @@ interface PostDupeGroupRow {
   is_best: number;
   scanned_at: string;
   distance: number;
+  similarity: number;
 }
 interface PostDupeIgnoredRow {
   a_media_id: number;
@@ -66,6 +67,7 @@ interface GalleryDupeGroupRow {
   is_best: number;
   scanned_at: string;
   distance: number;
+  similarity: number;
 }
 interface GalleryDupeIgnoredRow {
   a_item_id: number;
