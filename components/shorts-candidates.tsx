@@ -40,8 +40,12 @@ export default function ShortsCandidates({
   // Section base path, so the back link stays within the current section.
   basePath?: string;
 }) {
+  const PAGE = 40;
+  const MAX = 200; // matches the API's limit clamp
   const [cands, setCands] = useState<Candidate[]>([]);
+  const [limit, setLimit] = useState(PAGE);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [done, setDone] = useState<Set<string>>(new Set());
@@ -49,13 +53,19 @@ export default function ShortsCandidates({
   const [manualBusy, setManualBusy] = useState(false);
   const [manualMsg, setManualMsg] = useState<string | null>(null);
 
-  const load = async () => {
-    setLoading(true);
+  // yt-dlp can't cursor-paginate, so "Show more" re-enumerates the source with
+  // a deeper limit and replaces the list (already-loaded thumbnails stay cached).
+  const load = async (nextLimit: number, more = false) => {
+    if (more) setLoadingMore(true);
+    else setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/shorts/profiles/${profileId}/candidates`);
+      const res = await fetch(
+        `/api/shorts/profiles/${profileId}/candidates?limit=${nextLimit}`
+      );
       if (res.ok) {
         setCands((await res.json()).candidates || []);
+        setLimit(nextLimit);
       } else {
         setError((await res.json().catch(() => ({}))).error || "Failed to load videos");
       }
@@ -63,11 +73,12 @@ export default function ShortsCandidates({
       setError("Failed to load videos");
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
   useEffect(() => {
-    load();
+    load(PAGE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -130,7 +141,7 @@ export default function ShortsCandidates({
           <div className="text-xs text-white/50">Pick videos to download from the source.</div>
         </div>
         <button
-          onClick={load}
+          onClick={() => load(limit)}
           className="flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/15"
         >
           <RefreshCw size={14} /> Refresh
@@ -173,6 +184,7 @@ export default function ShortsCandidates({
       )}
 
       {!loading && !error && (
+        <>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
           {cands.map((c) => {
             const isDone = c.downloaded || done.has(c.id);
@@ -241,6 +253,25 @@ export default function ShortsCandidates({
             );
           })}
         </div>
+        {/* The source may have more when it filled the current limit. */}
+        {cands.length >= limit && limit < MAX && (
+          <div className="mt-5 flex justify-center">
+            <button
+              onClick={() => load(Math.min(limit + PAGE, MAX), true)}
+              disabled={loadingMore}
+              className="flex items-center gap-1.5 rounded-full bg-white/10 px-5 py-2 text-sm text-white/80 transition hover:bg-white/15 active:scale-95 disabled:opacity-50"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Loading more…
+                </>
+              ) : (
+                <>Show more</>
+              )}
+            </button>
+          </div>
+        )}
+        </>
       )}
     </div>
   );

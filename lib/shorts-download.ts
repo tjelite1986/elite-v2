@@ -112,7 +112,9 @@ export function enumerateCandidates(
         "--no-warnings",
         profile.source_ref,
       ],
-      { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, timeout: 60_000 }
+      // Deeper enumerations page through the source API — give them more time
+      // (stays under the candidates route's maxDuration of 120s).
+      { encoding: "utf8", maxBuffer: 128 * 1024 * 1024, timeout: limit > 40 ? 110_000 : 60_000 }
     );
   } catch (err) {
     const e = err as { stdout?: string; stderr?: string };

@@ -23,16 +23,20 @@ async function adminProfile(id: number) {
 }
 
 // List available clips from the profile's source with thumbnails + meta.
+// ?limit= controls how deep into the source playlist to enumerate (the UI's
+// "Show more" re-fetches with a larger limit — yt-dlp has no cursor pagination).
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   const auth = await adminProfile(Number(params.id));
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
+  const raw = Number(new URL(request.url).searchParams.get("limit"));
+  const limit = Number.isFinite(raw) && raw > 0 ? Math.min(Math.floor(raw), 200) : 40;
   try {
-    const candidates = enumerateCandidates(auth.profile, 40);
+    const candidates = enumerateCandidates(auth.profile, limit);
     return NextResponse.json({ candidates });
   } catch (err) {
     console.error("[shorts] candidates failed:", err);
