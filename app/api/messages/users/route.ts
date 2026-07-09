@@ -28,7 +28,11 @@ export async function GET() {
       .select([
         "u.id",
         "u.email",
-        "u.last_seen",
+        // users.last_seen is never written; presence comes from the sessions
+        // table, which getSession touches on every authenticated request.
+        sql<string | null>`(SELECT MAX(s.last_seen_at) FROM sessions s WHERE s.user_id = u.id)`.as(
+          "last_seen"
+        ),
         sql<string | null>`(SELECT m.body FROM messages m WHERE ${pair} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`.as(
           "last_body"
         ),

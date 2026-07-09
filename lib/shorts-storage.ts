@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import {
@@ -263,8 +265,6 @@ export async function storeShortUpload(
 // null when ffprobe is missing or the value is unparseable.
 function durationFromProbe(filePath: string): number | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { execFileSync } = require("node:child_process");
     const out = execFileSync(
       "ffprobe",
       [
@@ -297,11 +297,6 @@ export async function setCustomPoster(
 ): Promise<string> {
   const videoPath = videoPathFor(channel, storageKey);
   if (!fs.existsSync(videoPath)) throw new Error("Video file missing");
-
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { execFileSync } = require("node:child_process");
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const os = require("node:os");
 
   const tmpOut = path.join(os.tmpdir(), `${randomUUID()}.jpg`);
   const seek = Math.max(0, Number(timeSeconds) || 0).toFixed(2);

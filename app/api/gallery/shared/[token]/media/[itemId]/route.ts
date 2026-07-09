@@ -6,6 +6,8 @@ import {
   originalPathFor,
   thumbPathFor,
   previewPathFor,
+  isSupportedVideo,
+  videoMimeFor,
 } from "@/lib/gallery-storage";
 import { imageMimeFor } from "@/lib/posts-storage";
 
@@ -52,7 +54,9 @@ export async function GET(
   // This route is public (no auth). Never serve a content-type the browser would
   // execute as a document/script on our origin — clamp to image/video, else hand
   // it back as an opaque download. (X-Content-Type-Options: nosniff in addition.)
-  const detected = imageMimeFor(file.storage_key);
+  const detected = isSupportedVideo(file.storage_key, "")
+    ? videoMimeFor(file.storage_key)
+    : imageMimeFor(file.storage_key);
   const safe = /^(image|video)\//.test(detected);
   return new NextResponse(
     Readable.toWeb(fs.createReadStream(path)) as unknown as ReadableStream,

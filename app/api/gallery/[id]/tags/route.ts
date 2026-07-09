@@ -40,6 +40,9 @@ export async function PUT(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (!ownsItem(Number(session.sub), Number(params.id))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   const body = await request.json().catch(() => ({}));
   const tags = Array.isArray(body.tags) ? body.tags.map(String) : [];
   setItemTags(Number(session.sub), Number(params.id), tags);

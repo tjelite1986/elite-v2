@@ -181,8 +181,20 @@ export async function GET(req: NextRequest) {
   if (result.status < 200 || result.status >= 300) {
     return upstreamFailed(`status ${result.status}`);
   }
-  if (!result.contentType.startsWith("image/")) {
-    return upstreamFailed(`non-image content-type (${result.contentType})`);
+  // Raster types only: SVG passes an image/* check but can carry scripts that
+  // would execute on this origin if the proxy URL is opened directly.
+  const SAFE_IMAGE_TYPES = new Set([
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/avif",
+    "image/bmp",
+    "image/x-icon",
+  ]);
+  const baseType = result.contentType.split(";")[0].trim().toLowerCase();
+  if (!SAFE_IMAGE_TYPES.has(baseType)) {
+    return upstreamFailed(`disallowed content-type (${result.contentType})`);
   }
 
   // No Access-Control-Allow-Origin and a private cache: the screenshot client
@@ -191,8 +203,10 @@ export async function GET(req: NextRequest) {
   return new NextResponse(new Uint8Array(result.body), {
     status: 200,
     headers: {
-      "Content-Type": result.contentType,
+      "Content-Type": baseType,
       "Content-Length": String(result.body.length),
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline",
       "Cache-Control": "private, max-age=3600",
     },
   });

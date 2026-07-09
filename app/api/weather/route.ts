@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 
+// force-dynamic opts out of route-level caching entirely; the upstream fetch
+// below still caches for 600s via its own `next.revalidate` option.
 export const dynamic = "force-dynamic";
-export const revalidate = 600;
 
 // Location for the dashboard weather widget. Configurable via env, defaults to
 // Stockholm. Set WEATHER_LAT / WEATHER_LON / WEATHER_PLACE to change it.

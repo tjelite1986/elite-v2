@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
+import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
 import { isFollowing } from "@/lib/posts";
 import { getStory } from "@/lib/stories";
@@ -30,9 +31,11 @@ export async function GET(
   const filePath = mediaPathFor(story.storage_key);
   if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
 
-  return new NextResponse(fs.readFileSync(filePath), {
+  const stream = fs.createReadStream(filePath);
+  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
     headers: {
       "Content-Type": imageMimeFor(story.storage_key),
+      "Content-Length": String(fs.statSync(filePath).size),
       "X-Content-Type-Options": "nosniff",
       "Content-Disposition": "inline",
       "Cache-Control": "private, max-age=3600",

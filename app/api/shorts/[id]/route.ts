@@ -58,8 +58,11 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  deleteShortFiles(short.channel, short.storage_key, short.poster_key);
+  // Soft-delete FIRST, then unlink: if the file removal fails the clip is
+  // already hidden and a retry can still find the files — the reverse order
+  // could lose the files while the clip stays visible.
   db.prepare("UPDATE shorts SET is_deleted = 1 WHERE id = ?").run(short.id);
   db.prepare("DELETE FROM short_dupe_groups WHERE short_id = ?").run(short.id);
+  deleteShortFiles(short.channel, short.storage_key, short.poster_key);
   return NextResponse.json({ ok: true });
 }

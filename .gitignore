@@ -35,3 +35,4 @@ npm-debug.log*
 # Python (Instaloader sidecar bytecode)
 __pycache__/
 *.pyc
+/screenshots/gif/messages.gif

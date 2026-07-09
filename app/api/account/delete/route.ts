@@ -10,6 +10,14 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Act-as sessions must not reach account self-service: the admin knows the
+  // content-owner passwords, so the password check alone is not a barrier.
+  if (session.imp) {
+    return NextResponse.json(
+      { error: "Cannot delete an account while acting as it." },
+      { status: 403 }
+    );
+  }
 
   const user = getUserById(Number(session.sub));
   if (!user) {
@@ -43,6 +51,10 @@ export async function POST(request: Request) {
   // - codes this user consumed become available again
   // - codes this user created lose their creator reference
   // - messages to/from this user are removed
+  // - the user's content and social rows are removed so nothing points at a
+  //   missing user id and the handle is freed (tables with ON DELETE CASCADE
+  //   clean themselves when the users row goes). Media files on disk are left
+  //   for the orphan cleanup rather than unlinked mid-transaction.
   const deleteAccount = db.transaction(() => {
     db.prepare(
       "UPDATE registration_codes SET used_by = NULL, used_at = NULL WHERE used_by = ?"
@@ -53,6 +65,23 @@ export async function POST(request: Request) {
     db.prepare(
       "DELETE FROM messages WHERE sender_id = ? OR recipient_id = ?"
     ).run(user.id, user.id);
+    db.prepare("DELETE FROM posts WHERE author_user_id = ?").run(user.id);
+    db.prepare("DELETE FROM post_likes WHERE user_id = ?").run(user.id);
+    db.prepare("DELETE FROM post_comments WHERE user_id = ?").run(user.id);
+    db.prepare("DELETE FROM stories WHERE author_user_id = ?").run(user.id);
+    db.prepare("DELETE FROM story_views WHERE user_id = ?").run(user.id);
+    db.prepare(
+      "DELETE FROM follows WHERE follower_id = ? OR (target_type = 'user' AND target_id = ?)"
+    ).run(user.id, user.id);
+    db.prepare(
+      "DELETE FROM notifications WHERE user_id = ? OR actor_user_id = ?"
+    ).run(user.id, user.id);
+    db.prepare("DELETE FROM gallery_albums WHERE user_id = ?").run(user.id);
+    db.prepare("DELETE FROM gallery_items WHERE user_id = ?").run(user.id);
+    db.prepare(
+      "UPDATE shorts SET is_deleted = 1, uploader_id = NULL WHERE uploader_id = ?"
+    ).run(user.id);
+    db.prepare("DELETE FROM user_profiles WHERE user_id = ?").run(user.id);
     db.prepare("DELETE FROM users WHERE id = ?").run(user.id);
   });
 

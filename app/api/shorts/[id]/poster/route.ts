@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
+import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
@@ -31,9 +32,13 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
-  return new NextResponse(fs.readFileSync(filePath), {
+  const stream = fs.createReadStream(filePath);
+  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
     headers: {
       "Content-Type": "image/jpeg",
+      "Content-Length": String(fs.statSync(filePath).size),
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline",
       "Cache-Control": "private, max-age=86400",
     },
   });

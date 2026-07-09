@@ -69,7 +69,7 @@ export interface FeedShort {
 interface Comment {
   id: number;
   body: string;
-  author_email: string | null;
+  author_name: string | null;
   created_at: string;
 }
 
@@ -758,7 +758,7 @@ function CommentsSheet({
           )}
           {comments.map((c) => (
             <div key={c.id} className="text-sm">
-              <span className="font-semibold">@{displayName(c.author_email)}</span>{" "}
+              <span className="font-semibold">@{c.author_name ?? "Unknown"}</span>{" "}
               <span className="text-white/90">{c.body}</span>
             </div>
           ))}

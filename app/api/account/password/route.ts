@@ -8,6 +8,15 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  // Act-as sessions must not change the target account's password: the admin
+  // knows the content-owner passwords, so the password check alone is not a
+  // barrier.
+  if (session.imp) {
+    return NextResponse.json(
+      { error: "Cannot change the password while acting as another account." },
+      { status: 403 }
+    );
+  }
 
   const { currentPassword, newPassword } = await request
     .json()

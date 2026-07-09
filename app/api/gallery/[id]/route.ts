@@ -12,6 +12,7 @@ function getOwned(id: number, userId: number): GalleryItemRow | undefined {
       .selectAll()
       .where("id", "=", id)
       .where("user_id", "=", userId)
+      .where("is_deleted", "=", 0)
   );
 }
 

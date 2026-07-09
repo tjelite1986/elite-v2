@@ -110,6 +110,7 @@ export function enumerateCandidates(
         "--dump-json",
         "--playlist-end", String(limit),
         "--no-warnings",
+        "--",
         profile.source_ref,
       ],
       // Deeper enumerations page through the source API — give them more time
@@ -195,6 +196,7 @@ export function downloadOne(
       "--merge-output-format", "mp4",
       "-o", path.join(dir, `${uuid}.%(ext)s`),
       "--no-warnings", "--no-progress", "--quiet",
+      "--",
       videoUrl,
     ],
     { stdio: "ignore", timeout: 5 * 60 * 1000 }
