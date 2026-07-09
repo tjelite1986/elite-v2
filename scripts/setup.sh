@@ -388,8 +388,11 @@ entryPoints:
   https:
     address: ":443"
 
-serversTransport:
-  insecureSkipVerify: true
+# The generated services are plain-HTTP backends, so backend TLS verification
+# never applies. Only uncomment if you later route to a self-signed HTTPS
+# backend — it disables certificate checks for ALL backends.
+# serversTransport:
+#   insecureSkipVerify: true
 
 providers:
   docker:
