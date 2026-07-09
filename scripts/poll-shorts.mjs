@@ -101,6 +101,7 @@ function enumerateYtDlp(ref, limit) {
         "--dump-json",
         "--playlist-end", String(limit),
         "--no-warnings",
+        "--",
         ref,
       ],
       { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }
@@ -166,6 +167,7 @@ function download(url, dir, uuid) {
       "--merge-output-format", "mp4",
       "-o", path.join(dir, `${uuid}.%(ext)s`),
       "--no-warnings", "--no-progress", "--quiet",
+      "--",
       url,
     ],
     { stdio: "ignore", timeout: 5 * 60 * 1000 }

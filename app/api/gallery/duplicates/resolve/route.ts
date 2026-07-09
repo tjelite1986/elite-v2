@@ -26,6 +26,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No images selected." }, { status: 400 });
   }
 
-  const { deleted, keptBest } = deleteGalleryDuplicates(itemIds);
+  // Non-admin holders of the gallery_settings grant may only trash their own
+  // items; admins may resolve duplicates across the whole library.
+  const ownerId = session.role === "admin" ? undefined : Number(session.sub);
+  const { deleted, keptBest } = deleteGalleryDuplicates(itemIds, ownerId);
   return NextResponse.json({ ok: true, deleted, keptBest });
 }

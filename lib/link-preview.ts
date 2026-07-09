@@ -76,6 +76,25 @@ function isBlockedAddress(address: string, family: number): boolean {
   return BLOCKLIST.check(address, "ipv4");
 }
 
+// Shared guard for other outbound-fetch call sites (e.g. app-store downloads):
+// throws unless the URL is http(s) and every resolved address is public.
+export async function assertPublicUrl(url: URL): Promise<void> {
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`Refusing non-http(s) URL (${url.protocol})`);
+  }
+  const resolved = await dns
+    .lookup(url.hostname, { all: true })
+    .catch(() => [] as { address: string; family: number }[]);
+  if (resolved.length === 0) {
+    throw new Error(`Host did not resolve (${url.hostname})`);
+  }
+  for (const { address, family } of resolved) {
+    if (isBlockedAddress(address, family)) {
+      throw new Error(`Refusing private or reserved address (${url.hostname})`);
+    }
+  }
+}
+
 const cache = new Map<string, { at: number; data: LinkPreview | null }>();
 
 function decode(s: string): string {

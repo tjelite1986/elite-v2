@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sql } from "kysely";
 import { getSession } from "@/lib/auth";
 import { db, ShortCommentRow } from "@/lib/db";
 import { qb, getOne, getAll } from "@/lib/kysely";
@@ -7,8 +8,11 @@ import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
 export const dynamic = "force-dynamic";
 
 interface CommentWithAuthor extends ShortCommentRow {
-  author_email: string | null;
+  author_name: string | null;
 }
+
+// Display name only — never the full email address (PII).
+const authorName = sql<string | null>`COALESCE(up.username, substr(u.email, 1, instr(u.email, '@') - 1))`;
 
 export async function GET(
   _request: Request,
@@ -34,8 +38,9 @@ export async function GET(
     qb
       .selectFrom("short_comments as c")
       .leftJoin("users as u", "u.id", "c.user_id")
+      .leftJoin("user_profiles as up", "up.user_id", "c.user_id")
       .selectAll("c")
-      .select("u.email as author_email")
+      .select(authorName.as("author_name"))
       .where("c.short_id", "=", short.id)
       .orderBy("c.created_at")
       .orderBy("c.id")
@@ -81,8 +86,9 @@ export async function POST(
     qb
       .selectFrom("short_comments as c")
       .leftJoin("users as u", "u.id", "c.user_id")
+      .leftJoin("user_profiles as up", "up.user_id", "c.user_id")
       .selectAll("c")
-      .select("u.email as author_email")
+      .select(authorName.as("author_name"))
       .where("c.id", "=", Number(result.lastInsertRowid))
   )!;
 

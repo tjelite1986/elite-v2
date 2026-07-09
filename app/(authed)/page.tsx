@@ -123,10 +123,12 @@ export default async function Home() {
         ))}
       </section>
 
-      <section className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <ServerWidget />
-        <DockerWidget />
-      </section>
+      {session.role === "admin" && (
+        <section className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ServerWidget />
+          <DockerWidget />
+        </section>
+      )}
 
       <section className="mb-8">
         <div className="mb-3 flex items-center justify-between">

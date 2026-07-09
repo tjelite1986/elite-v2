@@ -39,20 +39,22 @@ export async function GET(request: Request) {
       .limit(10)
   );
 
-  // Video creators (shorts) — name isn't normalized, so key by its handle.
-  const shortCreators = getAll<{ name: string }>(
-    qb
-      .selectFrom("short_profiles")
-      .select("name")
-      .distinct()
-      .where(sql<boolean>`LOWER(name) LIKE ${like}`)
-      .orderBy("name")
-      .limit(20)
-  );
-
-  // Without 18+ access, tags that only exist on adult posts must not surface —
-  // even the tag name is a leak.
+  // Without 18+ access, adult-only creator names and tags must not surface —
+  // even the name is a leak.
   const adult = await has18Access();
+
+  // Video creators (shorts) — name isn't normalized, so key by its handle.
+  let shortCreatorsQuery = qb
+    .selectFrom("short_profiles")
+    .select("name")
+    .distinct()
+    .where(sql<boolean>`LOWER(name) LIKE ${like}`)
+    .orderBy("name")
+    .limit(20);
+  if (!adult) {
+    shortCreatorsQuery = shortCreatorsQuery.where("channel", "=", "main");
+  }
+  const shortCreators = getAll<{ name: string }>(shortCreatorsQuery);
   let tagsQuery = qb
     .selectFrom("post_hashtags")
     .innerJoin("posts", "posts.id", "post_hashtags.post_id")

@@ -38,6 +38,9 @@
     "web-push": "^3.6.7",
     "ws": "^8.18.0"
   },
+  "overrides": {
+    "@xmldom/xmldom": "^0.8.13"
+  },
   "devDependencies": {
     "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^7.6.11",

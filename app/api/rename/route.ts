@@ -3,7 +3,7 @@ import path from "node:path";
 import { db, ShortRow, PostMediaRow, GalleryItemRow } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { parseHashtags } from "@/lib/posts";
-import { getShort } from "@/lib/shorts";
+import { canAccessChannel, getShort } from "@/lib/shorts";
 import { canonicalStem } from "@/lib/import-naming";
 import { renameShortFiles } from "@/lib/shorts-storage";
 import { renamePostImageFiles } from "@/lib/posts-storage";
@@ -48,6 +48,10 @@ export async function GET(request: Request) {
   const section = searchParams.get("section") as Section | null;
   if (!section || !SECTIONS.includes(section)) {
     return NextResponse.json({ error: "Invalid section." }, { status: 400 });
+  }
+  // Same PIN barrier as every other 18+ surface.
+  if (section === "shorts18" && !(await canAccessChannel("18plus"))) {
+    return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
   const q = (searchParams.get("q") ?? "").trim();
   const like = `%${q}%`;
@@ -103,6 +107,9 @@ export async function POST(request: Request) {
   const id = Number(body?.id);
   if (!SECTIONS.includes(section) || !Number.isInteger(id)) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
+  }
+  if (section === "shorts18" && !(await canAccessChannel("18plus"))) {
+    return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
   const title = String(body?.title ?? "").trim();
   const hashtags = normTags(body?.tags);

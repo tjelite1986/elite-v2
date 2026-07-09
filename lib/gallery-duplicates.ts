@@ -113,7 +113,13 @@ export function getGalleryDupeState(): GalleryDupeStateRow {
 // trash (is_deleted = 1) rather than hard-deleted, matching how the gallery
 // removes photos everywhere else — the owner can still restore them. Returns how
 // many items were actually trashed.
-export function deleteGalleryDuplicates(itemIds: number[]): {
+// When ownerId is given (non-admin callers), only that user's items are
+// trashed — the duplicate scan is library-wide, but a settings-permission
+// grant must not allow trashing other users' photos.
+export function deleteGalleryDuplicates(
+  itemIds: number[],
+  ownerId?: number
+): {
   deleted: number;
   keptBest: number;
 } {
@@ -151,7 +157,8 @@ export function deleteGalleryDuplicates(itemIds: number[]): {
   }
 
   const getItem = db.prepare(
-    "SELECT id FROM gallery_items WHERE id = ? AND is_deleted = 0"
+    "SELECT id FROM gallery_items WHERE id = @id AND is_deleted = 0" +
+      (ownerId != null ? " AND user_id = @ownerId" : "")
   );
   const trashItem = db.prepare(
     "UPDATE gallery_items SET is_deleted = 1, deleted_at = datetime('now') WHERE id = ?"
@@ -164,7 +171,9 @@ export function deleteGalleryDuplicates(itemIds: number[]): {
 
   const tx = db.transaction(() => {
     for (const id of Array.from(ids)) {
-      const item = getItem.get(id) as { id: number } | undefined;
+      const item = getItem.get(
+        ownerId != null ? { id, ownerId } : { id }
+      ) as { id: number } | undefined;
       if (!item) continue;
       trashItem.run(id);
       dropGroupRow.run(id);

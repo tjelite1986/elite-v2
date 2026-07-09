@@ -11,6 +11,28 @@ export const dynamic = "force-dynamic";
 //   PUT    { pin, current? }  set or change (current required when changing)
 //   DELETE { current }        remove (current required)
 
+// Same in-memory throttle as the unlock route: a short PIN must not be
+// brute-forceable via the change/remove endpoints either.
+const MAX_ATTEMPTS = 5;
+const WINDOW_MS = 10 * 60 * 1000;
+const failures = new Map<string, { count: number; resetAt: number }>();
+
+function isLockedOut(userId: string): boolean {
+  const rec = failures.get(userId);
+  return !!rec && Date.now() <= rec.resetAt && rec.count >= MAX_ATTEMPTS;
+}
+function recordFailure(userId: string) {
+  const now = Date.now();
+  const rec = failures.get(userId);
+  if (!rec || now > rec.resetAt) {
+    failures.set(userId, { count: 1, resetAt: now + WINDOW_MS });
+  } else {
+    rec.count++;
+  }
+}
+const lockedOutResponse = () =>
+  NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+
 export async function PUT(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -34,8 +56,12 @@ export async function PUT(request: Request) {
     );
   }
   // Changing an existing PIN requires the current one.
-  if (user.adult_pin_hash && !verifyPassword(current, user.adult_pin_hash)) {
-    return NextResponse.json({ error: "Current PIN is incorrect." }, { status: 401 });
+  if (user.adult_pin_hash) {
+    if (isLockedOut(session.sub)) return lockedOutResponse();
+    if (!verifyPassword(current, user.adult_pin_hash)) {
+      recordFailure(session.sub);
+      return NextResponse.json({ error: "Current PIN is incorrect." }, { status: 401 });
+    }
   }
 
   db.prepare("UPDATE users SET adult_pin_hash = ? WHERE id = ?").run(
@@ -65,7 +91,9 @@ export async function DELETE(request: Request) {
   } catch {
     /* ignore */
   }
+  if (isLockedOut(session.sub)) return lockedOutResponse();
   if (!verifyPassword(current, user.adult_pin_hash)) {
+    recordFailure(session.sub);
     return NextResponse.json({ error: "Current PIN is incorrect." }, { status: 401 });
   }
 

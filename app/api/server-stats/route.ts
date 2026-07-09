@@ -29,6 +29,9 @@ async function diskUsage(path = "/"): Promise<{ total: number; used: number; fre
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const mem = { total: os.totalmem(), free: os.freemem() };
   const cpus = os.cpus();
