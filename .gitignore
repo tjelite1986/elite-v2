@@ -22,6 +22,9 @@ npm-debug.log*
 # OS / editor
 .DS_Store
 
+# Raw screen recordings (converted to GIFs in screenshots/gif/)
+/screenshots/*.mp4
+
 # Python (Instaloader sidecar bytecode)
 __pycache__/
 *.pyc

@@ -6,12 +6,31 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
 
 ![Elite v2 gallery](screenshots/Screenshot_20260615_203535_Chrome.jpg)
 
+## Demo
+
+> Media in these recordings is blurred by the app's built-in privacy mode.
+
+| Home dashboard | Posts feed | Explore |
+| -------------- | ---------- | ------- |
+| ![Home dashboard with weather, server and Docker widgets](screenshots/gif/dashboard.gif) | ![Instagram-style posts feed and profile](screenshots/gif/posts.gif) | ![Explore grid and profiles](screenshots/gif/explore.gif) |
+
+| Shorts | People | App Store |
+| ------ | ------ | --------- |
+| ![Vertical short-video player and creator profiles](screenshots/gif/shorts.gif) | ![People directory with search and filters](screenshots/gif/people.gif) | ![In-app App Store with APK archive](screenshots/gif/app-store.gif) |
+
+| Settings | Library tools |
+| -------- | ------------- |
+| ![Unified settings with appearance themes and 18+ access](screenshots/gif/settings.gif) | ![Import, duplicate scanner and profile tools](screenshots/gif/settings-tools.gif) |
+
 ## Features
 
 - **Invite-only auth** — registration requires an admin-generated code (or an
   approved invite request); sessions use signed JWT cookies (`jose`) with a
   `jti` so they can be revoked server-side. Device/session list and remote
   sign-out live in Settings. DB-backed login throttling guards `/api/auth/login`.
+- **Home dashboard** — live widgets for weather (Open-Meteo), server stats
+  (CPU / RAM / disk), Docker container status, a clock, and recently added
+  media.
 - **Gallery** — upload and browse photos and videos with EXIF parsing
   (`exifr` / `exif-reader`), `sharp` thumbnails, tags, a map view (`leaflet`)
   for geotagged media, trash, and client-side smart collections
@@ -35,17 +54,28 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
 - **Messaging** — real-time direct messages and group channels with presence
   (`last_seen`), reactions, replies, edits, and soft-delete, over a WebSocket
   endpoint served alongside Next.js by a custom server.
-- **Instagram sync** — profile-driven, cookie-based import that routes photos to
-  posts and videos to shorts (`gallery-dl`).
+- **Instagram / TikTok sync** — profile-driven import that routes photos to
+  posts and videos to shorts (`gallery-dl` / `yt-dlp`); Instagram is
+  cookie-based, TikTok works with or without cookies.
+- **Unified Settings** — one `/settings` page with a category nav: Account,
+  Appearance, Notifications, Sessions and 18+ access (a personal PIN plus a
+  "show 18+ content everywhere" toggle), per-section library settings
+  (Shorts / 18+ videos / Photos / Gallery with Import, Duplicates and Cleaning
+  tabs), and library tools — profile **Link / Merge / Auto-connect**, and a
+  batch **Rename** that re-titles media and renames the file on disk to match.
+- **Duplicate detection** — two-stage scanners for posts and gallery:
+  perceptual-hash (dHash) candidates confirmed by SSIM pixel comparison, with
+  keep/delete review UI and dismissable false matches.
 - **PWA & Web Push** — installable progressive web app (manifest, service
   worker, icons) with `web-push` (VAPID) notifications.
 - **Appearance** — per-user accent color and dark background themes, applied
   without a flash on load.
 - **Admin** — generate and manage registration codes, review invite requests,
-  manage the store catalog, content-owner "act-as" impersonation, and a
-  **Background jobs** panel to enable/schedule/run the import, polling,
-  transcoding and cleanup jobs (an in-app scheduler that replaces the host
-  systemd timers).
+  manage members, manage the store catalog, content-owner "act-as"
+  impersonation, per-user **Permissions** (grant individual users access to
+  specific settings sections), and a **Background jobs** panel to
+  enable/schedule/run the import, polling, transcoding and cleanup jobs (an
+  in-app scheduler that replaces the host systemd timers).
 - **Account** — profile, settings, password change, and account deletion.
 
 ## Tech stack
