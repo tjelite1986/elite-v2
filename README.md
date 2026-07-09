@@ -269,8 +269,8 @@ sudo systemctl enable --now elitev2-shorts-import.timer   # repeat per timer you
 were written for this specific machine and contain hard-coded values that won't
 match your setup:
 
-- **Folder paths** — e.g. `/mnt/4tb/elitev2/profile` and
-  `/home/thomas/code/elite-v2`. Change these to wherever *your* storage folders
+- **Folder paths** — e.g. `/path/to/storage/elitev2/profile` and
+  `/path/to/elite-v2`. Change these to wherever *your* storage folders
   and project live.
 - **Container name** — most services run a command inside the Docker container
   named `elitev2` (`docker exec elitev2 ...`). If your container has a different
@@ -405,7 +405,7 @@ the same external network (here named `traefik`):
 services:
   elitev2:
     build:
-      context: /home/thomas/code/elite-v2
+      context: /path/to/elite-v2
       dockerfile: Dockerfile
     container_name: elitev2
     restart: unless-stopped
@@ -421,7 +421,7 @@ services:
       # ...storage-root bind mounts...
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.elitev2-secure.rule=Host(`elitev2.mecloud.win`)"
+      - "traefik.http.routers.elitev2-secure.rule=Host(`elitev2.example.com`)"
       - "traefik.http.routers.elitev2-secure.entrypoints=https"
       - "traefik.http.routers.elitev2-secure.tls=true"
       - "traefik.http.routers.elitev2-secure.tls.certresolver=cloudflare"
@@ -451,12 +451,12 @@ config — not here):
 - An `https` entrypoint on `:443` (with an `http` → `https` redirect on `:80`).
 - A `cloudflare` `certResolver` using the Cloudflare DNS-01 challenge
   (Cloudflare API token + ACME email), so wildcard/subdomain certs for
-  `*.mecloud.win` are issued automatically.
+  `*.example.com` are issued automatically.
 - The external `traefik` Docker network, which this stack joins.
 
 When all of that is in place, `docker compose up -d` is enough — Traefik picks
 up the new container via the Docker provider and starts routing
-`https://elitev2.mecloud.win` to it.
+`https://elitev2.example.com` to it.
 
 ## Troubleshooting
 
