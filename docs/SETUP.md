@@ -62,8 +62,13 @@ The SQLite database lives in a named volume mounted at `/app/data`
 > generates a `.env` (auto-filled secrets + prompted values + commented optional
 > placeholders), and writes a matching `docker-compose.yml` — all pointing at
 > one data root and domain you choose. It replaces the manual folder + `.env` +
-> compose steps in sections 3–5. The rest of this section documents the same
-> pieces by hand, for when you want to understand or customize them.
+> compose steps in sections 3–5. It can also generate the surrounding stacks:
+> a Traefik reverse proxy (`traefik/`), a grabbit media grabber wired to the
+> shorts import folder (`grabbit/`), and the App Store update-check systemd
+> timer (`systemd-units/`) — the only host-side job; every other recurring
+> script is scheduled in-app under **Admin → Background jobs**, so there is
+> nothing else to install for the scripts. The rest of this section documents
+> the same pieces by hand, for when you want to understand or customize them.
 
 Make a compose directory (e.g. `compose/elitev2/`) holding a
 `docker-compose.yml` and an `.env`. Here is a complete, ready-to-edit
