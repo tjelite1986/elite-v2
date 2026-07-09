@@ -93,10 +93,19 @@ JWT_SECRET=<long random value>          # openssl rand -base64 32
 ADMIN_EMAIL=you@example.com             # first admin, seeded on first start
 ADMIN_PASSWORD=<pick one>
 APP_URL=https://elitev2.example.com     # used in email/push links
-# Optional but recommended:
+IMPORT_CRON_SECRET=<random>             # openssl rand -hex 24 — gates the import
+                                        # trigger + cleanup-job endpoints
+# Recommended (push notifications) — generate a keypair with:
+#   npx web-push generate-vapid-keys
 VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:you@example.com
+# Recommended (email invites):
 SMTP_HOST=... SMTP_PORT=... SMTP_USER=... SMTP_PASS=... MAIL_FROM=...
 ```
+
+> `JWT_SECRET` is the only variable the app truly cannot start without; every
+> storage root falls back to a subfolder of `DATA_DIR` if unset. But without
+> `IMPORT_CRON_SECRET` the import-trigger and cleanup jobs return 401, so set
+> it now if you'll use the background jobs.
 
 Then:
 
@@ -107,6 +116,21 @@ docker compose build && docker compose up -d
 First start creates the schema and seeds the admin account. Log in, then
 generate registration codes under **Admin** for everyone else (the app is
 invite-only by design).
+
+### Optional extras
+
+The core app (auth, gallery, shorts, posts, messaging, books, admin) runs with
+just the above. These add peripheral features and are **off unless you wire
+them**:
+
+| Feature | What to add |
+| ------- | ----------- |
+| **Docker widget** on the dashboard | Mount the host socket read-only (`- /var/run/docker.sock:/var/run/docker.sock:ro`) **and** add the host `docker` group's GID under `group_add:` so the non-root app user can read it (`getent group docker` → the number). Without this the widget shows an error; nothing else breaks. |
+| **Weather widget** location | `WEATHER_PLACE`, `WEATHER_LAT`, `WEATHER_LON` (defaults to a built-in city otherwise). Data via Open-Meteo, no key needed. |
+| **Content-owner accounts** | `PUBLIC_EMAIL`/`PUBLIC_PASSWORD` and `ADULTS_EMAIL`/`ADULTS_PASSWORD` seed two maintenance accounts for the non-adult / adult content buckets (used by admin "act-as"). |
+| **App Store auto-update** | `APP_UPDATE_SECRET` (for the host update-checker script), `GITHUB_TOKEN` (raises the GitHub API rate limit), `FDROID_REPO_URL`. |
+| **Fresh yt-dlp / curl-impersonate** | The image ships yt-dlp, but sites change fast; bind-mount a current binary over `/usr/local/bin/yt-dlp` (and point `YT_DLP_BIN`/`CURL_IMPERSONATE_BIN` at your own) to avoid rebuilding for every yt-dlp bump. |
+| **Legacy central gallery** | `GALLERY_ROOT` is only a read fallback for pre-per-user media — a fresh install doesn't need it. |
 
 ## 5. Optional: the grabbit media grabber
 
