@@ -102,19 +102,18 @@ base_domain() {
   printf '%s' "$b"
 }
 
-# mkdir -p + chmod 777 each target, elevating once if any nearest existing
-# ancestor isn't writable (same policy as create_folders).
+# mkdir -p + chmod 777 each target: try unprivileged first, escalate once if
+# anything failed (same policy as create_folders — chmod needs ownership).
 ensure_dirs() {
-  local SUDO="" d probe
+  local d failed=0
   for d in "$@"; do
-    probe="$d"; while [[ ! -e "$probe" ]]; do probe="$(dirname "$probe")"; done
-    if [[ $EUID -ne 0 && ! -w "$probe" ]]; then SUDO="sudo"; fi
+    { mkdir -p "$d" && chmod 777 "$d"; } 2>/dev/null || failed=1
   done
-  if [[ -n "$SUDO" ]]; then
-    say "Target isn't writable by you — elevating (enter your sudo password):"
+  if [[ $failed -eq 1 && $EUID -ne 0 ]]; then
+    say "Some folders need elevation (enter your sudo password):"
     sudo -v
+    for d in "$@"; do sudo mkdir -p "$d"; sudo chmod 777 "$d"; done
   fi
-  for d in "$@"; do $SUDO mkdir -p "$d"; $SUDO chmod 777 "$d"; done
 }
 
 # Read VAR=value from an env file; empty if absent/unreadable.
@@ -164,16 +163,25 @@ create_folders() {
   local row key; for row in "${STORAGE[@]}"; do IFS='|' read -r key _ _ <<<"$row"; printf '  %s/\n' "$key"; done
   yesno "Proceed?" || { say "Aborted."; return; }
 
-  # Elevate only if the nearest existing ancestor isn't writable.
-  local probe="$DATA_ROOT" SUDO=""
-  while [[ ! -e "$probe" ]]; do probe="$(dirname "$probe")"; done
-  if [[ $EUID -ne 0 && ! -w "$probe" ]]; then
-    say "Target isn't writable by you — elevating (enter your sudo password):"
-    sudo -v; SUDO="sudo"
+  # Try unprivileged first, then escalate once if anything failed. Writability
+  # alone isn't enough to decide: chmod on an existing tree needs ownership, so
+  # pre-existing root-owned folders fail even when they're 777-writable.
+  local SUDO="" row key failed=0
+  if [[ $EUID -ne 0 ]]; then
+    for row in "${STORAGE[@]}"; do
+      IFS='|' read -r key _ _ <<<"$row"
+      mkdir -p "$DATA_ROOT/$key" 2>/dev/null || failed=1
+    done
+    chmod -R 777 "$DATA_ROOT" 2>/dev/null || failed=1
+    if [[ $failed -eq 1 ]]; then
+      say "Some folders need elevation (enter your sudo password):"
+      sudo -v; SUDO="sudo"
+    fi
   fi
-
-  local key; for row in "${STORAGE[@]}"; do IFS='|' read -r key _ _ <<<"$row"; $SUDO mkdir -p "$DATA_ROOT/$key"; done
-  $SUDO chmod -R 777 "$DATA_ROOT"
+  if [[ $EUID -eq 0 || -n "$SUDO" ]]; then
+    for row in "${STORAGE[@]}"; do IFS='|' read -r key _ _ <<<"$row"; $SUDO mkdir -p "$DATA_ROOT/$key"; done
+    $SUDO chmod -R 777 "$DATA_ROOT"
+  fi
   say "Created and chmod 777:"
   if command -v tree >/dev/null 2>&1; then tree -d "$DATA_ROOT"
   else find "$DATA_ROOT" -type d | sort | sed "s#^$DATA_ROOT#  .#"; fi
