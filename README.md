@@ -40,7 +40,8 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
   per-user public/private clips, playlists, and a PIN-gated 18+ section
   (`/shorts18`). Clips can be auto-polled (`yt-dlp`), transcoded, and
   deduplicated. An optional "Grab from web" button appears if you point
-  `LADDA_URL` at a separate media-grabber service (not included).
+  `GRABBIT_URL` at a
+  [grabbit](https://github.com/tjelite1986/grabbit) media-grabber instance.
 - **Posts** — an Instagram-style feed with likes, comments, follows, stories,
   search, rich markdown composing (`react-markdown` + `remark-gfm`),
   `@mention` autocomplete, and link-preview cards.
@@ -348,7 +349,7 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | --------------------- | --------------------------------------------------- |
 | `IMPORT_DIR` / `POSTS_IMPORT_DIR` / `SHORTS_IMPORT_DIR` | Legacy *creator* bulk-import drop dirs (distinct from the per-user `IMPORT_ROOT` tree). |
 | `IMPORT_CRON_SECRET`  | Shared secret for import trigger endpoints.         |
-| `LADDA_URL`           | URL of an optional external media-grabber service; enables the shorts "Grab from web" button. |
+| `GRABBIT_URL`         | URL of an optional external media-grabber service, e.g. [grabbit](https://github.com/tjelite1986/grabbit); enables the shorts "Grab from web" button. (`LADDA_URL` is honored as a legacy alias.) |
 | `IG_COOKIES_PATH` / `IG_SRC` | Instagram cookie file and source for sync.   |
 | `GALLERY_DL_BIN` / `YT_DLP_BIN` / `CURL_IMPERSONATE_BIN` | Paths to external download tools. |
 | `GITHUB_TOKEN` / `FDROID_REPO_URL` | App Store import sources.             |

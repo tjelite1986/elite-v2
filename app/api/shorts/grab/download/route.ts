@@ -4,9 +4,9 @@ import { getSession } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const LADDA = process.env.LADDA_URL || "http://ladda:3000";
+const GRABBIT = process.env.GRABBIT_URL || process.env.LADDA_URL || "http://grabbit:3000";
 
-// Proxy to the ladda grabber: download one clip into the channel's import folder
+// Proxy to the grabbit grabber: download one clip into the channel's import folder
 // (save-only — device=0). Admin only.
 export async function GET(req: Request) {
   const session = await getSession();
@@ -23,7 +23,7 @@ export async function GET(req: Request) {
   if (sp.get("web") === "1") qs.set("web", "1");
   if (sp.get("quality")) qs.set("quality", sp.get("quality") as string);
   try {
-    const r = await fetch(`${LADDA}/api/download?${qs.toString()}`);
+    const r = await fetch(`${GRABBIT}/api/download?${qs.toString()}`);
     const data = await r.json().catch(() => ({ ok: false, error: "Download failed" }));
     return NextResponse.json(data, { status: r.status });
   } catch {
