@@ -1,6 +1,6 @@
 # BUILD PROMPT — Elite v2 "App Store"
 
-You are working in /home/thomas/code/elite-v2 (Next.js 14 App Router, better-sqlite3,
+You are working in /path/to/elite-v2 (Next.js 14 App Router, better-sqlite3,
 Tailwind 3 + shadcn/Ark UI, JWT auth via jose, macOS-menu-bar UI). All code, comments,
 SQL, error strings and commit messages MUST be in English. Follow the existing module
 conventions exactly (mirror the `posts` and `shorts` sections).
@@ -269,7 +269,7 @@ lib/sources/updater.ts
     last_checked_at; collect a summary { checked, updated, downloaded, errors }.
     opts.source lets the timer/UI scope a run (e.g. 'playstore' for a Play-only mass check,
     'github' for releases, 'fdroid', or all). Play/F-Droid runs only flag, never download.
-  STORE_DIR default: /mnt/4tb/elitev2/appstore (host-owned, dir 777, served via an auth-gated
+  STORE_DIR default: /path/to/storage/elitev2/appstore (host-owned, dir 777, served via an auth-gated
   download route — NEVER serve the raw path). Mirror the shorts/import storage conventions.
 
 Background job (host systemd timer — same pattern as the shorts transcoder/import timers):
@@ -658,11 +658,11 @@ drag-reorder reuse whatever the project already uses; if none, plain HTML5 drag 
       manual collections), and Save adds an app to /store/saved.
 
 ## 8. New environment variables
-  STORE_DIR=/mnt/4tb/elitev2/appstore      # downloaded artifacts (host-owned, dir 777)
+  STORE_DIR=/path/to/storage/elitev2/appstore      # downloaded artifacts (host-owned, dir 777)
   GITHUB_TOKEN=...                          # optional, raises GitHub API rate limit
   APP_UPDATE_SECRET=...                     # shared secret for the timer -> check-updates route
   FDROID_REPO_URL=https://f-droid.org/repo  # optional, override to use a custom/mirror F-Droid repo
-Add these to .env at /home/thomas/docker2/compose/elitev2/.env and mount STORE_DIR as a
+Add these to .env at /path/to/compose/elitev2/.env and mount STORE_DIR as a
 bind mount in the compose file (like the shorts/import dirs).
 
 ## 9. New dependencies (package.json)
@@ -673,7 +673,7 @@ multi-stage build already handles native modules; rebuild with --no-cache only b
 package.json changed. Search needs NO extra dep: FTS5 ships in better-sqlite3's bundled
 SQLite — probe for it at migrate() time and fall back to LIKE if a build lacks it.)
 APK signer verification: prefer `apksigner` (Android build-tools, present on the host at
-/home/thomas/android-sdk but NOT in the runtime container). Either (a) install apksigner +
+/path/to/android-sdk but NOT in the runtime container). Either (a) install apksigner +
 a JRE into the Docker image, or (b) implement a pure-Node v2/v3 APK signing-block + cert
 SHA-256 parser (no extra npm dep needed). If neither is available, hash-only fallback marks
 the signer 'unverifiable'. Document which path was chosen.
@@ -793,10 +793,10 @@ elite-v2/
 ├── package.json                                # TOUCHED: google-play-scraper, semver
 └── docs/app-store-build-prompt.md              # this spec
 Host (outside repo):
-  /mnt/4tb/elitev2/appstore/<app_id>/<version>/<file>   # downloaded artifacts (STORE_DIR)
-  /home/thomas/docker2/compose/elitev2/.env             # new env vars + STORE_DIR bind mount
+  /path/to/storage/elitev2/appstore/<app_id>/<version>/<file>   # downloaded artifacts (STORE_DIR)
+  /path/to/compose/elitev2/.env             # new env vars + STORE_DIR bind mount
 
 ## Deploy reminder (do not run unless asked)
-Build & restart from /home/thomas/docker2/compose/elitev2 (NOT the repo dir):
+Build & restart from /path/to/compose/elitev2 (NOT the repo dir):
   docker compose build && docker compose up -d
 Only --no-cache if package.json changed. better-sqlite3 needs the multi-stage build.
