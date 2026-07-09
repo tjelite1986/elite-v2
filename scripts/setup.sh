@@ -46,9 +46,60 @@ STORAGE=(
 # --- Small helpers ---------------------------------------------------------
 say()  { printf '%s\n' "$*"; }
 hr()   { printf '%s\n' "------------------------------------------------------------"; }
-ask()  { local p="$1" d="${2:-}" a; if [[ -n "$d" ]]; then read -rp "$p [$d]: " a; printf '%s' "${a:-$d}"; else read -rp "$p: " a; printf '%s' "$a"; fi; }
-ask_secret() { local p="$1" a; read -rsp "$p: " a; echo >&2; printf '%s' "$a"; }
-yesno() { local p="$1" a; read -rp "$p [y/N]: " a; [[ "$a" == [yY] || "$a" == [yY][eE][sS] ]]; }
+
+# UI backend: dialog boxes (raspi-config style) when running on a TTY. Prefers
+# dialog (digit keys jump straight to a menu item) and falls back to whiptail
+# (arrows + Enter only); plain read prompts otherwise (pipes, scripts, minimal
+# systems). Set NO_DIALOG=1 to force the plain prompts.
+UI="text"
+DIALOG_BIN=""
+if [[ -t 0 && -t 1 && -z "${NO_DIALOG:-}" ]]; then
+  if command -v dialog >/dev/null 2>&1; then UI="dialog"; DIALOG_BIN="dialog"
+  elif command -v whiptail >/dev/null 2>&1; then UI="dialog"; DIALOG_BIN="whiptail"; fi
+fi
+WT_TITLE="Elite v2 setup"
+# Route the dialog tool's answer (stderr) into the command substitution and
+# its drawing (stdout) to the terminal.
+wt() { "$DIALOG_BIN" --title "$WT_TITLE" "$@" 3>&1 1>&2 2>&3; }
+
+# Prompt helpers with one-step-back support. Going back means: status 9 from
+# ask/ask_secret, status 2 from yesno (0 = yes, 1 = no). In whiptail mode
+# Cancel or Esc goes back; in text mode answer "<". The generator functions
+# run their prompts as step machines that honor these.
+ask()  {
+  local p="$1" d="${2:-}" a
+  if [[ "$UI" == "dialog" ]]; then
+    a="$(wt --inputbox "$p" 10 72 "$d")" || return 9
+    printf '%s' "$a"; return 0
+  fi
+  if [[ -n "$d" ]]; then read -rp "$p [$d]: " a; else read -rp "$p: " a; fi
+  if [[ "$a" == "<" ]]; then return 9; fi
+  printf '%s' "${a:-$d}"
+}
+ask_secret() {
+  local p="$1" a
+  if [[ "$UI" == "dialog" ]]; then
+    # dialog echoes asterisks with --insecure; whiptail echoes them by default.
+    if [[ "$DIALOG_BIN" == "dialog" ]]; then a="$(wt --insecure --passwordbox "$p" 10 72)" || return 9
+    else a="$(wt --passwordbox "$p" 10 72)" || return 9; fi
+    printf '%s' "$a"; return 0
+  fi
+  read -rsp "$p: " a; echo >&2
+  if [[ "$a" == "<" ]]; then return 9; fi
+  printf '%s' "$a"
+}
+yesno() {
+  local p="$1" a rc=0
+  if [[ "$UI" == "dialog" ]]; then
+    "$DIALOG_BIN" --title "$WT_TITLE" --yesno "$p" 10 72 || rc=$?
+    case $rc in 0) return 0 ;; 255) return 2 ;; *) return 1 ;; esac
+  fi
+  read -rp "$p [y/N]: " a
+  if [[ "$a" == "<" ]]; then return 2; fi
+  [[ "$a" == [yY] || "$a" == [yY][eE][sS] ]]
+}
+# Print a text-mode-only hint (whiptail mode explains itself via buttons).
+hint() { if [[ "$UI" == "text" ]]; then say "$*"; fi; }
 
 gen_secret_b64() { openssl rand -base64 32; }
 gen_secret_hex() { openssl rand -hex 24; }
@@ -147,14 +198,15 @@ guard_overwrite() {
 
 # --- Menu actions ----------------------------------------------------------
 set_data_root() {
-  local p; p="$(ask "Data root (absolute path)" "$DATA_ROOT")"; p="${p%/}"
+  local p; p="$(ask "Data root (absolute path)" "$DATA_ROOT")" || { say "Unchanged."; return 0; }
+  p="${p%/}"
   valid_root "$p" || { say "Refusing '$p' — give an absolute, non-root path."; return; }
   DATA_ROOT="$p"; say "Data root = $DATA_ROOT"
 }
 
 set_domain() {
-  DOMAIN="$(ask "Public domain (hostname Traefik routes)" "$DOMAIN")"
-  say "Domain = $DOMAIN"
+  local d; d="$(ask "Public domain (hostname Traefik routes)" "$DOMAIN")" || { say "Unchanged."; return 0; }
+  DOMAIN="$d"; say "Domain = $DOMAIN"
 }
 
 create_folders() {
@@ -193,38 +245,65 @@ write_env() {
   guard_overwrite "$ENV_OUT" || return 0
 
   hr; say "Generating $ENV_OUT — required values first."
-  local admin_email admin_pass app_url vapid_subject
-  admin_email="$(ask "Admin email (first admin account)" "admin@$DOMAIN")"
-  admin_pass="$(ask_secret "Admin password")"
-  app_url="$(ask "Public app URL" "https://$DOMAIN")"
+  hint "(answer < to go back a step)"
 
   # Auto-generated secrets.
-  local jwt import_secret grabbit_token appupd_secret vpub vpriv
+  local jwt import_secret appupd_secret vpub vpriv
   jwt="$(gen_secret_b64)"
   import_secret="$(gen_secret_hex)"
   appupd_secret="$(gen_secret_hex)"
   read -r vpub vpriv < <(gen_vapid) || true
-  vapid_subject="$(ask "VAPID subject (mailto: for push)" "mailto:$admin_email")"
 
-  # Optional groups.
+  local admin_email="" admin_pass="" app_url="" vapid_subject=""
   local smtp=0 sh="" sp="" su="" spw="" mf=""
-  if yesno "Configure SMTP email invites now?"; then
-    smtp=1
-    sh="$(ask "SMTP host" "smtp.gmail.com")"; sp="$(ask "SMTP port" "465")"
-    su="$(ask "SMTP user")"; spw="$(ask_secret "SMTP pass")"
-    mf="$(ask "Mail from" "Elite <$su>")"
-  fi
   local owners=0 pe="" ppw="" ae="" apw=""
-  if yesno "Seed content-owner accounts (public / adults)?"; then
-    owners=1
-    pe="$(ask "PUBLIC_EMAIL" "public@$DOMAIN")"; ppw="$(ask_secret "PUBLIC_PASSWORD")"
-    ae="$(ask "ADULTS_EMAIL" "adults@$DOMAIN")"; apw="$(ask_secret "ADULTS_PASSWORD")"
-  fi
   local pin=""
-  if yesno "Set an 18+ PIN?"; then pin="$(ask "SHORTS_18_PIN")"; fi
-  USE_GRABBIT=0
-  if yesno "Use the grabbit media grabber (shorts Grab tab)?"; then USE_GRABBIT=1; fi
-  GRABBIT_TOKEN=""
+  USE_GRABBIT=0; GRABBIT_TOKEN=""
+
+  local step=1 rc
+  while [[ $step -le 8 ]]; do
+    case $step in
+      1) if admin_email="$(ask "Admin email (first admin account)" "${admin_email:-admin@$DOMAIN}")"
+         then step=2; else say "Left to the menu (nothing written)."; return 0; fi ;;
+      2) if admin_pass="$(ask_secret "Admin password")"; then step=3; else step=1; fi ;;
+      3) if app_url="$(ask "Public app URL" "${app_url:-https://$DOMAIN}")"; then step=4; else step=2; fi ;;
+      4) if vapid_subject="$(ask "VAPID subject (mailto: for push)" "${vapid_subject:-mailto:$admin_email}")"
+         then step=5; else step=3; fi ;;
+      5) rc=0; yesno "Configure SMTP email invites now?" || rc=$?
+         case $rc in
+           2) step=4 ;;
+           0) if sh="$(ask "SMTP host" "${sh:-smtp.gmail.com}")" \
+                 && sp="$(ask "SMTP port" "${sp:-465}")" \
+                 && su="$(ask "SMTP user" "$su")" \
+                 && spw="$(ask_secret "SMTP pass")" \
+                 && mf="$(ask "Mail from" "${mf:-Elite <$su>}")"
+              then smtp=1; step=6; fi ;;  # back inside the group re-asks the group question
+           *) smtp=0; step=6 ;;
+         esac ;;
+      6) rc=0; yesno "Seed content-owner accounts (public / adults)?" || rc=$?
+         case $rc in
+           2) step=5 ;;
+           0) if pe="$(ask "PUBLIC_EMAIL" "${pe:-public@$DOMAIN}")" \
+                 && ppw="$(ask_secret "PUBLIC_PASSWORD")" \
+                 && ae="$(ask "ADULTS_EMAIL" "${ae:-adults@$DOMAIN}")" \
+                 && apw="$(ask_secret "ADULTS_PASSWORD")"
+              then owners=1; step=7; fi ;;
+           *) owners=0; step=7 ;;
+         esac ;;
+      7) rc=0; yesno "Set an 18+ PIN?" || rc=$?
+         case $rc in
+           2) step=6 ;;
+           0) if pin="$(ask "SHORTS_18_PIN" "$pin")"; then step=8; fi ;;
+           *) pin=""; step=8 ;;
+         esac ;;
+      8) rc=0; yesno "Use the grabbit media grabber (shorts Grab tab)?" || rc=$?
+         case $rc in
+           2) step=7 ;;
+           0) USE_GRABBIT=1; step=9 ;;
+           *) USE_GRABBIT=0; step=9 ;;
+         esac ;;
+    esac
+  done
   if [[ $USE_GRABBIT -eq 1 ]]; then GRABBIT_TOKEN="$(gen_secret_hex)"; fi
 
   {
@@ -382,11 +461,20 @@ write_compose() {
 write_traefik() {
   hr; say "Traefik reverse proxy -> $TRAEFIK_DIR/"
   say "Generates a compose file, static config (traefik.yml), .env and acme.json."
-  local base acme_email cf_token tz
-  base="$(ask "Base domain (wildcard cert covers *.<base>)" "$(base_domain)")"
-  acme_email="$(ask "ACME / Cloudflare account email" "admin@$base")"
-  cf_token="$(ask_secret "Cloudflare DNS API token (blank = CHANGE_ME later)")"
-  tz="$(ask "Timezone" "Europe/Stockholm")"
+  hint "(answer < to go back a step)"
+  local base="" acme_email="" cf_token="" tz=""
+  local step=1
+  while [[ $step -le 4 ]]; do
+    case $step in
+      1) if base="$(ask "Base domain (wildcard cert covers *.<base>)" "${base:-$(base_domain)}")"
+         then step=2; else say "Left to the menu (nothing written)."; return 0; fi ;;
+      2) if acme_email="$(ask "ACME / Cloudflare account email" "${acme_email:-admin@$base}")"
+         then step=3; else step=1; fi ;;
+      3) if cf_token="$(ask_secret "Cloudflare DNS API token (blank = CHANGE_ME later)")"
+         then step=4; else step=2; fi ;;
+      4) if tz="$(ask "Timezone" "${tz:-Europe/Stockholm}")"; then step=5; else step=3; fi ;;
+    esac
+  done
 
   mkdir -p "$TRAEFIK_DIR"
   guard_overwrite "$TRAEFIK_DIR/.env" || return 0
@@ -481,10 +569,24 @@ write_grabbit() {
   valid_root "$DATA_ROOT" || { say "Set a valid data root first."; return; }
   hr; say "grabbit media grabber -> $GRABBIT_DIR/"
   say "Backs the shorts Grab tab (internal http://grabbit:3000) + a public, password-gated UI."
-  local gdomain src gpass gsecret token
-  gdomain="$(ask "grabbit public domain" "grabbit.$(base_domain)")"
-  src="$(ask "grabbit source (local clone path or git URL)" "https://github.com/tjelite1986/grabbit.git")"
-  gpass="$(ask_secret "grabbit web UI password")"
+  hint "(answer < to go back a step)"
+  local gdomain="" src="" gpass="" gsecret token mkfolders=0
+  local step=1 rc
+  while [[ $step -le 4 ]]; do
+    case $step in
+      1) if gdomain="$(ask "grabbit public domain" "${gdomain:-grabbit.$(base_domain)}")"
+         then step=2; else say "Left to the menu (nothing written)."; return 0; fi ;;
+      2) if src="$(ask "grabbit source (local clone path or git URL)" "${src:-https://github.com/tjelite1986/grabbit.git}")"
+         then step=3; else step=1; fi ;;
+      3) if gpass="$(ask_secret "grabbit web UI password")"; then step=4; else step=2; fi ;;
+      4) rc=0; yesno "Create grabbit host folders under $DATA_ROOT now?" || rc=$?
+         case $rc in
+           2) step=3 ;;
+           0) mkfolders=1; step=5 ;;
+           *) mkfolders=0; step=5 ;;
+         esac ;;
+    esac
+  done
   gsecret="$(gen_secret_hex)"
 
   # The internal token must match elite-v2's GRABBIT_INTERNAL_TOKEN. Reuse the
@@ -550,7 +652,7 @@ networks:
     external: true
 EOF
 
-  if yesno "Create grabbit host folders under $DATA_ROOT now?"; then
+  if [[ $mkfolders -eq 1 ]]; then
     ensure_dirs "$DATA_ROOT/grabbit/data" \
       "$DATA_ROOT/grabbit/downloads/videos" "$DATA_ROOT/grabbit/downloads/mp3" \
       "$DATA_ROOT/grabbit/downloads/adults" "$DATA_ROOT/grabbit/downloads/photos" \
@@ -572,24 +674,38 @@ write_appupdates_timer() {
   hr; say "App Store update-check timer -> $SYSTEMD_DIR/"
   say "Note: all other jobs (imports, sync, transcode, cleanup) are scheduled"
   say "in-app under Admin -> Background jobs — nothing to install for those."
-  local repo_dir node_bin app_url secret every
+  hint "(answer < to go back a step)"
+  local repo_dir node_bin app_url="" secret every=""
+  local need_repo=0 need_secret=0
+  node_bin="$(command -v node || echo /usr/bin/node)"
   repo_dir="$REPO_DIR"
-  if [[ -z "$repo_dir" ]]; then
-    repo_dir="$(ask "elite-v2 repo path (holds scripts/check-app-updates.mjs)" "/opt/elite-v2")"
-  fi
+  if [[ -z "$repo_dir" ]]; then need_repo=1; fi
+  secret="$(read_env_var "$ENV_OUT" APP_UPDATE_SECRET)"
+  if [[ -z "$secret" ]]; then need_secret=1
+  else say "Using APP_UPDATE_SECRET from $ENV_OUT."; fi
+
+  local step=2
+  if [[ $need_repo -eq 1 ]]; then step=1; fi
+  while [[ $step -le 4 ]]; do
+    case $step in
+      1) if repo_dir="$(ask "elite-v2 repo path (holds scripts/check-app-updates.mjs)" "${repo_dir:-/opt/elite-v2}")"
+         then step=2; else say "Left to the menu (nothing written)."; return 0; fi ;;
+      2) if app_url="$(ask "App URL the checker calls" "${app_url:-https://$DOMAIN}")"; then step=3
+         elif [[ $need_repo -eq 1 ]]; then step=1
+         else say "Left to the menu (nothing written)."; return 0; fi ;;
+      3) if [[ $need_secret -eq 0 ]]; then step=4
+         elif secret="$(ask "APP_UPDATE_SECRET (from .env; blank = CHANGE_ME later)")"; then
+           if [[ -z "$secret" ]]; then secret="CHANGE_ME"; fi
+           step=4
+         else step=2; fi ;;
+      4) if every="$(ask "Run every" "${every:-6h}")"; then step=5
+         elif [[ $need_secret -eq 1 ]]; then step=3
+         else step=2; fi ;;
+    esac
+  done
   if [[ ! -f "$repo_dir/scripts/check-app-updates.mjs" ]]; then
     say ">> Warning: $repo_dir/scripts/check-app-updates.mjs not found — fix ExecStart before installing."
   fi
-  node_bin="$(command -v node || echo /usr/bin/node)"
-  app_url="$(ask "App URL the checker calls" "https://$DOMAIN")"
-  secret="$(read_env_var "$ENV_OUT" APP_UPDATE_SECRET)"
-  if [[ -z "$secret" ]]; then
-    secret="$(ask "APP_UPDATE_SECRET (from .env; blank = CHANGE_ME later)")"
-    [[ -z "$secret" ]] && secret="CHANGE_ME"
-  else
-    say "Using APP_UPDATE_SECRET from $ENV_OUT."
-  fi
-  every="$(ask "Run every" "6h")"
 
   mkdir -p "$SYSTEMD_DIR"
   guard_overwrite "$SYSTEMD_DIR/elitev2-app-updates.service" || return 0
@@ -685,6 +801,22 @@ menu_select() {
   local items=("$@") n=$# sel=0 i key label c c2 c3 drawn=0
   local ESC=$'\033'
 
+  if [[ "$UI" == "dialog" ]]; then
+    local args=() choice
+    for i in "${!items[@]}"; do
+      IFS='|' read -r key label <<<"${items[$i]}"
+      args+=("$key" "$label")
+    done
+    if choice="$(wt --default-item "$default" --menu \
+        "Arrows move, a digit jumps, Enter runs. In forms, Cancel/Esc goes back a step." \
+        20 74 "$n" "${args[@]}")"; then
+      MENU_CHOICE="$choice"
+    else
+      MENU_CHOICE="0"   # Cancel/Esc at the main menu quits
+    fi
+    return 0
+  fi
+
   if [[ ! -t 0 ]]; then
     for i in "${!items[@]}"; do
       IFS='|' read -r key label <<<"${items[$i]}"
@@ -741,8 +873,10 @@ main() {
   command -v openssl >/dev/null 2>&1 || { say "openssl is required."; exit 1; }
   trap 'tput cnorm 2>/dev/null || true' EXIT
   while true; do
-    hr
-    say "Elite v2 setup  (arrows move, number/letter jumps, Enter runs)"
+    if [[ "$UI" == "text" ]]; then
+      hr
+      say "Elite v2 setup  (arrows move, number/letter jumps, Enter runs; < in forms steps back)"
+    fi
     menu_select "9" \
       "1|Set data root        (current: $DATA_ROOT)" \
       "2|Set public domain    (current: $DOMAIN)" \
