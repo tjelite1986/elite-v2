@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 600;
 
 const GRABBIT = process.env.GRABBIT_URL || process.env.LADDA_URL || "http://grabbit:3000";
+const GRABBIT_HEADERS = { "x-grabbit-token": process.env.GRABBIT_INTERNAL_TOKEN || "" };
 
 // Proxy to the grabbit grabber: batch-download a profile's clips into the channel's
 // import folder, streaming Server-Sent Events progress through. Admin only.
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${GRABBIT}/api/download-all?${qs.toString()}`);
+    upstream = await fetch(`${GRABBIT}/api/download-all?${qs.toString()}`, { headers: GRABBIT_HEADERS });
   } catch {
     return new Response("data: " + JSON.stringify({ type: "error", error: "Grabber unreachable" }) + "\n\n", {
       headers: { "Content-Type": "text/event-stream" },
