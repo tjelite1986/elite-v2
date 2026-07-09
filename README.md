@@ -93,6 +93,22 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
   `react-markdown`
 - Packaged as a multi-stage **Docker** image, run behind **Traefik**
 
+## Guides
+
+In-depth documentation lives in [`docs/`](docs/):
+
+- **[Full setup guide](docs/SETUP.md)** — zero to a running server stack: the
+  app, storage roots, the optional grabbit grabber, background jobs, and a
+  first-run checklist.
+- **[Cookies guide](docs/COOKIES.md)** — exporting and installing the
+  `cookies.txt` the Instagram / TikTok sync needs, including an Android
+  (phone/tablet) route.
+- **[Scripts reference](docs/SCRIPTS.md)** — every script in `scripts/`, what
+  it does, and how it's triggered.
+
+The sections below are the quick local start and the full configuration
+reference.
+
 ## Getting started
 
 This walks you through running the app on your own computer, step by step. No
