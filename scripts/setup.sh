@@ -638,24 +638,88 @@ do_everything() {
 }
 
 # --- Menu loop -------------------------------------------------------------
+
+# Interactive menu. Arrow keys (and j/k) move the highlight, typing an item's
+# key (number/letter) jumps to it, Enter runs the highlighted item. Falls back
+# to a plain numbered prompt when stdin isn't a TTY (piped/scripted runs).
+# Usage: menu_select DEFAULT_KEY "key|label"...  — result in $MENU_CHOICE.
+MENU_CHOICE=""
+menu_select() {
+  local default="$1"; shift
+  local items=("$@") n=$# sel=0 i key label c c2 c3 drawn=0
+  local ESC=$'\033'
+
+  if [[ ! -t 0 ]]; then
+    for i in "${!items[@]}"; do
+      IFS='|' read -r key label <<<"${items[$i]}"
+      say "  $key) $label"
+    done
+    MENU_CHOICE="$(ask "Choose" "$default")"
+    return 0
+  fi
+
+  for i in "${!items[@]}"; do
+    IFS='|' read -r key _ <<<"${items[$i]}"
+    if [[ "$key" == "$default" ]]; then sel=$i; fi
+  done
+
+  tput civis 2>/dev/null || true
+  while true; do
+    if [[ $drawn -eq 1 ]]; then printf '\033[%dA' "$n"; fi
+    for i in "${!items[@]}"; do
+      IFS='|' read -r key label <<<"${items[$i]}"
+      if [[ $i -eq $sel ]]; then
+        printf '\033[7m> %s) %s\033[0m\033[K\n' "$key" "$label"
+      else
+        printf '  %s) %s\033[K\n' "$key" "$label"
+      fi
+    done
+    drawn=1
+    IFS= read -rsn1 c || c=""
+    case "$c" in
+      "$ESC")
+        read -rsn1 -t 0.05 c2 || c2=""
+        read -rsn1 -t 0.05 c3 || c3=""
+        case "$c2$c3" in
+          "[A") sel=$(( (sel - 1 + n) % n )) ;;
+          "[B") sel=$(( (sel + 1) % n )) ;;
+        esac ;;
+      k) sel=$(( (sel - 1 + n) % n )) ;;
+      j) sel=$(( (sel + 1) % n )) ;;
+      "")
+        IFS='|' read -r key _ <<<"${items[$sel]}"
+        MENU_CHOICE="$key"; break ;;
+      *)
+        # A typed key highlights its item; Enter confirms (like the old
+        # number-then-Enter flow, so a habitual trailing Enter is harmless).
+        for i in "${!items[@]}"; do
+          IFS='|' read -r key _ <<<"${items[$i]}"
+          if [[ "${c,,}" == "${key,,}" ]]; then sel=$i; fi
+        done ;;
+    esac
+  done
+  tput cnorm 2>/dev/null || true
+}
+
 main() {
   command -v openssl >/dev/null 2>&1 || { say "openssl is required."; exit 1; }
+  trap 'tput cnorm 2>/dev/null || true' EXIT
   while true; do
     hr
-    say "Elite v2 setup"
-    say "  1) Set data root        (current: $DATA_ROOT)"
-    say "  2) Set public domain    (current: $DOMAIN)"
-    say "  3) Create storage folders"
-    say "  4) Generate .env        (-> $ENV_OUT)"
-    say "  5) Generate docker-compose.yml (-> $COMPOSE_OUT)"
-    say "  6) Generate Traefik stack      (-> $TRAEFIK_DIR/)"
-    say "  7) Generate grabbit stack      (-> $GRABBIT_DIR/)"
-    say "  8) Generate App Store update timer (-> $SYSTEMD_DIR/)"
-    say "  9) Do everything (3 -> 4 -> 5, then optional 6 -> 7 -> 8)"
-    say "  s) Show summary"
-    say "  0) Quit"
-    local choice; choice="$(ask "Choose" "9")"
-    case "$choice" in
+    say "Elite v2 setup  (arrows move, number/letter jumps, Enter runs)"
+    menu_select "9" \
+      "1|Set data root        (current: $DATA_ROOT)" \
+      "2|Set public domain    (current: $DOMAIN)" \
+      "3|Create storage folders" \
+      "4|Generate .env        (-> $ENV_OUT)" \
+      "5|Generate docker-compose.yml (-> $COMPOSE_OUT)" \
+      "6|Generate Traefik stack      (-> $TRAEFIK_DIR/)" \
+      "7|Generate grabbit stack      (-> $GRABBIT_DIR/)" \
+      "8|Generate App Store update timer (-> $SYSTEMD_DIR/)" \
+      "9|Do everything (3 -> 4 -> 5, then optional 6 -> 7 -> 8)" \
+      "s|Show summary" \
+      "0|Quit"
+    case "$MENU_CHOICE" in
       1) set_data_root ;;
       2) set_domain ;;
       3) create_folders ;;
