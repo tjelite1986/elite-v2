@@ -58,21 +58,26 @@ The SQLite database lives in a named volume mounted at `/app/data`
 ## 4. The compose stack
 
 Make a compose directory (e.g. `compose/elitev2/`) holding a
-`docker-compose.yml` and an `.env`. Start from the deployment example in the
-[README](../README.md#deployment) and add the storage mounts:
+`docker-compose.yml` and an `.env`. Here is a complete, ready-to-edit
+`docker-compose.yml` — adjust the build `context`, the `/mnt/data/...` host
+paths, and the `Host(...)` domain to yours:
 
 ```yaml
-    volumes:
-      - elitev2_data:/app/data
-      - /mnt/data/elitev2/profile:/profile-store
-      - /mnt/data/elitev2/import:/import-store
-      - /mnt/data/elitev2/posts:/posts-store
-      - /mnt/data/elitev2/shorts:/shorts-store
-      - /mnt/data/elitev2/books:/books-store
-      - /mnt/data/elitev2/appstore:/appstore-store
-      - /mnt/data/elitev2/instagram:/instagram-store
-      - /mnt/data/elitev2/tiktok:/tiktok-store
+services:
+  elitev2:
+    build:
+      context: /path/to/elite-v2      # the cloned repo
+      dockerfile: Dockerfile
+    container_name: elitev2
+    restart: unless-stopped
+    networks:
+      - traefik                       # same external network Traefik runs on
+    env_file: .env                    # everything from section "Minimum .env"
     environment:
+      - NODE_ENV=production
+      - PORT=3000                     # internal port Traefik forwards to
+      - HOSTNAME=0.0.0.0
+      # Storage roots → the bind mounts below
       - PROFILE_ROOT=/profile-store
       - IMPORT_ROOT=/import-store
       - POSTS_ROOT=/posts-store
@@ -83,7 +88,48 @@ Make a compose directory (e.g. `compose/elitev2/`) holding a
       - IG_COOKIES_PATH=/instagram-store/cookies.txt
       - TIKTOK_COOKIES_ROOT=/tiktok-store
       - TIKTOK_COOKIES_PATH=/tiktok-store/cookies.txt
+      # Optional: point the shorts "Grab" button at grabbit (section 5)
+      - GRABBIT_URL=http://grabbit:3000
+      - GRABBIT_INTERNAL_TOKEN=${GRABBIT_INTERNAL_TOKEN}
+    volumes:
+      - elitev2_data:/app/data        # SQLite DB (named volume)
+      - /mnt/data/elitev2/profile:/profile-store
+      - /mnt/data/elitev2/import:/import-store
+      - /mnt/data/elitev2/posts:/posts-store
+      - /mnt/data/elitev2/shorts:/shorts-store
+      - /mnt/data/elitev2/books:/books-store
+      - /mnt/data/elitev2/appstore:/appstore-store
+      - /mnt/data/elitev2/instagram:/instagram-store
+      - /mnt/data/elitev2/tiktok:/tiktok-store
+      # Optional: Docker dashboard widget (also needs group_add below)
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Optional: host 'docker' group GID so the non-root app user can read the
+    # socket above. Find it with: getent group docker
+    # group_add:
+    #   - "999"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.elitev2-secure.rule=Host(`elitev2.example.com`)"
+      - "traefik.http.routers.elitev2-secure.entrypoints=https"
+      - "traefik.http.routers.elitev2-secure.tls=true"
+      - "traefik.http.routers.elitev2-secure.tls.certresolver=cloudflare"
+      - "traefik.http.services.elitev2-service.loadbalancer.server.port=3000"
+
+volumes:
+  elitev2_data:
+
+networks:
+  traefik:
+    external: true                    # created/owned by the Traefik stack
 ```
+
+The container publishes **no ports** — Traefik reaches it over the shared
+`traefik` network and routes by hostname. What each label does, and the
+Traefik-side prerequisites (the `https` entrypoint and the `cloudflare` cert
+resolver), are spelled out in the
+[README's Deployment section](../README.md#putting-it-behind-traefik). If you
+use a different proxy, drop the labels and expose `PORT` however that proxy
+expects.
 
 Minimum `.env` (full reference in the
 [README's Configuration tables](../README.md#configuration)):
@@ -155,17 +201,15 @@ import folder and are ingested automatically.
          - /mnt/data/elitev2/shorts:/elitev2-shorts
    ```
 
-2. Point Elite v2 at it — add to the elitev2 service:
+2. Elite v2 is already pointed at it — the `GRABBIT_URL` and
+   `GRABBIT_INTERNAL_TOKEN` lines are in the compose from section 4. You only
+   need to set the token value: generate one with `openssl rand -hex 24` and
+   put the **same** `GRABBIT_INTERNAL_TOKEN=...` in **both** `.env` files. The
+   token authenticates Elite v2's container-to-container calls; without it, any
+   container on the shared network could use grabbit unauthenticated.
 
-   ```yaml
-   - GRABBIT_URL=http://grabbit:3000
-   - GRABBIT_INTERNAL_TOKEN=${GRABBIT_INTERNAL_TOKEN}   # same value as grabbit's
-   ```
-
-   The token authenticates Elite v2's container-to-container calls; generate
-   one with `openssl rand -hex 24` and put the same value in both `.env`
-   files. Without it, any container on the shared network could use grabbit
-   unauthenticated.
+   (If you skip grabbit entirely, just delete the two `GRABBIT_*` lines from
+   the section-4 compose — the Grab tab simply won't appear.)
 
 3. `docker compose up -d` both stacks. The Grab tab appears for admins under
    **Shorts**; grabbed clips are picked up by the shorts import job.
