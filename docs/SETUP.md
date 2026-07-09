@@ -57,6 +57,14 @@ The SQLite database lives in a named volume mounted at `/app/data`
 
 ## 4. The compose stack
 
+> **Quick start — the setup wizard.** Instead of hand-editing everything below,
+> run `scripts/setup.sh`: an interactive menu that creates the storage folders,
+> generates a `.env` (auto-filled secrets + prompted values + commented optional
+> placeholders), and writes a matching `docker-compose.yml` — all pointing at
+> one data root and domain you choose. It replaces the manual folder + `.env` +
+> compose steps in sections 3–5. The rest of this section documents the same
+> pieces by hand, for when you want to understand or customize them.
+
 Make a compose directory (e.g. `compose/elitev2/`) holding a
 `docker-compose.yml` and an `.env`. Here is a complete, ready-to-edit
 `docker-compose.yml` — adjust the build `context`, the `/mnt/data/...` host
