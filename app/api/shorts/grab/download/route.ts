@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const GRABBIT = process.env.GRABBIT_URL || process.env.LADDA_URL || "http://grabbit:3000";
+const GRABBIT_HEADERS = { "x-grabbit-token": process.env.GRABBIT_INTERNAL_TOKEN || "" };
 
 // Proxy to the grabbit grabber: download one clip into the channel's import folder
 // (save-only — device=0). Admin only.
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
   if (sp.get("web") === "1") qs.set("web", "1");
   if (sp.get("quality")) qs.set("quality", sp.get("quality") as string);
   try {
-    const r = await fetch(`${GRABBIT}/api/download?${qs.toString()}`);
+    const r = await fetch(`${GRABBIT}/api/download?${qs.toString()}`, { headers: GRABBIT_HEADERS });
     const data = await r.json().catch(() => ({ ok: false, error: "Download failed" }));
     return NextResponse.json(data, { status: r.status });
   } catch {
