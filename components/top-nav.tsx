@@ -34,6 +34,7 @@ export default function TopNav({
     { label: "18+", action: "shorts18" },
     { label: "Books", action: "books" },
     { label: "Store", action: "app-store" },
+    { label: "Ask", action: "ask" },
   ];
 
   const activeAction =
@@ -55,7 +56,9 @@ export default function TopNav({
                     ? "books"
                     : pathname.startsWith("/store")
                       ? "app-store"
-                      : "";
+                      : pathname.startsWith("/ask")
+                        ? "ask"
+                        : "";
 
   const logout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -84,6 +87,7 @@ export default function TopNav({
     if (action === "shorts18") router.push("/shorts18");
     if (action === "books") router.push("/books");
     if (action === "app-store") router.push("/store");
+    if (action === "ask") router.push("/ask");
   };
 
   return (
