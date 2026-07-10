@@ -4,7 +4,7 @@ import {
   aiSearch,
   AiSearchNotConfiguredError,
   type AiSearchHistory,
-} from "@/lib/perplexica";
+} from "@/lib/ai-search";
 
 export const dynamic = "force-dynamic";
 
