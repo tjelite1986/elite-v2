@@ -7,7 +7,7 @@ import {
   originalPathFor,
   thumbPathFor,
   previewPathFor,
-  isHeic,
+  isHeifBuffer,
   heicToJpeg,
   regenerateDerivatives,
 } from "@/lib/gallery-storage";
@@ -45,8 +45,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Original missing." }, { status: 404 });
   }
 
-  const heic = isHeic(item.filename, item.mime_type);
   let processBuffer: Buffer = fs.readFileSync(original);
+  const heic = isHeifBuffer(processBuffer);
   if (heic) processBuffer = heicToJpeg(processBuffer);
 
   const { width, height } = await regenerateDerivatives(

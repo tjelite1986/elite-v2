@@ -7,7 +7,7 @@ import { parseFilenameDate } from "./filename-date";
 import {
   isSupportedImage,
   isSupportedVideo,
-  isHeic,
+  isHeifBuffer,
   heicToJpeg,
   planIngest,
   writeAndProcess,
@@ -50,7 +50,7 @@ export async function ingestImage(
 ): Promise<number | null> {
   if (!isSupportedImage(filename, mime)) return null;
 
-  const heic = isHeic(filename, mime);
+  const heic = isHeifBuffer(buffer);
   const processBuffer = heic ? heicToJpeg(buffer) : buffer;
 
   const exif = await readExifMeta(buffer);

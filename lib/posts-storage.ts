@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import {
   isSupportedImage,
-  isHeic,
+  isHeifBuffer,
   heicToJpeg,
   getExt,
 } from "./gallery-storage";
@@ -104,7 +104,7 @@ export async function storePostImage(
   const dir = path.join(userHome ? PROFILE_ROOT : POSTS_ROOT, rel);
   ensureDir(dir);
 
-  const source = isHeic(filename, mime) ? heicToJpeg(buffer) : buffer;
+  const source = isHeifBuffer(buffer) ? heicToJpeg(buffer) : buffer;
   const uuid = randomUUID();
   const storageKey = `${rel}/${uuid}.jpg`;
   const displayPath = path.join(dir, `${uuid}.jpg`);
@@ -143,7 +143,7 @@ export async function storeAvatar(
   }
   const dir = path.join(POSTS_ROOT, AVATARS_SUBDIR);
   ensureDir(dir);
-  const source = isHeic(filename, mime) ? heicToJpeg(buffer) : buffer;
+  const source = isHeifBuffer(buffer) ? heicToJpeg(buffer) : buffer;
   const uuid = randomUUID();
   const key = `${AVATARS_SUBDIR}/${uuid}.jpg`;
   await sharp(source)
@@ -218,7 +218,7 @@ export async function storeBanner(
   }
   const dir = path.join(POSTS_ROOT, BANNERS_SUBDIR);
   ensureDir(dir);
-  const source = isHeic(filename, mime) ? heicToJpeg(buffer) : buffer;
+  const source = isHeifBuffer(buffer) ? heicToJpeg(buffer) : buffer;
   const uuid = randomUUID();
   const key = `${BANNERS_SUBDIR}/${uuid}.jpg`;
   await sharp(source)

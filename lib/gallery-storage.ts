@@ -93,10 +93,18 @@ export function getExt(filename: string): string {
 }
 
 // HEIC/HEIF (iPhone) — sharp's bundled libvips can't decode it, so these need
-// converting via heif-convert before any sharp processing.
-export function isHeic(filename: string, mime: string): boolean {
-  const ext = (path.extname(filename).slice(1) || "").toLowerCase();
-  return ext === "heic" || ext === "heif" || mime === "image/heic" || mime === "image/heif";
+// converting via heif-convert before any sharp processing. Decided from the
+// FILE BYTES, not the extension/mime: downloads are often mislabeled (e.g.
+// gallery-dl writes Instagram JPEGs as .heic), and trusting the name either
+// feeds heif-convert garbage it rejects or hands sharp a HEIF it can't decode.
+const HEIF_BRANDS = new Set([
+  "heic", "heix", "hevc", "heim", "heis", "hevm", "hevs", "mif1", "msf1", "heif",
+]);
+
+export function isHeifBuffer(buffer: Buffer): boolean {
+  if (buffer.length < 12) return false;
+  if (buffer.toString("latin1", 4, 8) !== "ftyp") return false;
+  return HEIF_BRANDS.has(buffer.toString("latin1", 8, 12));
 }
 
 // Convert a HEIC/HEIF buffer to a JPEG buffer using the libheif CLI. EXIF is
