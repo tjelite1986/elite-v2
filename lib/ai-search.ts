@@ -1,27 +1,39 @@
-// AI search backend for /ask. Primary path calls the Perplexity API directly:
-// sonar models do their own web search and return citations, and going through
-// Perplexica breaks on them (its agentic pipeline needs tool calling, which
-// the sonar API doesn't support — requests die as unhandled rejections).
-// Without a PERPLEXITY_API_KEY the self-hosted Perplexica instance is used
-// instead, which works when it's configured with a tool-calling-capable model.
-
-import {
-  aiSearch as perplexicaSearch,
-  AiSearchNotConfiguredError,
-  type AiSearchHistory,
-  type AiSearchResult,
-} from "./perplexica";
-
-export { AiSearchNotConfiguredError };
-export type { AiSearchHistory, AiSearchResult };
+// AI search backend for /ask: calls the Perplexity API directly. Sonar models
+// do their own web search and return the cited sources, so no self-hosted
+// search stack is needed in between. (A Perplexica/Vane proxy was tried first
+// and removed — its agentic pipeline requires tool calling, which the sonar
+// API rejects.)
 
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 const PERPLEXITY_MODEL = process.env.PERPLEXITY_MODEL || "sonar";
 
-async function perplexityDirect(
+export interface AiSearchSource {
+  title: string;
+  url: string;
+}
+
+export interface AiSearchResult {
+  message: string;
+  sources: AiSearchSource[];
+}
+
+// [human|assistant, message] pairs kept client-side for follow-up questions.
+export type AiSearchHistory = [string, string][];
+
+// Thrown when no API key is configured — callers turn this into a friendly
+// message instead of a generic failure.
+export class AiSearchNotConfiguredError extends Error {
+  constructor() {
+    super("PERPLEXITY_API_KEY is not set");
+  }
+}
+
+export async function aiSearch(
   query: string,
   history: AiSearchHistory
 ): Promise<AiSearchResult> {
+  if (!PERPLEXITY_API_KEY) throw new AiSearchNotConfiguredError();
+
   const messages = [
     ...history.map(([role, content]) => ({
       role: role === "human" ? "user" : "assistant",
@@ -54,12 +66,4 @@ async function perplexityDirect(
       .map((s) => ({ title: s.title || s.url || "Untitled", url: s.url || "" }))
       .filter((s) => s.url),
   };
-}
-
-export async function aiSearch(
-  query: string,
-  history: AiSearchHistory
-): Promise<AiSearchResult> {
-  if (PERPLEXITY_API_KEY) return perplexityDirect(query, history);
-  return perplexicaSearch(query, history);
 }

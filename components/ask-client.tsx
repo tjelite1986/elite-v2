@@ -32,8 +32,8 @@ function hostOf(url: string): string {
 }
 
 // Perplexity-style AI search: ask a question, get a web-grounded answer with
-// numbered source citations from the self-hosted Perplexica backend. Turns are
-// kept client-side and sent as history so follow-ups have context.
+// numbered source citations from the Perplexity API. Turns are kept
+// client-side and sent as history so follow-ups have context.
 export default function AskClient() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");

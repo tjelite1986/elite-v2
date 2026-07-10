@@ -8,8 +8,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// Ask the self-hosted Perplexica instance a question (web search + LLM answer
-// with cited sources). History enables follow-up questions in the same thread.
+// Ask the Perplexity API a question (web search + LLM answer with cited
+// sources). History enables follow-up questions in the same thread.
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "AI search is not configured yet - add an API key in Perplexica's settings.",
+            "AI search is not configured - PERPLEXITY_API_KEY is missing.",
         },
         { status: 503 }
       );
