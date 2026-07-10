@@ -88,9 +88,9 @@ export default function PostCard({ post }: { post: FeedPost }) {
           style={{ scrollbarWidth: "none" }}
         >
           {post.media.map((m) => (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               key={m.id}
-              // eslint-disable-next-line @next/next/no-img-element
               src={`/api/posts/media/${m.id}`}
               alt=""
               loading="lazy"

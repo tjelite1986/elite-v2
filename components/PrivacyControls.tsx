@@ -641,7 +641,7 @@ export default function PrivacyControls() {
 
     if (wasPicker) setPrefs((p) => ({ ...p, pickerOn: true }));
     setShooting(false);
-  }, [prefs.pickerOn, prefs.proxyExternalImages, prefs.captureVideos, shooting]);
+  }, [prefs.pickerOn, prefs.proxyExternalImages, prefs.fullPage, shooting]);
 
   useEffect(() => {
     if (!flash || flash.kind !== "ok") return;
