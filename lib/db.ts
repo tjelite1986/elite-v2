@@ -17,10 +17,13 @@ const globalForDb = globalThis as unknown as { db?: Database.Database };
 
 function createDb(): Database.Database {
   const db = new Database(DB_PATH);
+  // Wait for a busy DB instead of failing immediately. Must be set before the
+  // journal_mode switch: on a fresh file, parallel `next build` workers race on
+  // the WAL switch itself (it takes a write lock), and without a timeout the
+  // losers fail instantly with SQLITE_BUSY.
+  db.pragma("busy_timeout = 15000");
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  // Wait for a busy DB instead of failing immediately.
-  db.pragma("busy_timeout = 5000");
   // Serialize migrations across processes. `next build` collects page data in
   // several worker processes, each of which opens the DB and runs migrate()
   // against a fresh file; without a lock they race on `ALTER TABLE ADD COLUMN`
