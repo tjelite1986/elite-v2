@@ -97,14 +97,17 @@ function remuxCopy(src, dst) {
 }
 
 function fullTranscode(src, dst) {
+  // nice + a 2-thread cap keep the encode from starving the app: an
+  // unconstrained libx264 run pegs all four Pi cores for the whole clip.
   execFileSync(
-    "ffmpeg",
-    ["-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", src,
+    "nice",
+    ["-n", "19", "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", src,
      "-c:v", "libx264", "-profile:v", "main", "-level", "4.0",
      "-preset", "veryfast", "-crf", "26",
      "-maxrate", "1800k", "-bufsize", "3600k",
      "-vf", "scale='min(1080,iw)':-2",
      "-c:a", "aac", "-b:a", "96k", "-ac", "2",
+     "-threads", "2",
      "-movflags", "+faststart", dst],
     { stdio: "ignore" }
   );
