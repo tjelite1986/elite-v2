@@ -7,11 +7,12 @@ import StoreAdultToggle from "@/components/store-adult-toggle";
 
 export const dynamic = "force-dynamic";
 
-export default async function StoreSearchPage({
-  searchParams,
-}: {
-  searchParams: { q?: string; section?: string };
-}) {
+export default async function StoreSearchPage(
+  props: {
+    searchParams: Promise<{ q?: string; section?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const session = await getSession();
   if (!session) redirect("/login");
   const adult = await has18Access();

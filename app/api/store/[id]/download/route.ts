@@ -10,10 +10,8 @@ export const dynamic = "force-dynamic";
 
 // Stream the APK for an app (current version, or ?version=<id>). Auth + 18+ gate
 // enforced; the raw archive path is never exposed.
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 

@@ -17,8 +17,9 @@ export const dynamic = "force-dynamic";
 // is scoped strictly to items reachable through the (unguessable) token.
 export async function GET(
   request: Request,
-  { params }: { params: { token: string; itemId: string } }
+  props: { params: Promise<{ token: string; itemId: string }> }
 ) {
+  const params = await props.params;
   const file = sharedItemFile(params.token, Number(params.itemId));
   if (!file) return new NextResponse("Not found", { status: 404 });
 

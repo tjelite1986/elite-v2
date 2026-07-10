@@ -22,10 +22,8 @@ function parseIds(body: { ids?: unknown }): number[] {
 }
 
 // Add the user's items to an album (ignores items they don't own / already in).
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = Number(session.sub);
@@ -57,10 +55,8 @@ export async function POST(
 }
 
 // Remove items from an album (does not delete the photos).
-export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = Number(session.sub);

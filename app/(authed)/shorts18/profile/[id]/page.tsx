@@ -9,11 +9,12 @@ export const dynamic = "force-dynamic";
 
 // A single 18+ profile: header + a grid of its clips. Profiles from the main
 // channel are never shown here (and vice-versa) so the two never mix.
-export default async function Shorts18ProfilePage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function Shorts18ProfilePage(
+  props: {
+    params: Promise<{ id: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
 

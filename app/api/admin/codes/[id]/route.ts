@@ -12,10 +12,8 @@ async function requireAdmin() {
 // Revoke / delete a registration code (e.g. a sent invite). Codes that have
 // already been used to create an account can't be deleted — the account
 // already exists and removing the record would lose that history.
-export async function DELETE(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const admin = await requireAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

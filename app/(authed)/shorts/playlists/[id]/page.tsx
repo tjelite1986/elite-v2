@@ -14,11 +14,12 @@ interface PlaylistRow {
 
 // A playlist: header + grid of saved clips. Tapping opens the immersive feed
 // scoped to the playlist.
-export default async function PlaylistPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function PlaylistPage(
+  props: {
+    params: Promise<{ id: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
 

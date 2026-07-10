@@ -54,7 +54,7 @@ export async function has18Access(): Promise<boolean> {
   if (!session) return false;
   const user = getUserById(Number(session.sub));
   if (!user?.adult_pin_hash) return true; // no personal PIN → adult content open
-  return verifyGateToken(cookies().get(GATE_COOKIE)?.value, session.sub);
+  return verifyGateToken((await cookies()).get(GATE_COOKIE)?.value, session.sub);
 }
 
 // Whether the current user has a personal 18+ PIN set (for settings UI / prompts).

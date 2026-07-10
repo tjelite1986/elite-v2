@@ -11,11 +11,12 @@ import PostReassignButton from "@/components/post-reassign-button";
 export const dynamic = "force-dynamic";
 
 // A single post permalink.
-export default async function PostPermalinkPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function PostPermalinkPage(
+  props: {
+    params: Promise<{ id: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
   const viewerId = Number(session.sub);

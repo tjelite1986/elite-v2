@@ -428,7 +428,9 @@ export default function GalleryClient() {
   };
   // Long-press to enter selection mode (Google-Photos style); a normal tap
   // opens the lightbox, or toggles when already selecting.
-  const pressTimer = React.useRef<ReturnType<typeof setTimeout>>();
+  const pressTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
   const longPressedRef = React.useRef(false);
 
   const startPress = (id: number) => {

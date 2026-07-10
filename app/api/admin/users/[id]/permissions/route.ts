@@ -6,10 +6,8 @@ export const dynamic = "force-dynamic";
 
 // Replace a user's granted permissions (admin-only). Invalid keys are ignored by
 // setUserPermissions. Admins ignore this entirely (they hold all permissions).
-export async function PUT(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (session.role !== "admin") {

@@ -6,11 +6,12 @@ import ShortsCandidates from "@/components/shorts-candidates";
 export const dynamic = "force-dynamic";
 
 // Admin-only manual download browser for one 18+ profile.
-export default async function Profile18CandidatesPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function Profile18CandidatesPage(
+  props: {
+    params: Promise<{ id: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
   if (session.role !== "admin") redirect(`/shorts18/profile/${params.id}`);

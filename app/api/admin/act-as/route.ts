@@ -108,7 +108,7 @@ export async function POST(request: Request) {
     role: target.role,
     imp: admin,
   });
-  cookies().set(SESSION_COOKIE, token, sessionCookieOptions);
+  (await cookies()).set(SESSION_COOKIE, token, sessionCookieOptions);
   console.log(`[act-as] ${admin.email} -> ${target.email}`);
   return NextResponse.json({ ok: true, email: target.email });
 }

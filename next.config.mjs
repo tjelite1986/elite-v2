@@ -5,9 +5,7 @@ const nextConfig = {
   reactStrictMode: true,
   // archiver (zip download) is ESM with a transitive dep whose package.json
   // `exports` order webpack rejects; load it from node_modules at runtime.
-  experimental: {
-    serverComponentsExternalPackages: ["archiver"],
-  },
+  serverExternalPackages: ["archiver"],
 };
 
 export default nextConfig;

@@ -14,7 +14,8 @@ async function requireAdmin() {
 // in the background; runJobNow claims the row synchronously (so the UI shows
 // "running" right away) and we don't block the request on a potentially long
 // job — the panel polls for the result.
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
+export async function POST(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const admin = await requireAdmin();
   if (!admin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

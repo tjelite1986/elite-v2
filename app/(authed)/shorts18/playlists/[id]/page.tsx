@@ -13,11 +13,12 @@ interface PlaylistRow {
 }
 
 // A playlist within the 18+ section: header + grid of saved clips.
-export default async function Playlist18Page({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function Playlist18Page(
+  props: {
+    params: Promise<{ id: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
 

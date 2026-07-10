@@ -23,7 +23,7 @@ export default function AppearanceSettings({
 }) {
   const [accent, setAccent] = useState(initialAccent);
   const [bg, setBg] = useState(initialBg);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const persist = (patch: { accent?: string; bgTheme?: string }) => {
     clearTimeout(saveTimer.current);

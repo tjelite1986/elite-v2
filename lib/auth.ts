@@ -7,7 +7,7 @@ import { sessionExists, touchSession } from "./sessions";
 // Server-side helper: read the current session from the request cookies.
 // Runs in the Node runtime (route handlers / server components), not edge.
 export async function getSession(): Promise<SessionPayload | null> {
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const session = await verifySessionToken(token);
   if (!session) return null;

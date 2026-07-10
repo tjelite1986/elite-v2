@@ -5,10 +5,8 @@ import { getSmartAlbum, resolveSmartItems } from "@/lib/smart-albums";
 export const dynamic = "force-dynamic";
 
 // Items matching a smart album's saved filter.
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -33,10 +33,8 @@ async function authorize(handle: string) {
 // Update any subset of a profile's extras. Each field is independent: only the
 // keys actually present in the body are written, so a partial update (e.g. just
 // `location`) leaves bio/links/Instagram untouched.
-export async function PATCH(
-  request: Request,
-  { params }: { params: { username: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ username: string }> }) {
+  const params = await props.params;
   const handle = handleOf(params.username);
   const auth = await authorize(handle);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -73,10 +71,8 @@ export async function PATCH(
 }
 
 // Upload/replace the cover banner.
-export async function POST(
-  request: Request,
-  { params }: { params: { username: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ username: string }> }) {
+  const params = await props.params;
   const handle = handleOf(params.username);
   const auth = await authorize(handle);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });

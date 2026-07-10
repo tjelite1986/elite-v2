@@ -177,8 +177,12 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
   selectedIdRef.current = selectedId;
 
   const typingSentRef = useRef(0);
-  const stopTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  const typingClearRef = useRef<ReturnType<typeof setTimeout>>();
+  const stopTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
+  const typingClearRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
 
   const loadUsers = useCallback(async () => {
     const res = await fetch("/api/messages/users");

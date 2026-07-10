@@ -5,11 +5,11 @@ import { revokeSession } from "@/lib/sessions";
 
 export async function POST() {
   // Drop this device's session row so the token can't be reused after logout.
-  const token = cookies().get(SESSION_COOKIE)?.value;
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (token) {
     const session = await verifySessionToken(token);
     if (session?.jti) revokeSession(session.jti, Number(session.sub));
   }
-  cookies().delete(SESSION_COOKIE);
+  (await cookies()).delete(SESSION_COOKIE);
   return NextResponse.json({ ok: true });
 }

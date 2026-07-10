@@ -9,10 +9,8 @@ import { posterPathFor, setCustomPoster } from "@/lib/shorts-storage";
 export const dynamic = "force-dynamic";
 
 // Serve a short's poster (JPEG). Same gate enforcement as the video route.
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 
@@ -48,10 +46,8 @@ export async function GET(
 // in seconds — the frame the admin paused on while watching. The client should
 // bust its cached poster URL (e.g. `?v=<now>`) after a success since the served
 // URL is keyed by id, not by file.
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

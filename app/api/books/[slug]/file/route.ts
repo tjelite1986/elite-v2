@@ -16,10 +16,8 @@ const MIME: Record<string, string> = {
 // Serve the raw book file. Same-origin reader fetches carry the httpOnly session
 // cookie, so plain session auth is enough (no media token needed). Range support
 // lets pdf.js fetch byte ranges.
-export async function GET(
-  request: Request,
-  { params }: { params: { slug: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 

@@ -63,6 +63,6 @@ export async function POST(request: Request) {
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null
   );
 
-  cookies().set(SESSION_COOKIE, token, sessionCookieOptions);
+  (await cookies()).set(SESSION_COOKIE, token, sessionCookieOptions);
   return NextResponse.json({ ok: true, role: user.role });
 }

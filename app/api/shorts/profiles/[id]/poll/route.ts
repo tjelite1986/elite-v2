@@ -9,10 +9,8 @@ export const dynamic = "force-dynamic";
 // Kick off an on-demand poll of a single profile (admin only). Returns
 // immediately; the download runs in the background and the admin UI refreshes
 // to show new clips appearing.
-export async function POST(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

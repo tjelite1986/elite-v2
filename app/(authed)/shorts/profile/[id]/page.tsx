@@ -9,11 +9,12 @@ export const dynamic = "force-dynamic";
 
 // A single profile: header + a grid of its clips. Tapping a clip opens the
 // immersive feed scoped to this profile, starting there.
-export default async function ShortsProfilePage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default async function ShortsProfilePage(
+  props: {
+    params: Promise<{ id: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
 

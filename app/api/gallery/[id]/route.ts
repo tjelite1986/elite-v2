@@ -17,10 +17,8 @@ function getOwned(id: number, userId: number): GalleryItemRow | undefined {
 }
 
 // Full details for one item (for the info panel).
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const item = getOwned(Number(params.id), Number(session.sub));
@@ -40,10 +38,8 @@ function normalizeDate(input: string): string | null {
 }
 
 // Edit user-supplied metadata: date, description, place name.
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = Number(session.sub);

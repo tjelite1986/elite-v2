@@ -20,10 +20,8 @@ export const dynamic = "force-dynamic";
 // them in a message, OR they are an admin (needed for cross-user gallery
 // duplicate review in Settings). Files are read from the OWNER's storage
 // (item.user_id). The httpOnly session cookie rides same-origin <img> requests.
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return new NextResponse("Unauthorized", { status: 401 });

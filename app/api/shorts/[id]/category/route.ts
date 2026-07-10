@@ -8,10 +8,8 @@ export const dynamic = "force-dynamic";
 
 // Set a clip's 18+ category bucket. Admin only — categorisation is a curation
 // task, not something every viewer should change.
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

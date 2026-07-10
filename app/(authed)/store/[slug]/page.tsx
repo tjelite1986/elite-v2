@@ -18,11 +18,12 @@ function formatBytes(n: number): string {
   return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.round(n / 1024)} KB`;
 }
 
-export default async function StoreAppDetailPage({
-  params,
-}: {
-  params: { slug: string };
-}) {
+export default async function StoreAppDetailPage(
+  props: {
+    params: Promise<{ slug: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
 
@@ -56,11 +57,11 @@ export default async function StoreAppDetailPage({
       <div className="relative mb-6 overflow-hidden rounded-3xl ring-1 ring-white/10">
         {app.bannerUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img
+          (<img
             src={app.bannerUrl}
             alt=""
             className="absolute inset-0 h-full w-full object-cover opacity-30"
-          />
+          />)
         )}
         <div className="relative flex flex-col gap-4 bg-gradient-to-t from-black/70 to-black/30 p-5 sm:flex-row sm:items-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -137,7 +138,6 @@ export default async function StoreAppDetailPage({
           )}
         </div>
       </div>
-
       {/* XAPK install notice */}
       {isXapk && (
         <div className="mb-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200/90">
@@ -149,23 +149,21 @@ export default async function StoreAppDetailPage({
           won&apos;t open it.
         </div>
       )}
-
       {/* Screenshots */}
       {app.screenshots.length > 0 && (
         <div className="mb-6 flex gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {app.screenshots.map((src, i) => (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
+            (<img
               key={i}
               src={src}
               alt=""
               className="h-72 shrink-0 rounded-2xl object-cover ring-1 ring-white/10"
               loading="lazy"
-            />
+            />)
           ))}
         </div>
       )}
-
       {/* Description */}
       {app.description && (
         <section className="mb-6">
@@ -175,7 +173,6 @@ export default async function StoreAppDetailPage({
           </p>
         </section>
       )}
-
       {/* Versions */}
       {app.versions.length > 0 && (
         <section className="mb-6">
@@ -208,7 +205,6 @@ export default async function StoreAppDetailPage({
           </div>
         </section>
       )}
-
       {/* Reviews */}
       <StoreReviewSection
         appId={app.id}

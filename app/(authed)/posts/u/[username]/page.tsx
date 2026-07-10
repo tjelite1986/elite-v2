@@ -30,11 +30,12 @@ function Stat({ value, label }: { value: number; label: string }) {
 
 // Public profile for a user OR a mirrored creator, resolved by the shared
 // username namespace. Shows header + a grid of the author's posts.
-export default async function PostsProfilePage({
-  params,
-}: {
-  params: { username: string };
-}) {
+export default async function PostsProfilePage(
+  props: {
+    params: Promise<{ username: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
   const viewerId = Number(session.sub);
