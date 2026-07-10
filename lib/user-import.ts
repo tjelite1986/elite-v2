@@ -214,7 +214,7 @@ function pruneEmptyDirs(sectionDir: string) {
 // creators), so the folder shows up in /shorts18/profiles. Find-or-create a
 // `manual` short_profiles row. Names are stored/matched LOWERCASE so a re-import
 // reuses the same profile regardless of the source folder's casing.
-function findOrCreateShortProfile(name: string, channel: ShortChannel): number {
+export function findOrCreateShortProfile(name: string, channel: ShortChannel): number {
   const lname = name.toLowerCase();
   // A merged-away handle (alias) routes to the surviving profile, so re-importing
   // e.g. a "lillieinlove" folder lands on the merged "lillielucas" profile.

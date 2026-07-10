@@ -22,6 +22,8 @@ import {
   Rewind,
   Globe,
   Lock,
+  ArrowRightLeft,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -111,6 +113,7 @@ export default function ShortCard({
   isAdmin = false,
   chromeHidden = false,
   onToggleChrome,
+  onRemoved,
 }: {
   short: FeedShort;
   active: boolean;
@@ -125,6 +128,9 @@ export default function ShortCard({
   // Clean view: hide all overlay UI. Long-press the clip to toggle it back.
   chromeHidden?: boolean;
   onToggleChrome?: () => void;
+  // Called after the clip left this feed (moved to the other channel, or
+  // deleted) so the parent can drop the card and snap to the next clip.
+  onRemoved?: (id: number) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -146,11 +152,14 @@ export default function ShortCard({
   const [saved, setSaved] = useState(short.viewer_saved);
   const [commentCount, setCommentCount] = useState(short.comment_count);
   const [showCategory, setShowCategory] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [busyAction, setBusyAction] = useState(false);
   // Device Back closes an open bottom sheet instead of leaving the feed.
   useBackDismiss(showComments, () => setShowComments(false));
   useBackDismiss(showShare, () => setShowShare(false));
   useBackDismiss(showSave, () => setShowSave(false));
   useBackDismiss(showCategory, () => setShowCategory(false));
+  useBackDismiss(showDelete, () => setShowDelete(false));
   const [category, setCategory] = useState(short.category);
   const [coverMsg, setCoverMsg] = useState<string | null>(null);
   const [caption, setCaption] = useState(short.caption);
@@ -244,6 +253,58 @@ export default function ShortCard({
     } catch {
       setIsPrivate(!next);
     }
+  };
+
+  // Owner/admin: move the clip to the other channel. One tap — the clip is
+  // re-homed like an import into the target channel (files + creator profile)
+  // and leaves this feed. Moving back is one tap from the other side.
+  const otherChannel = short.channel === "18plus" ? "main" : "18plus";
+  const moveChannel = async () => {
+    if (busyAction) return;
+    setBusyAction(true);
+    setCoverMsg(`Moving to ${otherChannel === "18plus" ? "18+" : "Shorts"}…`);
+    try {
+      const res = await fetch(`/api/shorts/${short.id}/channel`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel: otherChannel }),
+      });
+      if (res.ok) {
+        setCoverMsg(null);
+        onRemoved?.(short.id);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setCoverMsg(d.error || "Move failed");
+        setTimeout(() => setCoverMsg(null), 2500);
+      }
+    } catch {
+      setCoverMsg("Move failed");
+      setTimeout(() => setCoverMsg(null), 2500);
+    }
+    setBusyAction(false);
+  };
+
+  // Owner/admin: delete the clip (confirmed in a sheet — destructive).
+  const deleteClip = async () => {
+    if (busyAction) return;
+    setBusyAction(true);
+    try {
+      const res = await fetch(`/api/shorts/${short.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setShowDelete(false);
+        onRemoved?.(short.id);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setCoverMsg(d.error || "Delete failed");
+        setTimeout(() => setCoverMsg(null), 2500);
+        setShowDelete(false);
+      }
+    } catch {
+      setCoverMsg("Delete failed");
+      setTimeout(() => setCoverMsg(null), 2500);
+      setShowDelete(false);
+    }
+    setBusyAction(false);
   };
 
   // Drive playback from the active flag: the in-view card plays, all others
@@ -522,6 +583,20 @@ export default function ShortCard({
             onClick={toggleVisibility}
           />
         )}
+        {(isOwner || isAdmin) && (
+          <RailButton
+            icon={<ArrowRightLeft size={22} className={cn(busyAction && "opacity-50")} />}
+            label={otherChannel === "18plus" ? "To 18+" : "To Shorts"}
+            onClick={moveChannel}
+          />
+        )}
+        {(isOwner || isAdmin) && (
+          <RailButton
+            icon={<Trash2 size={22} className="text-red-400" />}
+            label="Delete"
+            onClick={() => setShowDelete(true)}
+          />
+        )}
         {categoryEditable && (
           <RailButton
             icon={<Tag size={22} />}
@@ -579,6 +654,37 @@ export default function ShortCard({
         </div>
       )}
 
+      {showDelete && (
+        <div
+          className="absolute inset-0 z-20 flex items-end justify-center bg-black/60"
+          onClick={() => setShowDelete(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl bg-neutral-900 p-5 pb-8 text-white"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-base font-semibold">Delete this clip?</p>
+            <p className="mt-1 text-sm text-white/60">
+              The video and its file are removed. This can&apos;t be undone.
+            </p>
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={deleteClip}
+                disabled={busyAction}
+                className="flex-1 rounded-full bg-red-600 py-2.5 text-sm font-semibold transition active:scale-95 disabled:opacity-50"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setShowDelete(false)}
+                className="flex-1 rounded-full bg-white/10 py-2.5 text-sm font-semibold transition active:scale-95"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showComments && (
         <CommentsSheet
           shortId={short.id}

@@ -194,6 +194,7 @@ export default function ShortsFeed({
             isAdmin={isAdmin}
             chromeHidden={chromeHidden}
             onToggleChrome={toggleChrome}
+            onRemoved={(id) => setItems((prev) => prev.filter((s) => s.id !== id))}
           />
         </div>
       ))}
