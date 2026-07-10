@@ -40,6 +40,15 @@ export interface PersonContentIds {
   shorts18Ids: number[];
 }
 
+// Stored usernames/names are not guaranteed to be normalized (imports and
+// short profiles keep display-ish names), so matching must apply norm() to the
+// stored value — a plain `WHERE username IN (...)` would miss rows. Registering
+// norm() as a SQL function lets SQLite do that filtering without materializing
+// every profile row in JS.
+db.function("norm_handle", { deterministic: true }, (s) =>
+  norm(String(s ?? ""))
+);
+
 // Resolve every content id (across all linked members) for a handle, so callers
 // can union them in feed/count queries. 18+ short profiles are excluded unless
 // include18.
@@ -47,29 +56,33 @@ export function personContentIds(
   handle: string,
   include18: boolean
 ): PersonContentIds {
-  const members = new Set(getGroupMembers(handle));
+  const members = getGroupMembers(handle);
+  const ph = members.map(() => "?").join(", ");
 
-  const users = db
-    .prepare("SELECT user_id, username FROM user_profiles")
-    .all() as { user_id: number; username: string }[];
-  const userIds = users
-    .filter((u) => members.has(norm(u.username)))
-    .map((u) => u.user_id);
+  const userIds = (
+    db
+      .prepare(
+        `SELECT user_id FROM user_profiles WHERE norm_handle(username) IN (${ph})`
+      )
+      .all(...members) as { user_id: number }[]
+  ).map((r) => r.user_id);
 
-  const creators = db
-    .prepare("SELECT id, username FROM post_creators")
-    .all() as { id: number; username: string }[];
-  const creatorIds = creators
-    .filter((c) => members.has(norm(c.username)))
-    .map((c) => c.id);
+  const creatorIds = (
+    db
+      .prepare(
+        `SELECT id FROM post_creators WHERE norm_handle(username) IN (${ph})`
+      )
+      .all(...members) as { id: number }[]
+  ).map((r) => r.id);
 
   const shorts = db
-    .prepare("SELECT id, name, channel FROM short_profiles")
-    .all() as { id: number; name: string; channel: string }[];
+    .prepare(
+      `SELECT id, channel FROM short_profiles WHERE norm_handle(name) IN (${ph})`
+    )
+    .all(...members) as { id: number; channel: string }[];
   const shortsMainIds: number[] = [];
   const shorts18Ids: number[] = [];
   for (const s of shorts) {
-    if (!members.has(norm(s.name))) continue;
     if (s.channel === "18plus") {
       if (include18) shorts18Ids.push(s.id);
     } else {

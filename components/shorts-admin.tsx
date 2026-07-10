@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Trash2, Plus, Radio, RefreshCw, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -49,7 +49,7 @@ export default function ShortsAdmin({
   const [polling, setPolling] = useState<Set<number>>(new Set());
   const pollWatch = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     const url = channel
       ? `/api/shorts/profiles?channel=${channel}`
       : "/api/shorts/profiles";
@@ -58,14 +58,14 @@ export default function ShortsAdmin({
       const d = await res.json();
       setProfiles(d.profiles || []);
     }
-  };
+  }, [channel]);
 
   useEffect(() => {
     refresh();
     return () => {
       if (pollWatch.current) clearInterval(pollWatch.current);
     };
-  }, []);
+  }, [refresh]);
 
   // After triggering downloads, refresh a few times so clip counts update live
   // as the background poller writes rows.
