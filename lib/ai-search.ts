@@ -7,6 +7,18 @@
 const PERPLEXITY_API_KEY = process.env.PERPLEXITY_API_KEY;
 const PERPLEXITY_MODEL = process.env.PERPLEXITY_MODEL || "sonar";
 
+// Without steering, search-grounded models answer like an encyclopedia digest,
+// which reads flat for open-ended questions. Overridable per instance.
+const SYSTEM_PROMPT =
+  process.env.PERPLEXITY_SYSTEM_PROMPT ||
+  "You are the house AI of a private social platform, talking with a friend. " +
+    "Always answer in the same language as the question. Be engaging and " +
+    "personal: have a take, use concrete examples and a bit of humor where it " +
+    "fits. For factual questions, stay accurate and lean on your search " +
+    "results. For big open questions (life, meaning, taste), give a genuinely " +
+    "interesting answer with different perspectives and your own conclusion " +
+    "instead of a neutral encyclopedia summary. Never pad, never disclaim.";
+
 export interface AiSearchSource {
   title: string;
   url: string;
@@ -35,6 +47,7 @@ export async function aiSearch(
   if (!PERPLEXITY_API_KEY) throw new AiSearchNotConfiguredError();
 
   const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
     ...history.map(([role, content]) => ({
       role: role === "human" ? "user" : "assistant",
       content,
