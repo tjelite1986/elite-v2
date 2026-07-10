@@ -7,10 +7,8 @@ export const dynamic = "force-dynamic";
 
 // Toggle a clip's public/private visibility. The uploader can change their own
 // clip; admins can change any. Body: { isPrivate: boolean }.
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

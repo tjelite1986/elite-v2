@@ -3,11 +3,12 @@ import { getSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function ShortsPage({
-  searchParams,
-}: {
-  searchParams: { focus?: string };
-}) {
+export default async function ShortsPage(
+  props: {
+    searchParams: Promise<{ focus?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const session = await getSession();
   const focus = Number(searchParams?.focus);
   return (

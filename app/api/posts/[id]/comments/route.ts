@@ -9,10 +9,8 @@ import { notify } from "@/lib/notifications";
 export const dynamic = "force-dynamic";
 
 // List a post's comments with author handle/avatar.
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -42,10 +40,8 @@ export async function GET(
 }
 
 // Add a comment. Notifies the post's user-author.
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = Number(session.sub);

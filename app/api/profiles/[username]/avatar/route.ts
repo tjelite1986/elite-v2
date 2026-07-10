@@ -28,10 +28,8 @@ async function authorize(handle: string) {
 //   - multipart `file`: a (cropped) uploaded image
 //   - JSON `{ mediaId }`: an existing post photo
 //   - JSON `{ shortId }`: a clip's video thumbnail (poster frame)
-export async function POST(
-  request: Request,
-  { params }: { params: { username: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ username: string }> }) {
+  const params = await props.params;
   const handle = handleOf(params.username);
   const auth = await authorize(handle);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -121,10 +119,8 @@ export async function POST(
 
 // Serve a user's or creator's avatar by username. 404 when none is set so the
 // client falls back to an initials placeholder.
-export async function GET(
-  request: Request,
-  { params }: { params: { username: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ username: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 

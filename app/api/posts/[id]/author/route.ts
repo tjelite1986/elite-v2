@@ -13,10 +13,8 @@ export const dynamic = "force-dynamic";
 // { creatorId } for an existing creator or { username } to find-or-create one.
 // Moves the post's media files into the new creator's folder, then re-points
 // author_creator_id + each media storage_key.
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (session.role !== "admin") {

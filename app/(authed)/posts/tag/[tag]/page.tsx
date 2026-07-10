@@ -6,11 +6,12 @@ import PostGrid from "@/components/post-grid";
 export const dynamic = "force-dynamic";
 
 // All posts tagged with a hashtag.
-export default async function PostsTagPage({
-  params,
-}: {
-  params: { tag: string };
-}) {
+export default async function PostsTagPage(
+  props: {
+    params: Promise<{ tag: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
   ensureUserProfile(Number(session.sub), session.email);

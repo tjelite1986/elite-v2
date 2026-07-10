@@ -8,11 +8,12 @@ import PersonProfile from "@/components/person-profile";
 export const dynamic = "force-dynamic";
 
 // Unified cross-section profile for a handle (user and/or mirrored creator).
-export default async function PersonPage({
-  params,
-}: {
-  params: { handle: string };
-}) {
+export default async function PersonPage(
+  props: {
+    params: Promise<{ handle: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
   const viewerId = Number(session.sub);

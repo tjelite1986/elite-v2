@@ -10,11 +10,12 @@ import ProfileExtrasEditor from "@/components/profile-extras-editor";
 export const dynamic = "force-dynamic";
 
 // Edit a profile's bio / links / cover banner (own profile, or any for admins).
-export default async function EditProfilePage({
-  params,
-}: {
-  params: { handle: string };
-}) {
+export default async function EditProfilePage(
+  props: {
+    params: Promise<{ handle: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
   const viewerId = Number(session.sub);

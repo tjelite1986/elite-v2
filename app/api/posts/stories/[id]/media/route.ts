@@ -10,10 +10,8 @@ export const dynamic = "force-dynamic";
 
 // Stream a story image. Viewable by the author or someone who follows them — the
 // same scope as the rail, re-checked here rather than assumed.
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
   const viewerId = Number(session.sub);

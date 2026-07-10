@@ -11,10 +11,8 @@ export const dynamic = "force-dynamic";
 // landed under the wrong/fallback profile. The target profile must exist and
 // live on the same channel as the clip — clips never cross between main and 18+.
 // Moves the files into the new profile folder, then persists the new keys.
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

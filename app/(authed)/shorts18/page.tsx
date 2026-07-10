@@ -7,11 +7,12 @@ export const dynamic = "force-dynamic";
 
 // Videos: the immersive 18+ feed. The section layout already gated access.
 // The category chips (under the tab bar) filter the feed via the `cat` param.
-export default async function Shorts18Page({
-  searchParams,
-}: {
-  searchParams: { focus?: string; cat?: string };
-}) {
+export default async function Shorts18Page(
+  props: {
+    searchParams: Promise<{ focus?: string; cat?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const session = await getSession();
   const focus = Number(searchParams?.focus);
   const category = parseCategory(searchParams?.cat);

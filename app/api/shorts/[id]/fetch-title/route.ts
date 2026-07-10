@@ -11,10 +11,8 @@ export const maxDuration = 60;
 // Fetch the original title of a single clip from its source (e.g. the TikTok
 // video) via yt-dlp and store it as the caption (admin only). Used to repair
 // legacy imports whose titles were truncated or missing.
-export async function POST(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

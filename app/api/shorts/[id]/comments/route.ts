@@ -14,10 +14,8 @@ interface CommentWithAuthor extends ShortCommentRow {
 // Display name only — never the full email address (PII).
 const authorName = sql<string | null>`COALESCE(up.username, substr(u.email, 1, instr(u.email, '@') - 1))`;
 
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -49,10 +47,8 @@ export async function GET(
   return NextResponse.json({ comments });
 }
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

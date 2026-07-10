@@ -4,10 +4,8 @@ import { qb, getAll } from "@/lib/kysely";
 import { getSession, getUserById } from "@/lib/auth";
 import { reactionsForMessages, replyPreview } from "@/lib/message-actions";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: { userId: string } }
-) {
+export async function GET(_request: Request, props: { params: Promise<{ userId: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

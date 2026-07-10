@@ -10,10 +10,8 @@ export const dynamic = "force-dynamic";
 
 // Toggle the viewer's like on a post. Notifies the post's user-author on a new
 // like (creator-authored posts have no recipient).
-export async function POST(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = Number(session.sub);

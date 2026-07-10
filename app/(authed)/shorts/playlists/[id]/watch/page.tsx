@@ -6,13 +6,14 @@ import ShortsFeed from "@/components/shorts-feed";
 export const dynamic = "force-dynamic";
 
 // Immersive feed scoped to a playlist (opened from the playlist grid).
-export default async function PlaylistWatchPage({
-  params,
-  searchParams,
-}: {
-  params: { id: string };
-  searchParams: { focus?: string };
-}) {
+export default async function PlaylistWatchPage(
+  props: {
+    params: Promise<{ id: string }>;
+    searchParams: Promise<{ focus?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
 

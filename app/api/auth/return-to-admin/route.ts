@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     request.headers.get("user-agent"),
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null
   );
-  cookies().set(SESSION_COOKIE, token, sessionCookieOptions);
+  (await cookies()).set(SESSION_COOKIE, token, sessionCookieOptions);
   console.log(`[act-as] return to admin ${admin.email}`);
   return NextResponse.json({ ok: true });
 }

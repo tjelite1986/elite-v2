@@ -23,10 +23,8 @@ async function authorize(handle: string) {
 
 // Sync status for the profile, so the manage widget can poll while a background
 // download runs.
-export async function GET(
-  _request: Request,
-  { params }: { params: { username: string } }
-) {
+export async function GET(_request: Request, props: { params: Promise<{ username: string }> }) {
+  const params = await props.params;
   const handle = handleOf(params.username);
   const auth = await authorize(handle);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -43,10 +41,8 @@ export async function GET(
 // Kick off a media download from this profile's connected TikTok account.
 // Refreshes the avatar/info inline (fast), then runs the download + ingest in
 // the background. Returns immediately. No cookie is required.
-export async function POST(
-  request: Request,
-  { params }: { params: { username: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ username: string }> }) {
+  const params = await props.params;
   const handle = handleOf(params.username);
   const auth = await authorize(handle);
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });

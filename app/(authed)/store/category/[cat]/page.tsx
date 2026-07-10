@@ -6,11 +6,12 @@ import StoreGrid from "@/components/store-grid";
 
 export const dynamic = "force-dynamic";
 
-export default async function StoreCategoryPage({
-  params,
-}: {
-  params: { cat: string };
-}) {
+export default async function StoreCategoryPage(
+  props: {
+    params: Promise<{ cat: string }>;
+  }
+) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
 

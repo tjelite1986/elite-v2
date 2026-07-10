@@ -11,10 +11,8 @@ export const dynamic = "force-dynamic";
 // Stream a short's video with HTTP Range support so <video> can seek and start
 // before the full file arrives. Re-checks the 18+ gate here — the media route is
 // exactly where the old elite leaked, so it never trusts the page or feed API.
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 

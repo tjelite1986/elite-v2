@@ -17,10 +17,8 @@ export const dynamic = "force-dynamic";
 // Rotate an item 90° and regenerate its thumb/preview. The rotation is stored
 // cumulatively and re-applied from the original each time (no quality drift),
 // and media_version is bumped so cached <img> URLs refetch.
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

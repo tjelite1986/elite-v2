@@ -25,10 +25,8 @@ async function adminProfile(id: number) {
 // List available clips from the profile's source with thumbnails + meta.
 // ?limit= controls how deep into the source playlist to enumerate (the UI's
 // "Show more" re-fetches with a larger limit — yt-dlp has no cursor pagination).
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = await adminProfile(Number(params.id));
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -49,10 +47,8 @@ export async function GET(
 }
 
 // Download a single chosen clip (body: { id, url, title }).
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = await adminProfile(Number(params.id));
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });

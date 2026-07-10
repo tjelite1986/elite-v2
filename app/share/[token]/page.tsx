@@ -5,7 +5,8 @@ import SharedAlbumView from "@/components/shared-album-view";
 export const dynamic = "force-dynamic";
 
 // Public, no-auth album page reached via a share link.
-export default function SharePage({ params }: { params: { token: string } }) {
+export default async function SharePage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const share = resolveShare(params.token);
   if (!share) notFound();
   return (

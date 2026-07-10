@@ -9,10 +9,8 @@ export const dynamic = "force-dynamic";
 
 // Serve a profile's cover banner by handle. 404 when none is set. Revalidated
 // via an ETag keyed to the banner file so a change shows immediately.
-export async function GET(
-  request: Request,
-  { params }: { params: { username: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ username: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 

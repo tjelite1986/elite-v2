@@ -9,10 +9,8 @@ export const dynamic = "force-dynamic";
 // "share" sends the clip to another user as a message attachment (type 'short').
 // The recipient still has to clear the 18+ gate to actually play a 18plus clip —
 // the media routes enforce that independently.
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

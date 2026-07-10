@@ -14,10 +14,8 @@ async function requireAdmin() {
 }
 
 // Rename a clip's title/caption (admin only).
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = await requireAdmin();
   if ("error" in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -40,10 +38,8 @@ export async function PATCH(
 
 // Delete a clip (the uploader of their own clip, or an admin): soft-delete the
 // row, remove the files from disk, and drop it from any duplicate-scan group.
-export async function DELETE(
-  _request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

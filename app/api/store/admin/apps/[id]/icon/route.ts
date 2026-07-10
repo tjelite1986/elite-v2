@@ -9,10 +9,8 @@ export const dynamic = "force-dynamic";
 
 // Upload a custom icon for an app. Stored in STORE_DIR and addressed via the
 // "store:" key prefix so it resolves regardless of the app's primary source.
-export async function PUT(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session || session.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

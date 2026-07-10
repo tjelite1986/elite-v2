@@ -7,11 +7,12 @@ export const dynamic = "force-dynamic";
 
 // Browse all 18+ clips as a grid, filterable by category. Admins get a per-tile
 // category selector to sort uncategorized imports.
-export default async function Explore18Page({
-  searchParams,
-}: {
-  searchParams: { cat?: string };
-}) {
+export default async function Explore18Page(
+  props: {
+    searchParams: Promise<{ cat?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
   const session = await getSession();
   const category = parseCategory(searchParams?.cat);
   const query: Record<string, string> = { channel: "18plus" };

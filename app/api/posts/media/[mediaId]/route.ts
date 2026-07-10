@@ -12,10 +12,8 @@ export const dynamic = "force-dynamic";
 // Serve a post image (display or ?size=thumb). Re-checks the 18+ gate here —
 // the media route is exactly where access must not be assumed from the page or
 // feed API. Content-Type is derived from the on-disk extension, never echoed.
-export async function GET(
-  request: Request,
-  { params }: { params: { mediaId: string } }
-) {
+export async function GET(request: Request, props: { params: Promise<{ mediaId: string }> }) {
+  const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 

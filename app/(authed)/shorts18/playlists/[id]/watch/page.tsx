@@ -6,13 +6,14 @@ import ShortsFeed from "@/components/shorts-feed";
 export const dynamic = "force-dynamic";
 
 // Immersive feed scoped to a playlist, within the 18+ section.
-export default async function Playlist18WatchPage({
-  params,
-  searchParams,
-}: {
-  params: { id: string };
-  searchParams: { focus?: string };
-}) {
+export default async function Playlist18WatchPage(
+  props: {
+    params: Promise<{ id: string }>;
+    searchParams: Promise<{ focus?: string }>;
+  }
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const session = await getSession();
   if (!session) redirect("/login");
 

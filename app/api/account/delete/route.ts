@@ -87,6 +87,6 @@ export async function POST(request: Request) {
 
   deleteAccount();
 
-  cookies().delete(SESSION_COOKIE);
+  (await cookies()).delete(SESSION_COOKIE);
   return NextResponse.json({ ok: true });
 }
