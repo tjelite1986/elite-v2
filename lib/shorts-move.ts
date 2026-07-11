@@ -108,12 +108,23 @@ export function moveShortChannel(
     }
   }
 
-  db.prepare(
-    `UPDATE shorts
-        SET channel = ?, storage_key = ?, poster_key = ?, profile_id = ?,
-            category = 'uncategorized'
-      WHERE id = ?`
-  ).run(target, newStorageKey, newPosterKey, newProfileId, shortId);
+  try {
+    db.prepare(
+      `UPDATE shorts
+          SET channel = ?, storage_key = ?, poster_key = ?, profile_id = ?,
+              category = 'uncategorized'
+        WHERE id = ?`
+    ).run(target, newStorageKey, newPosterKey, newProfileId, shortId);
+  } catch (err) {
+    // Compensate: move the files back so disk and DB stay consistent.
+    try {
+      moveOne(newStorageKey, target, from);
+      if (newPosterKey) moveOne(newPosterKey, target, from);
+    } catch {
+      /* leave for the orphan report */
+    }
+    throw err;
+  }
 
   return { ok: true, channel: target };
 }

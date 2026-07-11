@@ -37,7 +37,8 @@ export async function POST(request: Request) {
             Array.isArray(t) &&
             t.length === 2 &&
             (t[0] === "human" || t[0] === "assistant") &&
-            typeof t[1] === "string"
+            typeof t[1] === "string" &&
+            t[1].length <= 4000
         )
         .slice(-20)
     : [];
