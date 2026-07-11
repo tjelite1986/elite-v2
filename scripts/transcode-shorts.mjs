@@ -197,6 +197,14 @@ for (const row of rows) {
     fs.rmSync(tmp, { force: true });
     const ext = path.extname(row.storage_key).slice(1).toLowerCase();
     const codec = videoCodec(src);
+    // No video stream at all (e.g. a TikTok photo/slideshow post where yt-dlp
+    // only got the mp3 music track): never let it become a "ready" short.
+    if (!codec) {
+      log(`short ${row.id} has no video stream — marking failed`);
+      db.prepare("UPDATE shorts SET status = 'failed' WHERE id = ?").run(row.id);
+      failed++;
+      continue;
+    }
     const canRemux = (ext === "mp4" || ext === "m4v") && codec === "h264";
 
     if (canRemux) {

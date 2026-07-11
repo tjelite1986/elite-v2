@@ -158,6 +158,23 @@ async function enumerateRss(ref, limit) {
   return items;
 }
 
+// True when the file contains at least one video stream. TikTok photo posts
+// (slideshows) expose only their mp3 music track to yt-dlp — those download
+// "successfully" but are useless as shorts.
+function hasVideoStream(filePath) {
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-select_streams", "v", "-show_entries", "stream=codec_type",
+       "-of", "csv=p=0", filePath],
+      { encoding: "utf8" }
+    );
+    return out.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function download(url, dir, uuid) {
   execFileSync(
     YT_DLP,
@@ -245,11 +262,21 @@ for (const profile of profiles) {
      VALUES (?, ?, NULL, ?, ?, NULL, 'video/mp4', 'poll', ?, 'pending')`
   );
 
+  const newSkips = [];
   for (const c of fresh) {
     const uuid = randomUUID();
     try {
       const file = download(c.url, dir, uuid);
       if (!file) throw new Error("no file produced");
+      // Photo/slideshow post (audio only): drop the file and remember the id
+      // in skipped_ids so it's never fetched again.
+      const filePath = path.join(dir, file);
+      if (!hasVideoStream(filePath)) {
+        fs.rmSync(filePath, { force: true });
+        newSkips.push(String(c.id));
+        log(`  - ${c.id} is a photo post (no video stream) — skipped permanently`);
+        continue;
+      }
       // storage_key is relative to the channel dir and includes the profile
       // subfolder, so the transcoder + media routes resolve it unchanged.
       const storageKey = `${slug}/${file}`;
@@ -259,6 +286,12 @@ for (const profile of profiles) {
     } catch (err) {
       log(`  ! ${c.id} download failed: ${String(err.message).slice(0, 120)}`);
     }
+  }
+  if (newSkips.length > 0) {
+    db.prepare("UPDATE short_profiles SET skipped_ids = ? WHERE id = ?").run(
+      JSON.stringify([...skipped.map(String), ...newSkips]),
+      profile.id
+    );
   }
 
   db.prepare("UPDATE short_profiles SET last_polled_at = datetime('now') WHERE id = ?").run(

@@ -234,6 +234,23 @@ const entries = fs
   .readdirSync(IMPORT_DIR, { withFileTypes: true })
   .filter((e) => e.isFile());
 
+// True when the file contains at least one video stream. TikTok photo posts
+// (slideshows) grabbed via yt-dlp are just their mp3 music track in an mp4/web
+// container — importing those gives a "video" with sound but a black screen.
+function hasVideoStream(filePath) {
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-select_streams", "v", "-show_entries", "stream=codec_type",
+       "-of", "csv=p=0", filePath],
+      { encoding: "utf8" }
+    );
+    return out.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 let imported = 0;
 let profilesNew = 0;
 let skipped = 0;
@@ -278,6 +295,21 @@ for (const entry of entries) {
     fs.renameSync(path.join(IMPORT_DIR, entry.name), destVideo);
   } catch (err) {
     log(`skip ${entry.name}: ${err.message}`);
+    skipped++;
+    continue;
+  }
+
+  // Audio-only drop (photo/slideshow post): never insert it as a short. Moved
+  // to _import/_rejected/ instead of deleted so nothing is silently lost.
+  if (!hasVideoStream(destVideo)) {
+    const rejDir = path.join(IMPORT_DIR, "_rejected");
+    fs.mkdirSync(rejDir, { recursive: true });
+    try {
+      fs.renameSync(destVideo, path.join(rejDir, destVideoName));
+    } catch {
+      fs.rmSync(destVideo, { force: true });
+    }
+    log(`reject ${entry.name}: no video stream (photo post?)`);
     skipped++;
     continue;
   }

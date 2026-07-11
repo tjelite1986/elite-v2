@@ -65,6 +65,22 @@ export interface Candidate {
   downloaded: boolean;
 }
 
+// True when the file contains at least one video stream. TikTok photo posts
+// (slideshows) expose only their mp3 music track to yt-dlp.
+function hasVideoStream(filePath: string): boolean {
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-select_streams", "v", "-show_entries", "stream=codec_type",
+       "-of", "csv=p=0", filePath],
+      { encoding: "utf8" }
+    );
+    return out.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // Turn a raw yt-dlp stderr dump into a short, user-facing reason.
 function friendlyYtdlpError(stderr: string): string {
   const s = stderr.toLowerCase();
@@ -212,6 +228,13 @@ export function downloadOne(
     .readdirSync(dir)
     .filter((f) => f.startsWith(`${uuid}.`) && !f.endsWith(".part"));
   if (produced.length === 0) return null;
+
+  // Photo/slideshow post: yt-dlp only gets the mp3 music track for those, so
+  // the "video" would play as sound over a black screen. Reject it.
+  if (!hasVideoStream(path.join(dir, produced[0]))) {
+    for (const f of produced) fs.rmSync(path.join(dir, f), { force: true });
+    throw new Error("This post is a photo/slideshow — it has no video.");
+  }
 
   const result = db
     .prepare(
