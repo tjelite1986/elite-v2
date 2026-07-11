@@ -192,7 +192,13 @@ export function downloadOne(
     YT_DLP,
     [
       "--no-playlist",
-      "-f", "best[height<=1920][ext=mp4]/best[height<=1920]/best",
+      // Merging selector (video+audio): plain "best" picks a single pre-muxed
+      // stream and yields silent files for sources that only expose split streams.
+      "-f", "bv*[height<=1920]+ba/b[height<=1920]/bv*+ba/b",
+      // Prefer h264: TikTok's hevc (bytevc1) formats claim aac audio in metadata
+      // but the actual streams are silent; h264 carries real audio and also
+      // remuxes without a full transcode.
+      "-S", "vcodec:h264",
       "--merge-output-format", "mp4",
       "-o", path.join(dir, `${uuid}.%(ext)s`),
       "--no-warnings", "--no-progress", "--quiet",

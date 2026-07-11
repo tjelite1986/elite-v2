@@ -85,9 +85,10 @@ function displayName(email: string | null): string {
   return email.split("@")[0];
 }
 
-// Attribution for a clip: the uploader for user uploads, otherwise the auto-poll
-// profile name (so polled clips don't all read "@Unknown").
+// Attribution for a clip: the creator profile when the clip belongs to one
+// (keeps the label in sync with the /people link), otherwise the uploader.
 function authorLabel(short: FeedShort): string {
+  if (short.profile_id && short.profile_name) return short.profile_name;
   if (short.uploader_email) return displayName(short.uploader_email);
   if (short.profile_name) return short.profile_name;
   return "unknown";
