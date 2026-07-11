@@ -15,7 +15,8 @@ export default async function PostsHomePage() {
   const profile = ensureUserProfile(Number(session.sub), session.email);
 
   return (
-    <div className="mx-auto max-w-md px-1 pb-24 pt-24 text-white">
+    // Full-bleed feed: post photos span the whole screen edge to edge.
+    <div className="w-full pb-24 pt-24 text-white">
       <StoryRail myUsername={profile.username} />
       <PostFeed
         query={{ scope: "home" }}

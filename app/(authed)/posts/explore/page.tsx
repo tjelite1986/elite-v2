@@ -15,8 +15,11 @@ export default async function PostsExplorePage() {
   ensureUserProfile(Number(session.sub), session.email);
 
   return (
-    <div className="mx-auto max-w-2xl px-1 pb-24 pt-24 text-white">
-      <PostSearch />
+    // Full-bleed grid: 3 columns spanning the whole screen edge to edge.
+    <div className="w-full pb-24 pt-24 text-white">
+      <div className="px-1">
+        <PostSearch />
+      </div>
       {session.role === "admin" && (
         <div className="px-2">
           <PostsImportButton />

@@ -56,7 +56,7 @@ export default function PostCard({ post }: { post: FeedPost }) {
   };
 
   return (
-    <article className="mx-auto w-full max-w-md border-b border-white/10 pb-3">
+    <article className="w-full border-b border-white/10 pb-3">
       {/* Header */}
       <header className="flex items-center gap-2.5 px-3 py-2.5">
         <Link href={`/people/${handle}`}>
