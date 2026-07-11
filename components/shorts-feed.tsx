@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import Link from "next/link";
 import ShortCard, { type FeedShort } from "@/components/short-card";
 
@@ -34,6 +35,15 @@ export default function ShortsFeed({
   const [cursor, setCursor] = useState<number | null>(focusId ? focusId + 1 : null);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+  // Backward pagination: clips NEWER than the top of the list, so a feed opened
+  // mid-list from a grid tile can scroll up past its starting clip.
+  const [prevCursor, setPrevCursor] = useState<number | null>(focusId ?? null);
+  const [hasPrev, setHasPrev] = useState(Boolean(focusId));
+  const [loadingPrev, setLoadingPrev] = useState(false);
+  // Whether the initial jump to the focused clip has happened. Backward loading
+  // is held until then so the jump and the prepend scroll compensation can't
+  // race each other (state, not a ref: the top sentinel re-arms on re-render).
+  const [focusJumped, setFocusJumped] = useState(!focusId);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [muted, setMuted] = useState(true);
   // Clean view: hide all overlay UI (rail, caption, progress) for a distraction-
@@ -43,6 +53,7 @@ export default function ShortsFeed({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setChromeHidden(localStorage.getItem("shorts:chromeHidden") === "1");
@@ -123,6 +134,72 @@ export default function ShortsFeed({
     }
   }, [channel, cursor, hasMore, loading, profileId, playlistId, category]);
 
+  // Backward load: clips immediately newer than the current top, prepended.
+  // Held until the initial focus jump is done; the prepend is committed
+  // synchronously (flushSync) and the scroll compensated right after, so no
+  // other effect can scroll in between.
+  const loadPrev = useCallback(async () => {
+    if (loadingPrev || !hasPrev || prevCursor === null || !focusJumped) return;
+    setLoadingPrev(true);
+    try {
+      const url = new URL("/api/shorts/feed", window.location.origin);
+      url.searchParams.set("channel", channel);
+      if (profileId) url.searchParams.set("profile", String(profileId));
+      if (playlistId) url.searchParams.set("playlist", String(playlistId));
+      if (category) url.searchParams.set("category", category);
+      url.searchParams.set("after", String(prevCursor));
+      const res = await fetch(url.toString());
+      if (res.ok) {
+        const data = await res.json();
+        const root = containerRef.current;
+        // Anchor the current topmost clip, commit the prepend synchronously,
+        // then shift the scroll by exactly how far that clip moved. Offsets are
+        // multiples of the card height, so scroll-snap stays on a boundary.
+        const first = root?.querySelector<HTMLElement>("[data-short-id]");
+        const anchor =
+          first && root
+            ? {
+                id: Number(first.dataset.shortId),
+                // Visual offset of the anchor clip within the viewport.
+                delta: first.offsetTop - root.scrollTop,
+              }
+            : null;
+        flushSync(() => {
+          setItems((prev) => {
+            const seen = new Set(prev.map((p) => p.id));
+            const fresh = (data.items as FeedShort[]).filter(
+              (i) => !seen.has(i.id)
+            );
+            return fresh.length ? [...fresh, ...prev] : prev;
+          });
+          setPrevCursor(data.nextCursor);
+          setHasPrev(data.nextCursor !== null);
+        });
+        if (anchor && root) {
+          const el = root.querySelector<HTMLElement>(
+            `[data-short-id="${anchor.id}"]`
+          );
+          // Set the position ABSOLUTELY (same visual offset for the anchor
+          // clip), not relatively: on snap containers the browser itself may
+          // already have followed the snapped clip when items were prepended
+          // (scroll-snap re-snap), and a relative shift would double up.
+          if (el) root.scrollTop = el.offsetTop - anchor.delta;
+        }
+      }
+    } finally {
+      setLoadingPrev(false);
+    }
+  }, [
+    channel,
+    prevCursor,
+    hasPrev,
+    loadingPrev,
+    focusJumped,
+    profileId,
+    playlistId,
+    category,
+  ]);
+
   // Initial load.
   useEffect(() => {
     load();
@@ -142,6 +219,20 @@ export default function ShortsFeed({
     io.observe(el);
     return () => io.disconnect();
   }, [load]);
+
+  // Backward infinite scroll via a sentinel at the top of the list.
+  useEffect(() => {
+    const el = topSentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadPrev();
+      },
+      { root: containerRef.current, rootMargin: "400px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadPrev]);
 
   // Track which card is in view (>=60% visible) to drive autoplay.
   useEffect(() => {
@@ -163,25 +254,38 @@ export default function ShortsFeed({
     return () => io.disconnect();
   }, [items]);
 
-  // Jump to a shared clip once it's in the list.
+  // Jump to a shared clip once it's in the list (once only — backward loads
+  // prepend items and this must not yank the view back to the starting clip).
   useEffect(() => {
-    if (!focusId || !containerRef.current) return;
+    if (!focusId || focusJumped || !containerRef.current) return;
     const el = containerRef.current.querySelector(
       `[data-short-id="${focusId}"]`
     );
-    if (el) (el as HTMLElement).scrollIntoView();
+    if (el) {
+      (el as HTMLElement).scrollIntoView();
+      setFocusJumped(true);
+    } else if (items.length > 0) {
+      // The focused clip is gone (deleted): the first batch would have started
+      // at it. Mark the jump done so backward loading isn't held forever.
+      setFocusJumped(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length, focusId]);
+  }, [items.length, focusId, focusJumped]);
 
   return (
     <div
       ref={containerRef}
       className={
+        // overscroll-y-contain: swiping past the top must not chain to the
+        // browser's pull-to-refresh (it reloaded the page mid-feed on Android).
+        // overflow-anchor:none: loadPrev compensates the scroll itself; the
+        // browser's native scroll anchoring would double the shift on prepend.
         chromeHidden
-          ? "fixed inset-0 z-30 w-full snap-y snap-mandatory overflow-y-scroll bg-black"
-          : "relative h-[calc(100dvh-3.5rem)] w-full snap-y snap-mandatory overflow-y-scroll bg-black"
+          ? "fixed inset-0 z-30 w-full snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [overflow-anchor:none] bg-black"
+          : "relative h-[calc(100dvh-3.5rem)] w-full snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [overflow-anchor:none] bg-black"
       }
     >
+      <div ref={topSentinelRef} className="h-px w-full" />
       {items.map((short) => (
         <div key={short.id} data-short-id={short.id} className="h-full w-full">
           <ShortCard

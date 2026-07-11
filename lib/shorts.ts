@@ -97,7 +97,11 @@ export function getFeed(
   // profileId/ownerId above, so a non-destructively linked person's clips from
   // every member profile show on one unified profile.
   profileIds: number[] = [],
-  ownerIds: number[] = []
+  ownerIds: number[] = [],
+  // Backward pagination: fetch the clips immediately NEWER than this id (the
+  // feed opened mid-list from a grid tile and the user scrolls up). Mutually
+  // exclusive with cursor. Items are still returned newest-first.
+  after: number | null = null
 ): { items: FeedShort[]; nextCursor: number | null } {
   const profIds = profileId !== null ? [profileId, ...profileIds] : [...profileIds];
   const ownIds = ownerId !== null ? [ownerId, ...ownerIds] : [...ownerIds];
@@ -183,13 +187,20 @@ export function getFeed(
       )
     )
     .$if(cursor !== null, (q) => q.where("s.id", "<", cursor!))
-    .orderBy("s.id", "desc")
+    // Backward mode: ascending picks the ids immediately above `after` (not the
+    // newest overall); the page is flipped back to newest-first below.
+    .$if(after !== null, (q) => q.where("s.id", ">", after!))
+    .orderBy("s.id", after !== null ? "asc" : "desc")
     .limit(limit + 1);
 
   const rows = getAll<FeedRow>(query);
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
+  // In backward mode nextCursor is the id to pass as the NEXT `after` (the
+  // newest id in this page); compute it before the flip to newest-first.
+  const pageEndId = page.length ? page[page.length - 1].id : null;
+  if (after !== null) page.reverse();
 
   const items: FeedShort[] = page.map((r) => ({
     id: r.id,
@@ -212,7 +223,7 @@ export function getFeed(
     is_private: Boolean(r.is_private),
   }));
 
-  const nextCursor = hasMore ? page[page.length - 1].id : null;
+  const nextCursor = hasMore ? pageEndId : null;
   return { items, nextCursor };
 }
 

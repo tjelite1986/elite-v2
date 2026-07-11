@@ -20,6 +20,10 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const cursorRaw = url.searchParams.get("cursor");
   const cursor = cursorRaw && !isNaN(Number(cursorRaw)) ? Number(cursorRaw) : null;
+  // Backward pagination: fetch clips immediately newer than this id (scrolling
+  // up in a feed opened mid-list). Takes precedence over cursor.
+  const afterRaw = url.searchParams.get("after");
+  const after = afterRaw && !isNaN(Number(afterRaw)) ? Number(afterRaw) : null;
   const profileRaw = url.searchParams.get("profile");
   const profileId = profileRaw && !isNaN(Number(profileRaw)) ? Number(profileRaw) : null;
   const playlistRaw = url.searchParams.get("playlist");
@@ -71,7 +75,7 @@ export async function GET(request: Request) {
   const { items, nextCursor } = getFeed(
     channel,
     Number(session.sub),
-    cursor,
+    after !== null ? null : cursor,
     limit,
     profileId,
     playlistId,
@@ -81,7 +85,8 @@ export async function GET(request: Request) {
     ownerId,
     allow18,
     profileIds,
-    ownerIds
+    ownerIds,
+    after
   );
 
   return NextResponse.json({ items, nextCursor });
