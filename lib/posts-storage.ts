@@ -36,7 +36,7 @@ export const AVATARS_SUBDIR = "avatars";
 export const BANNERS_SUBDIR = "banners";
 export const IMPORT_SUBDIR = "_import";
 
-const DISPLAY_MAX = 1440;
+const DISPLAY_MAX = 2048;
 const THUMB_SIZE = 600;
 const AVATAR_SIZE = 320;
 const BANNER_W = 1500;
