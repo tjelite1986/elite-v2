@@ -382,16 +382,16 @@ function PersonRow({ person: p }: { person: PersonEntry }) {
               label={`${p.photos} photo${p.photos === 1 ? "" : "s"}`}
             />
           )}
-          {p.shortsMainId && (
+          {p.shortsMain > 0 && (
             <Chip
-              href={`/shorts/profile/${p.shortsMainId}`}
+              href={`/people/${encodeURIComponent(p.handle)}?tab=shorts`}
               icon={<Clapperboard size={12} />}
               label={`${p.shortsMain} short${p.shortsMain === 1 ? "" : "s"}`}
             />
           )}
-          {p.shorts18Id && (
+          {p.shorts18 > 0 && (
             <Chip
-              href={`/shorts18/profile/${p.shorts18Id}`}
+              href={`/people/${encodeURIComponent(p.handle)}?tab=18plus`}
               icon={<Clapperboard size={12} />}
               label={`${p.shorts18} 18+`}
             />
