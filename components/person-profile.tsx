@@ -32,7 +32,7 @@ function linkLabel(l: { label: string; url: string }): string {
 import PostAvatar from "@/components/post-avatar";
 import ProfileBadges from "@/components/profile-badges";
 import FollowButton from "@/components/follow-button";
-import PostFeed from "@/components/post-feed";
+import PostViews from "@/components/post-views";
 import PostGrid from "@/components/post-grid";
 import ShortsGrid from "@/components/shorts-grid";
 import ProfileShortsSettings from "@/components/profile-shorts-settings";
@@ -454,10 +454,11 @@ export default function PersonProfile({
           )}
 
           {tab === "photos" && (
-            <PostFeed
+            <PostViews
               query={personQuery}
               empty="No photos yet."
               viewer={{ userId: viewerId, isAdmin }}
+              storageKey="posts-view-profile"
             />
           )}
 

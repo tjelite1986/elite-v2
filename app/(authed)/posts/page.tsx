@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Compass } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
-import PostFeed from "@/components/post-feed";
+import PostViews from "@/components/post-views";
 import StoryRail from "@/components/story-rail";
 
 export const dynamic = "force-dynamic";
@@ -18,10 +18,11 @@ export default async function PostsHomePage() {
     // Full-bleed feed: post photos span the whole screen edge to edge.
     <div className="w-full pb-24 pt-24 text-white">
       <StoryRail myUsername={profile.username} />
-      <PostFeed
+      <PostViews
         query={{ scope: "home" }}
         empty="Your feed is empty — follow people on Explore to see their posts here."
         viewer={{ userId: Number(session.sub), isAdmin: session.role === "admin" }}
+        storageKey="posts-view-home"
       />
       <div className="mt-6 text-center">
         <Link
