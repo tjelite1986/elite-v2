@@ -35,6 +35,7 @@ import FollowButton from "@/components/follow-button";
 import PostViews from "@/components/post-views";
 import PostGrid from "@/components/post-grid";
 import ShortsGrid from "@/components/shorts-grid";
+import ShortsViews from "@/components/shorts-views";
 import ProfileShortsSettings from "@/components/profile-shorts-settings";
 import ProfileMergeButton from "@/components/profile-merge-button";
 import ProfileInstagramSync from "@/components/profile-instagram-sync";
@@ -81,14 +82,13 @@ export default function PersonProfile({
     channel,
     handle: person.handle,
   });
-  // A creator profile has a dedicated watch page; owner-only clips (no profile)
-  // open the immersive feed focused on the clip, like the "Mine" view.
+  // Person-scoped watch page: the immersive feed uses the SAME handle scope as
+  // the grid, so the tapped clip is always in the feed and playback starts at
+  // it (a profile/channel-scoped feed could miss uploads or linked members'
+  // clips and started at the wrong video).
   const shortsHref = (channel: "main" | "18plus"): string => {
-    const profileId = channel === "18plus" ? person.shorts18Id : person.shortsMainId;
     const base = channel === "18plus" ? "/shorts18" : "/shorts";
-    return profileId
-      ? `${base}/profile/${profileId}/watch?focus=`
-      : `${base}?focus=`;
+    return `${base}/person/${encodeURIComponent(person.handle)}/watch?focus=`;
   };
 
   const tabs: { id: Tab; label: string; show: boolean }[] = [
@@ -463,18 +463,22 @@ export default function PersonProfile({
           )}
 
           {tab === "shorts" && person.shortsMain > 0 && (
-            <ShortsGrid
+            <ShortsViews
               query={shortsQuery("main")}
               hrefPrefix={shortsHref("main")}
               empty="No shorts yet."
+              storageKey="shorts-view-profile"
+              feed={{ channel: "main", handle: person.handle, viewerId, isAdmin }}
             />
           )}
 
           {tab === "18plus" && person.shorts18 > 0 && (
-            <ShortsGrid
+            <ShortsViews
               query={shortsQuery("18plus")}
               hrefPrefix={shortsHref("18plus")}
               empty="No clips yet."
+              storageKey="shorts18-view-profile"
+              feed={{ channel: "18plus", handle: person.handle, viewerId, isAdmin }}
             />
           )}
         </>

@@ -114,6 +114,8 @@ export default function ShortCard({
   isAdmin = false,
   chromeHidden = false,
   onToggleChrome,
+  autoAdvance = false,
+  onEnded,
   onRemoved,
 }: {
   short: FeedShort;
@@ -129,6 +131,10 @@ export default function ShortCard({
   // Clean view: hide all overlay UI. Long-press the clip to toggle it back.
   chromeHidden?: boolean;
   onToggleChrome?: () => void;
+  // Auto-scroll: don't loop; fire onEnded when the clip finishes so the feed
+  // can advance to the next one.
+  autoAdvance?: boolean;
+  onEnded?: () => void;
   // Called after the clip left this feed (moved to the other channel, or
   // deleted) so the parent can drop the card and snap to the next clip.
   onRemoved?: (id: number) => void;
@@ -428,7 +434,8 @@ export default function ShortCard({
         src={`/api/shorts/${short.id}/video`}
         poster={short.has_poster ? `/api/shorts/${short.id}/poster` : undefined}
         className="h-full w-full object-contain"
-        loop
+        loop={!autoAdvance}
+        onEnded={() => autoAdvance && onEnded?.()}
         muted={muted}
         playsInline
         preload="metadata"

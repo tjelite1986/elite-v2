@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
+import { Eye, EyeOff, Maximize, Minimize, ChevronsDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import ShortCard, { type FeedShort } from "@/components/short-card";
 
 export default function ShortsFeed({
@@ -11,6 +13,7 @@ export default function ShortsFeed({
   profileId,
   playlistId,
   category,
+  handle,
   isAdmin = false,
   viewerId,
   basePath = "/shorts",
@@ -29,6 +32,9 @@ export default function ShortsFeed({
   playlistId?: number;
   // When set, the channel feed is filtered to a single 18+ category.
   category?: string;
+  // When set, the feed is scoped to a person handle (profile clips + owner
+  // uploads across linked members) — the same scope as the profile grid.
+  handle?: string;
 }) {
   const [items, setItems] = useState<FeedShort[]>([]);
   // Opening from a grid tile: start the feed at that clip (older ones follow).
@@ -46,9 +52,16 @@ export default function ShortsFeed({
   const [focusJumped, setFocusJumped] = useState(!focusId);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [muted, setMuted] = useState(true);
-  // Clean view: hide all overlay UI (rail, caption, progress) for a distraction-
-  // free fullscreen feel. Persisted, and toggled back by long-pressing a clip.
+  // Three independent toggles, each with its own button in the control cluster:
+  // - chromeHidden: hide the overlay UI (rail, caption, progress). Persisted;
+  //   long-pressing a clip still toggles it back.
+  // - fullscreen: device fullscreen + hide the global nav chrome. Not persisted
+  //   (re-entering needs a user gesture anyway).
+  // - autoScroll: clips do not loop; when one ends the feed advances to the
+  //   next. Persisted.
   const [chromeHidden, setChromeHidden] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [autoScroll, setAutoScroll] = useState(false);
   const [hint, setHint] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -57,15 +70,16 @@ export default function ShortsFeed({
 
   useEffect(() => {
     setChromeHidden(localStorage.getItem("shorts:chromeHidden") === "1");
+    setAutoScroll(localStorage.getItem("shorts:autoScroll") === "1");
   }, []);
 
-  // In the clean view, flag the body so the global nav chrome (top menu bar,
+  // In fullscreen, flag the body so the global nav chrome (top menu bar,
   // Shorts/18+ tabs, category chips) hides too — a true fullscreen, not just a
   // bare clip. Cleared on exit and when leaving the feed.
   useEffect(() => {
-    document.body.classList.toggle("shorts-immersive", chromeHidden);
+    document.body.classList.toggle("shorts-immersive", fullscreen);
     return () => document.body.classList.remove("shorts-immersive");
-  }, [chromeHidden]);
+  }, [fullscreen]);
 
   const toggleChrome = useCallback(() => {
     setChromeHidden((prev) => {
@@ -74,6 +88,23 @@ export default function ShortsFeed({
       if (next) {
         setHint(true);
         setTimeout(() => setHint(false), 2500);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAutoScroll = useCallback(() => {
+    setAutoScroll((prev) => {
+      const next = !prev;
+      localStorage.setItem("shorts:autoScroll", next ? "1" : "0");
+      return next;
+    });
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    setFullscreen((prev) => {
+      const next = !prev;
+      if (next) {
         // Go true device-fullscreen too (hides the browser's address/system
         // bars). Needs the tap as a user gesture; best-effort + unsupported on
         // iOS for non-video elements, where the CSS immersive view still applies.
@@ -85,17 +116,11 @@ export default function ShortsFeed({
     });
   }, []);
 
-  // If the user leaves fullscreen via the system (back gesture / Esc), restore
-  // the chrome so the state stays in sync.
+  // If the user leaves fullscreen via the system (back gesture / Esc), sync the
+  // state so the layout and the button stay correct.
   useEffect(() => {
     const onFsChange = () => {
-      if (!document.fullscreenElement) {
-        setChromeHidden((prev) => {
-          if (!prev) return prev;
-          localStorage.setItem("shorts:chromeHidden", "0");
-          return false;
-        });
-      }
+      if (!document.fullscreenElement) setFullscreen(false);
     };
     document.addEventListener("fullscreenchange", onFsChange);
     return () => document.removeEventListener("fullscreenchange", onFsChange);
@@ -117,6 +142,7 @@ export default function ShortsFeed({
       if (profileId) url.searchParams.set("profile", String(profileId));
       if (playlistId) url.searchParams.set("playlist", String(playlistId));
       if (category) url.searchParams.set("category", category);
+      if (handle) url.searchParams.set("handle", handle);
       if (cursor) url.searchParams.set("cursor", String(cursor));
       const res = await fetch(url.toString());
       if (res.ok) {
@@ -132,7 +158,7 @@ export default function ShortsFeed({
     } finally {
       setLoading(false);
     }
-  }, [channel, cursor, hasMore, loading, profileId, playlistId, category]);
+  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, handle]);
 
   // Backward load: clips immediately newer than the current top, prepended.
   // Held until the initial focus jump is done; the prepend is committed
@@ -147,6 +173,7 @@ export default function ShortsFeed({
       if (profileId) url.searchParams.set("profile", String(profileId));
       if (playlistId) url.searchParams.set("playlist", String(playlistId));
       if (category) url.searchParams.set("category", category);
+      if (handle) url.searchParams.set("handle", handle);
       url.searchParams.set("after", String(prevCursor));
       const res = await fetch(url.toString());
       if (res.ok) {
@@ -198,6 +225,7 @@ export default function ShortsFeed({
     profileId,
     playlistId,
     category,
+    handle,
   ]);
 
   // Initial load.
@@ -272,61 +300,114 @@ export default function ShortsFeed({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items.length, focusId, focusJumped]);
 
+  // Auto-scroll: when a clip finishes (autoScroll disables looping), glide to
+  // the next one. The active-card observer takes over from there.
+  const advanceFrom = useCallback(
+    (id: number) => {
+      const root = containerRef.current;
+      if (!root) return;
+      const idx = items.findIndex((s) => s.id === id);
+      const next = items[idx + 1];
+      if (!next) return;
+      root
+        .querySelector(`[data-short-id="${next.id}"]`)
+        ?.scrollIntoView({ behavior: "smooth" });
+    },
+    [items]
+  );
+
+  const controlBtn =
+    "rounded-full bg-black/50 p-2 text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70";
+
   return (
     <div
-      ref={containerRef}
       className={
+        fullscreen
+          ? "fixed inset-0 z-30 bg-black"
+          : "relative h-[calc(100dvh-3.5rem)] w-full bg-black"
+      }
+    >
+      <div
+        ref={containerRef}
         // overscroll-y-contain: swiping past the top must not chain to the
         // browser's pull-to-refresh (it reloaded the page mid-feed on Android).
         // overflow-anchor:none: loadPrev compensates the scroll itself; the
         // browser's native scroll anchoring would double the shift on prepend.
-        chromeHidden
-          ? "fixed inset-0 z-30 w-full snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [overflow-anchor:none] bg-black"
-          : "relative h-[calc(100dvh-3.5rem)] w-full snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [overflow-anchor:none] bg-black"
-      }
-    >
-      <div ref={topSentinelRef} className="h-px w-full" />
-      {items.map((short) => (
-        <div key={short.id} data-short-id={short.id} className="h-full w-full">
-          <ShortCard
-            short={short}
-            active={activeId === short.id}
-            muted={muted}
-            onToggleMuted={() => setMuted((m) => !m)}
-            viewerId={viewerId}
-            categoryEditable={isAdmin && channel === "18plus"}
-            isAdmin={isAdmin}
-            chromeHidden={chromeHidden}
-            onToggleChrome={toggleChrome}
-            onRemoved={(id) => setItems((prev) => prev.filter((s) => s.id !== id))}
-          />
-        </div>
-      ))}
+        className="h-full w-full snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [overflow-anchor:none]"
+      >
+        <div ref={topSentinelRef} className="h-px w-full" />
+        {items.map((short) => (
+          <div key={short.id} data-short-id={short.id} className="h-full w-full">
+            <ShortCard
+              short={short}
+              active={activeId === short.id}
+              muted={muted}
+              onToggleMuted={() => setMuted((m) => !m)}
+              viewerId={viewerId}
+              categoryEditable={isAdmin && channel === "18plus"}
+              isAdmin={isAdmin}
+              chromeHidden={chromeHidden}
+              onToggleChrome={toggleChrome}
+              autoAdvance={autoScroll}
+              onEnded={() => advanceFrom(short.id)}
+              onRemoved={(id) => setItems((prev) => prev.filter((s) => s.id !== id))}
+            />
+          </div>
+        ))}
 
-      <div ref={sentinelRef} className="h-1 w-full" />
+        <div ref={sentinelRef} className="h-1 w-full" />
+
+        {!loading && items.length === 0 && (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-white/60">
+            <p>No clips yet.</p>
+            <Link
+              href={
+                channel === "18plus"
+                  ? `${basePath}/upload?channel=18plus`
+                  : `${basePath}/upload`
+              }
+              className="rounded-full bg-rose-500 px-5 py-2 text-sm font-semibold text-white"
+            >
+              Upload the first one
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* Control cluster: overlay show/hide, fullscreen, auto-scroll. Stays
+          visible in every mode so nothing becomes unreachable. */}
+      <div className="absolute right-2 top-2 z-40 flex flex-col gap-1.5">
+        <button
+          onClick={toggleChrome}
+          aria-label={chromeHidden ? "Show overlay" : "Hide overlay"}
+          className={controlBtn}
+        >
+          {chromeHidden ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
+        <button
+          onClick={toggleFullscreen}
+          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+          className={controlBtn}
+        >
+          {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+        </button>
+        <button
+          onClick={toggleAutoScroll}
+          aria-label={autoScroll ? "Auto-scroll off" : "Auto-scroll on"}
+          className={cn(
+            controlBtn,
+            autoScroll && "bg-rose-500/90 ring-rose-300/40 hover:bg-rose-500"
+          )}
+        >
+          <ChevronsDown size={18} />
+        </button>
+      </div>
 
       {hint && (
         <div className="pointer-events-none fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/75 px-4 py-2 text-sm font-medium text-white">
           Long-press a clip to show the controls again
         </div>
       )}
-
-      {!loading && items.length === 0 && (
-        <div className="flex h-full flex-col items-center justify-center gap-3 text-white/60">
-          <p>No clips yet.</p>
-          <Link
-            href={
-              channel === "18plus"
-                ? `${basePath}/upload?channel=18plus`
-                : `${basePath}/upload`
-            }
-            className="rounded-full bg-rose-500 px-5 py-2 text-sm font-semibold text-white"
-          >
-            Upload the first one
-          </Link>
-        </div>
-      )}
-
     </div>
   );
 }
