@@ -17,6 +17,7 @@ export default function ShortsFeed({
   isAdmin = false,
   viewerId,
   basePath = "/shorts",
+  fill = false,
 }: {
   channel: "main" | "18plus";
   focusId?: number;
@@ -35,6 +36,9 @@ export default function ShortsFeed({
   // When set, the feed is scoped to a person handle (profile clips + owner
   // uploads across linked members) — the same scope as the profile grid.
   handle?: string;
+  // Fill the parent instead of sizing against the viewport (used when the
+  // feed is embedded in an overlay that already owns the layout).
+  fill?: boolean;
 }) {
   const [items, setItems] = useState<FeedShort[]>([]);
   // Opening from a grid tile: start the feed at that clip (older ones follow).
@@ -324,7 +328,9 @@ export default function ShortsFeed({
       className={
         fullscreen
           ? "fixed inset-0 z-30 bg-black"
-          : "relative h-[calc(100dvh-3.5rem)] w-full bg-black"
+          : fill
+            ? "relative h-full w-full bg-black"
+            : "relative h-[calc(100dvh-3.5rem)] w-full bg-black"
       }
     >
       <div
