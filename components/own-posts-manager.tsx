@@ -83,6 +83,7 @@ export default function OwnPostsManager({ userId }: { userId: number }) {
         empty="No posts yet."
         reloadKey={reloadKey}
         select={{ active: selecting, selected, toggle }}
+        viewer={{ userId, isAdmin: false }}
       />
 
       {selecting && (

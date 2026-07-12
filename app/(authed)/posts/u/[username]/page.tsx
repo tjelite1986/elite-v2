@@ -106,6 +106,7 @@ export default async function PostsProfilePage(
             ? { scope: "user", id: String(targetId) }
             : { scope: "creator", id: String(targetId) }}
           empty="No posts yet."
+          viewer={{ userId: viewerId, isAdmin: session.role === "admin" }}
         />
       )}
     </div>

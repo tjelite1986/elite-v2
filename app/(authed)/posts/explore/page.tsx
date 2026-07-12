@@ -25,7 +25,11 @@ export default async function PostsExplorePage() {
           <PostsImportButton />
         </div>
       )}
-      <PostGrid query={{ scope: "explore" }} empty="No posts to explore yet." />
+      <PostGrid
+        query={{ scope: "explore" }}
+        empty="No posts to explore yet."
+        viewer={{ userId: Number(session.sub), isAdmin: session.role === "admin" }}
+      />
     </div>
   );
 }

@@ -20,7 +20,11 @@ export default async function PostsTagPage(
   return (
     <div className="mx-auto max-w-2xl px-1 pb-24 pt-24 text-white">
       <h1 className="mb-4 px-3 text-lg font-semibold">#{tag}</h1>
-      <PostGrid query={{ scope: "tag", tag }} empty="No posts with this hashtag yet." />
+      <PostGrid
+        query={{ scope: "tag", tag }}
+        empty="No posts with this hashtag yet."
+        viewer={{ userId: Number(session.sub), isAdmin: session.role === "admin" }}
+      />
     </div>
   );
 }

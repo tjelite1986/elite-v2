@@ -174,7 +174,7 @@ interface Comment {
   author_username: string | null;
 }
 
-function CommentsSheet({
+export function CommentsSheet({
   postId,
   onClose,
   onCountChange,
