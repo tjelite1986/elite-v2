@@ -375,9 +375,9 @@ function PersonRow({ person: p }: { person: PersonEntry }) {
           <div className="truncate text-xs text-white/50">{p.displayName}</div>
         )}
         <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {p.photos > 0 && p.photosHref && (
+          {p.photos > 0 && (
             <Chip
-              href={p.photosHref}
+              href={`/people/${encodeURIComponent(p.handle)}?tab=photos`}
               icon={<ImageIcon size={12} />}
               label={`${p.photos} photo${p.photos === 1 ? "" : "s"}`}
             />

@@ -11,9 +11,11 @@ export const dynamic = "force-dynamic";
 export default async function PersonPage(
   props: {
     params: Promise<{ handle: string }>;
+    searchParams: Promise<{ tab?: string }>;
   }
 ) {
   const params = await props.params;
+  const searchParams = await props.searchParams;
   const session = await getSession();
   if (!session) redirect("/login");
   const viewerId = Number(session.sub);
@@ -34,11 +36,17 @@ export default async function PersonPage(
     redirect(`/people/${encodeURIComponent(person.handle)}`);
   }
 
+  // Deep-linked tab (?tab=photos etc.) from the directory / search links.
+  const tab = searchParams?.tab;
+  const initialTab =
+    tab === "photos" || tab === "shorts" || tab === "18plus" ? tab : "profile";
+
   return (
     <PersonProfile
       person={person}
       isAdmin={session.role === "admin"}
       viewerId={viewerId}
+      initialTab={initialTab}
     />
   );
 }

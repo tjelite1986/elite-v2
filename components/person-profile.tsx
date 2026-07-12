@@ -61,10 +61,14 @@ export default function PersonProfile({
   person,
   isAdmin,
   viewerId,
+  initialTab = "profile",
 }: {
   person: ResolvedPerson;
   isAdmin: boolean;
   viewerId: number;
+  // Deep-linked tab (/people/<handle>?tab=photos) so content links from the
+  // directory and search can land straight on a section.
+  initialTab?: Tab;
 }) {
   const router = useRouter();
   const canManage = person.isOwn || isAdmin;
@@ -98,7 +102,7 @@ export default function PersonProfile({
     { id: "18plus", label: "18+", show: person.shorts18 > 0 },
   ];
   const visible = tabs.filter((t) => t.show);
-  const [tab, setTab] = useState<Tab>("profile");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [selecting, setSelecting] = useState(false);
   const [avatarBust, setAvatarBust] = useState(0);
   const [busy, setBusy] = useState(false);

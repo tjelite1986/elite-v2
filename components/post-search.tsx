@@ -75,7 +75,7 @@ export default function PostSearch() {
           {accounts.map((a) => (
             <Link
               key={`${a.type}-${a.username}`}
-              href={`/posts/u/${a.username}`}
+              href={`/people/${encodeURIComponent(a.username)}?tab=photos`}
               className="flex items-center gap-3 px-3 py-2.5 transition hover:bg-white/5"
             >
               <PostAvatar username={a.username} size={36} />
