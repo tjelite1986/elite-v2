@@ -34,5 +34,11 @@ export default async function PersonPage(
     redirect(`/people/${encodeURIComponent(person.handle)}`);
   }
 
-  return <PersonProfile person={person} isAdmin={session.role === "admin"} />;
+  return (
+    <PersonProfile
+      person={person}
+      isAdmin={session.role === "admin"}
+      viewerId={viewerId}
+    />
+  );
 }

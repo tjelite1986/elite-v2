@@ -59,9 +59,11 @@ function Stat({ value, label }: { value: number; label: string }) {
 export default function PersonProfile({
   person,
   isAdmin,
+  viewerId,
 }: {
   person: ResolvedPerson;
   isAdmin: boolean;
+  viewerId: number;
 }) {
   const router = useRouter();
   const canManage = person.isOwn || isAdmin;
@@ -451,7 +453,13 @@ export default function PersonProfile({
             </div>
           )}
 
-          {tab === "photos" && <PostFeed query={personQuery} empty="No photos yet." />}
+          {tab === "photos" && (
+            <PostFeed
+              query={personQuery}
+              empty="No photos yet."
+              viewer={{ userId: viewerId, isAdmin }}
+            />
+          )}
 
           {tab === "shorts" && person.shortsMain > 0 && (
             <ShortsGrid

@@ -20,13 +20,35 @@ function relativeTime(s: string): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-export default function PostCard({ post }: { post: FeedPost }) {
+export default function PostCard({
+  post,
+  onImageTap,
+  onPatch,
+}: {
+  post: FeedPost;
+  // Single tap on a photo (index within the carousel) — opens the lightbox
+  // when the feed provides it. Double tap still likes.
+  onImageTap?: (photoIndex: number) => void;
+  // Report like/comment-count changes back to the owning list so the lightbox
+  // and the card stay in sync.
+  onPatch?: (patch: Partial<FeedPost>) => void;
+}) {
   const [liked, setLiked] = useState(post.viewer_liked);
   const [likeCount, setLikeCount] = useState(post.like_count);
   const [commentCount, setCommentCount] = useState(post.comment_count);
   const [showComments, setShowComments] = useState(false);
   const [active, setActive] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Follow list-level updates (a like made inside the lightbox, for instance).
+  useEffect(() => {
+    setLiked(post.viewer_liked);
+    setLikeCount(post.like_count);
+  }, [post.viewer_liked, post.like_count]);
+  useEffect(() => {
+    setCommentCount(post.comment_count);
+  }, [post.comment_count]);
 
   // Device Back closes the comments sheet instead of leaving the feed.
   useBackDismiss(showComments, () => setShowComments(false));
@@ -43,10 +65,29 @@ export default function PostCard({ post }: { post: FeedPost }) {
         const d = await res.json();
         setLiked(d.liked);
         setLikeCount(d.like_count);
+        onPatch?.({ viewer_liked: d.liked, like_count: d.like_count });
       }
     } catch {
       /* keep optimistic */
     }
+  };
+
+  // Distinguish tap (open lightbox) from double-tap (like): delay the tap
+  // briefly and cancel it when a second tap lands.
+  const handleImageClick = (index: number) => {
+    if (!onImageTap) return;
+    if (tapTimer.current) return;
+    tapTimer.current = setTimeout(() => {
+      tapTimer.current = null;
+      onImageTap(index);
+    }, 250);
+  };
+  const handleImageDoubleClick = () => {
+    if (tapTimer.current) {
+      clearTimeout(tapTimer.current);
+      tapTimer.current = null;
+    }
+    if (!liked) toggleLike();
   };
 
   const onScroll = () => {
@@ -87,14 +128,15 @@ export default function PostCard({ post }: { post: FeedPost }) {
           className="flex snap-x snap-mandatory overflow-x-auto"
           style={{ scrollbarWidth: "none" }}
         >
-          {post.media.map((m) => (
+          {post.media.map((m, i) => (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               key={m.id}
               src={`/api/posts/media/${m.id}`}
               alt=""
               loading="lazy"
-              onDoubleClick={() => !liked && toggleLike()}
+              onClick={() => handleImageClick(i)}
+              onDoubleClick={handleImageDoubleClick}
               className="aspect-square w-full shrink-0 snap-center object-cover"
             />
           ))}
@@ -160,7 +202,10 @@ export default function PostCard({ post }: { post: FeedPost }) {
         <CommentsSheet
           postId={post.id}
           onClose={() => setShowComments(false)}
-          onCountChange={setCommentCount}
+          onCountChange={(n) => {
+            setCommentCount(n);
+            onPatch?.({ comment_count: n });
+          }}
         />
       )}
     </article>

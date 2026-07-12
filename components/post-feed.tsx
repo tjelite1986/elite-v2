@@ -2,16 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import PostCard from "@/components/post-card";
+import PostLightbox, { LightboxViewer } from "@/components/post-lightbox";
 import type { FeedPost } from "@/lib/posts";
 
 // Vertical post feed (home or any scope). Cursor-paginated from /api/posts/feed
-// with infinite scroll, mirroring the shorts grid loader.
+// with infinite scroll, mirroring the shorts grid loader. Tapping a photo opens
+// the shared PostLightbox with like/comment/delete and feed stepping.
 export default function PostFeed({
   query,
   empty = "No posts yet.",
+  viewer,
 }: {
   query: Record<string, string>;
   empty?: string;
+  // Who is looking: enables the delete action on own posts (or all, for admins).
+  viewer?: LightboxViewer;
 }) {
   const [items, setItems] = useState<FeedPost[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -19,6 +24,7 @@ export default function PostFeed({
   const [loading, setLoading] = useState(false);
   const [loadedOnce, setLoadedOnce] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState<{ id: number; photo: number } | null>(null);
 
   const load = useCallback(async () => {
     if (loading || !hasMore) return;
@@ -66,10 +72,32 @@ export default function PostFeed({
   return (
     <div className="space-y-3">
       {items.map((p) => (
-        <PostCard key={p.id} post={p} />
+        <PostCard
+          key={p.id}
+          post={p}
+          onImageTap={(photo) => setOpen({ id: p.id, photo })}
+          onPatch={(patch) =>
+            setItems((prev) =>
+              prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x))
+            )
+          }
+        />
       ))}
       <div ref={sentinel} className="h-1 w-full" />
       {loading && <p className="py-4 text-center text-sm text-white/40">Loading…</p>}
+
+      <PostLightbox
+        posts={items}
+        open={open}
+        viewer={viewer}
+        onClose={() => setOpen(null)}
+        onNavigate={(id) => setOpen({ id, photo: 0 })}
+        onNearEnd={load}
+        onPatch={(id, patch) =>
+          setItems((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
+        }
+        onRemove={(id) => setItems((prev) => prev.filter((p) => p.id !== id))}
+      />
     </div>
   );
 }

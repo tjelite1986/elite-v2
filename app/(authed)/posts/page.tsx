@@ -21,6 +21,7 @@ export default async function PostsHomePage() {
       <PostFeed
         query={{ scope: "home" }}
         empty="Your feed is empty — follow people on Explore to see their posts here."
+        viewer={{ userId: Number(session.sub), isAdmin: session.role === "admin" }}
       />
       <div className="mt-6 text-center">
         <Link
