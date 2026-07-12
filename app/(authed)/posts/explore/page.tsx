@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
-import PostGrid from "@/components/post-grid";
+import PostViews from "@/components/post-views";
 import PostSearch from "@/components/post-search";
 import PostsImportButton from "@/components/posts-import-button";
 
@@ -25,10 +25,12 @@ export default async function PostsExplorePage() {
           <PostsImportButton />
         </div>
       )}
-      <PostGrid
+      <PostViews
         query={{ scope: "explore" }}
         empty="No posts to explore yet."
         viewer={{ userId: Number(session.sub), isAdmin: session.role === "admin" }}
+        storageKey="posts-view-explore"
+        defaultView="grid"
       />
     </div>
   );

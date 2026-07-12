@@ -14,6 +14,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { CommentsSheet } from "@/components/post-card";
+import PostAvatar from "@/components/post-avatar";
+import Markdown from "@/components/markdown";
 import type { FeedPost } from "@/lib/posts";
 
 export interface LightboxViewer {
@@ -51,6 +53,8 @@ export default function PostLightbox({
 }) {
   const post = open ? posts.find((p) => p.id === open.id) ?? null : null;
   const [commentsOpen, setCommentsOpen] = useState(false);
+  // Caption expansion, keyed to the post so stepping resets to clamped.
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   // Photo index, keyed to the open post so switching posts lands on the tapped
   // (or first) photo the same frame — no out-of-range flash from a reset effect.
@@ -277,11 +281,35 @@ export default function PostLightbox({
           </>
         )}
 
-        {/* Action bar: like / comment. */}
+        {/* Bottom bar: author, caption, like / comment. */}
         <div
           onClick={(e) => e.stopPropagation()}
-          className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-4 pt-12"
+          className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-4 pb-4 pt-14"
         >
+          <Link
+            href={`/people/${post.author.username ?? "unknown"}`}
+            className="mb-1.5 flex items-center gap-2.5"
+          >
+            <PostAvatar username={post.author.username} size={32} />
+            <span className="truncate text-sm font-semibold text-white">
+              {post.author.display_name || post.author.username || "unknown"}
+            </span>
+          </Link>
+          {post.caption && (
+            <div
+              onClick={() =>
+                setExpandedId((cur) => (cur === post.id ? null : post.id))
+              }
+              className={cn(
+                "mb-2 cursor-pointer text-sm text-white/90",
+                expandedId === post.id
+                  ? "max-h-[40vh] overflow-y-auto"
+                  : "line-clamp-2"
+              )}
+            >
+              <Markdown text={post.caption} />
+            </div>
+          )}
           {post.media.length > 1 && (
             <div className="mb-3 flex justify-center gap-1.5">
               {post.media.map((m, i) => (
