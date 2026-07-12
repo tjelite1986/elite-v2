@@ -36,3 +36,6 @@ npm-debug.log*
 __pycache__/
 *.pyc
 /screenshots/gif/messages.gif
+
+# Local screenshots (never publish — public repo)
+docs/Screenshot_*.jpg
