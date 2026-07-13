@@ -677,7 +677,10 @@ export default function PrivacyControls() {
   return (
     <div
       data-screenshot-hide="1"
-      className="fixed bottom-3 right-3 z-[1100] flex flex-col items-end gap-2 select-none"
+      className="fixed right-3 z-[1100] flex flex-col items-end gap-2 select-none"
+      // Pages with their own bottom bar (e.g. the messenger shell) set
+      // --fab-offset on :root so the button floats above it.
+      style={{ bottom: "calc(0.75rem + var(--fab-offset, 0px))" }}
     >
       {open && (
         <div className="w-72 rounded-lg border border-gray-700 bg-gray-900/95 backdrop-blur shadow-xl p-3 space-y-3">

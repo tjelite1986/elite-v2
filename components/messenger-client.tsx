@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   PanelLeft,
   Library,
+  Search,
   X,
   ChevronLeft,
   ChevronRight,
@@ -85,6 +86,8 @@ function parseShortAttachment(m: Message): ShortAttachment | null {
 
 interface MessengerClientProps {
   meId: number;
+  /** Reports the total unread DM count whenever the conversation list changes. */
+  onUnreadChange?: (n: number) => void;
 }
 
 function getInitials(email: string): string {
@@ -121,6 +124,20 @@ function formatStamp(value: string): string {
   })}, ${time}`;
 }
 
+// Compact timestamp for the conversation list, Messenger-style: time for
+// today, weekday within the last week, date otherwise.
+function formatListTime(value: string | null): string {
+  if (!value) return "";
+  const d = new Date(value.replace(" ", "T") + "Z");
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  if (d.toDateString() === now.toDateString())
+    return d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  if (now.getTime() - d.getTime() < 6 * 24 * 60 * 60 * 1000)
+    return d.toLocaleDateString("en-US", { weekday: "short" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 function formatLastSeen(value: string | null): string {
   if (!value) return "Offline";
   const d = new Date(value.replace(" ", "T") + "Z");
@@ -154,9 +171,13 @@ function Avatar({ email, online }: { email: string; online?: boolean }) {
   );
 }
 
-export default function MessengerClient({ meId }: MessengerClientProps) {
+export default function MessengerClient({
+  meId,
+  onUnreadChange,
+}: MessengerClientProps) {
   const { onlineIds, send, subscribe } = useWs();
   const [users, setUsers] = useState<ConversationUser[]>([]);
+  const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -200,6 +221,11 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  // Keep the shell's Chats badge in sync with the list's unread counts.
+  useEffect(() => {
+    onUnreadChange?.(users.reduce((sum, u) => sum + (u.unread || 0), 0));
+  }, [users, onUnreadChange]);
 
   // React to events from the shared WebSocket (presence is handled centrally
   // in the provider; here we handle messages and typing).
@@ -345,6 +371,16 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
   const selectedUser = users.find((u) => u.id === selectedId);
   const selectedOnline = selectedId !== null && onlineIds.has(selectedId);
 
+  const q = query.trim().toLowerCase();
+  const visibleUsers = q
+    ? users.filter(
+        (u) =>
+          u.email.toLowerCase().includes(q) ||
+          (u.last_body || "").toLowerCase().includes(q)
+      )
+    : users;
+  const activeUsers = users.filter((u) => onlineIds.has(u.id));
+
   return (
     <div className="flex h-full text-white">
       {/* Conversation list */}
@@ -355,13 +391,68 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
           collapsed ? "md:hidden" : "md:flex md:w-60"
         )}
       >
-        <div className="px-4 py-4 text-lg font-semibold">Messages</div>
+        {/* Search */}
+        <div className="px-3 pb-1 pt-3">
+          <div className="flex items-center gap-2 rounded-full bg-white/10 px-3.5 py-2">
+            <Search size={16} className="shrink-0 text-white/40" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              className="w-full bg-transparent text-sm text-white placeholder-white/40 focus:outline-none"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery("")}
+                className="shrink-0 text-white/40 hover:text-white"
+                aria-label="Clear search"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Active now — online users, Messenger's avatar row */}
+        {!q && activeUsers.length > 0 && (
+          <div
+            className="flex gap-4 overflow-x-auto px-4 py-3"
+            style={{ scrollbarWidth: "none" }}
+          >
+            {activeUsers.map((u) => (
+              <button
+                key={u.id}
+                onClick={() => setSelectedId(u.id)}
+                className="flex w-14 shrink-0 flex-col items-center gap-1"
+              >
+                <div className="relative">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
+                    {getInitials(u.email)}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#121212] bg-green-500" />
+                </div>
+                <span
+                  data-pii
+                  className="max-w-full truncate text-[11px] text-white/70"
+                >
+                  {u.email.split("@")[0]}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {users.length === 0 && (
           <div className="px-4 py-6 text-sm text-white/40">
             No other users yet.
           </div>
         )}
-        {users.map((u) => (
+        {q && visibleUsers.length === 0 && users.length > 0 && (
+          <div className="px-4 py-6 text-sm text-white/40">
+            No conversations match &quot;{query}&quot;.
+          </div>
+        )}
+        {visibleUsers.map((u) => (
           <button
             key={u.id}
             onClick={() => setSelectedId(u.id)}
@@ -373,22 +464,38 @@ export default function MessengerClient({ meId }: MessengerClientProps) {
             <Avatar email={u.email} online={onlineIds.has(u.id)} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
-                <span data-pii className="truncate text-sm font-medium">
+                <span
+                  data-pii
+                  className={cn(
+                    "truncate text-sm",
+                    u.unread > 0 ? "font-semibold" : "font-medium"
+                  )}
+                >
                   {u.email.split("@")[0]}
                 </span>
+                <span className="shrink-0 text-[11px] text-white/40">
+                  {formatListTime(u.last_at)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span
+                  className={cn(
+                    "truncate text-xs",
+                    u.unread > 0 ? "font-medium text-white/90" : "text-white/50"
+                  )}
+                >
+                  {u.last_body ||
+                    (u.last_attachment === "album"
+                      ? "Shared an album"
+                      : u.last_attachment === "photos"
+                      ? "Shared photos"
+                      : "No messages yet")}
+                </span>
                 {u.unread > 0 && (
-                  <span className="ml-1 rounded-full bg-blue-500 px-2 py-0.5 text-xs font-semibold">
+                  <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-blue-500 px-1 text-[10px] font-semibold">
                     {u.unread}
                   </span>
                 )}
-              </div>
-              <div className="truncate text-xs text-white/50">
-                {u.last_body ||
-                  (u.last_attachment === "album"
-                    ? "Shared an album"
-                    : u.last_attachment === "photos"
-                    ? "Shared photos"
-                    : "No messages yet")}
               </div>
             </div>
           </button>

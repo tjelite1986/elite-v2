@@ -39,3 +39,4 @@ __pycache__/
 
 # Local screenshots (never publish — public repo)
 docs/Screenshot_*.jpg
+docs/Screenshot_*.png
