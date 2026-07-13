@@ -107,6 +107,7 @@ function migrate(db: Database.Database) {
       original_name TEXT NOT NULL,
       collection TEXT,                                     -- creator drop folder
       matched_post_id INTEGER,
+      match_type TEXT,                                     -- exact | similar
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -734,6 +735,16 @@ function migrate(db: Database.Database) {
     );
   `);
 
+  // Backfill match_type on import_review for databases created before the
+  // perceptual (dHash+SSIM) import check shipped.
+  {
+    const cols = (
+      db.prepare("PRAGMA table_info(import_review)").all() as { name: string }[]
+    ).map((c) => c.name);
+    if (!cols.includes("match_type"))
+      db.exec("ALTER TABLE import_review ADD COLUMN match_type TEXT");
+  }
+
   // One-time backfill when the message-requests feature ships: pre-existing
   // conversations must not retroactively turn into pending requests, so every
   // historical sender is marked accepted by their recipient. Guarded on the
@@ -1343,6 +1354,7 @@ export interface ImportReviewRow {
   original_name: string;
   collection: string | null;
   matched_post_id: number | null;
+  match_type: "exact" | "similar" | null;
   created_at: string;
 }
 

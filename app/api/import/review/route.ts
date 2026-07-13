@@ -13,6 +13,7 @@ interface ReviewItem {
   original_name: string;
   collection: string | null;
   matched_post_id: number | null;
+  match_type: string | null;
   matched_media_id: number | null;
   created_at: string;
   owner_email: string;
@@ -37,6 +38,7 @@ export async function GET() {
       "r.original_name",
       "r.collection",
       "r.matched_post_id",
+      "r.match_type",
       "r.created_at",
       "u.email as owner_email",
       sql<number | null>`(SELECT pm.id FROM post_media pm WHERE pm.post_id = r.matched_post_id ORDER BY pm.position, pm.id LIMIT 1)`.as(

@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { db } from "./db";
 import type { ShortChannel, ImportReviewRow } from "./db";
-import { qb, getOne } from "./kysely";
+import { qb, getOne, getAll } from "./kysely";
 import {
   userHomeDir,
   storeShortUpload,
@@ -34,6 +34,14 @@ import {
   canonicalStem,
   type ParsedImportName,
 } from "./import-naming";
+import {
+  imageFingerprint,
+  structuralSignature,
+  ssim,
+  hamming,
+  HASH_TOL,
+  SSIM_CONFIRM,
+} from "@/scripts/lib/image-dupe.mjs";
 
 // Per-user folder import. Each account owns a top-level drop tree, separate from
 // its served storage:
@@ -188,6 +196,74 @@ function consumeImported(
   );
 }
 
+// Perceptual near-duplicate check against a creator's existing images: dHash
+// (from the scanner's post_media_fp cache) proposes candidates, SSIM on the
+// decoded pixels confirms. Catches the same picture at another resolution or
+// re-compression (e.g. an Instagram-synced 1080px copy vs a Facebook download
+// of the same photo), which the exact content-hash check cannot see.
+async function findNearDuplicate(
+  creatorId: number,
+  fp: { hash: bigint; gray: number },
+  newFileAbs: string
+): Promise<{ postId: number } | null> {
+  const rows = getAll<{ post_id: number; sig: string; storage_key: string }>(
+    qb
+      .selectFrom("post_media_fp as f")
+      .innerJoin("post_media as pm", "pm.id", "f.media_id")
+      .innerJoin("posts as p", "p.id", "pm.post_id")
+      .select(["pm.post_id", "f.sig", "pm.storage_key"])
+      .where("p.author_creator_id", "=", creatorId)
+      .where("f.sig", "is not", null)
+  );
+  let newSig: Uint8Array | null | undefined;
+  for (const row of rows) {
+    let candidate: bigint;
+    try {
+      const parsed = JSON.parse(row.sig) as { d?: string };
+      if (!parsed?.d) continue;
+      candidate = BigInt(`0x${parsed.d}`);
+    } catch {
+      continue;
+    }
+    if (hamming(fp.hash, candidate) > HASH_TOL) continue;
+    // Candidate — confirm on actual pixels (the whole point: dHash alone
+    // would also park similar-but-different shots from the same shoot).
+    if (newSig === undefined) newSig = await structuralSignature(newFileAbs);
+    if (!newSig) return null; // undecodable new file — let it import
+    const oldSig = await structuralSignature(mediaPathFor(row.storage_key));
+    if (oldSig && ssim(newSig, oldSig) >= SSIM_CONFIRM) {
+      return { postId: row.post_id };
+    }
+  }
+  return null;
+}
+
+// Cache a freshly imported image's fingerprint in the scanner's table (same
+// sig format as scripts/scan-posts-duplicates.mjs) so later files in the same
+// drop batch — and the next scanner run — compare against it without a rescan.
+function cacheMediaFingerprint(
+  mediaId: number,
+  fileAbs: string,
+  sha: string | null,
+  fp: { hash: bigint; gray: number } | null
+): void {
+  try {
+    const size = fs.statSync(fileAbs).size;
+    const sig = fp
+      ? JSON.stringify({ d: fp.hash.toString(16), g: fp.gray })
+      : null;
+    db.prepare(
+      `INSERT INTO post_media_fp (media_id, size_bytes, sha, sig, updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(media_id) DO UPDATE SET
+         size_bytes = excluded.size_bytes, sha = excluded.sha,
+         sig = excluded.sig, updated_at = excluded.updated_at`
+    ).run(mediaId, size, sha, sig);
+  } catch {
+    /* cache only — the scanner recomputes on demand */
+  }
+}
+
 // Park a duplicate drop file under IMPORT_ROOT/_review/ instead of deleting it,
 // so the importer can compare it against the matched post in Settings and
 // decide (import anyway / discard). The caption sidecar moves along with it.
@@ -197,8 +273,13 @@ function holdForReview(
   sidecarAbs: string | null,
   collection: string,
   matchedPostId: number,
+  matchType: "exact" | "similar",
   res: ImportSummary
 ): void {
+  const reason =
+    matchType === "exact"
+      ? `exact duplicate of post #${matchedPostId}`
+      : `looks like post #${matchedPostId} (same image, other resolution?)`;
   try {
     const relDir = path.join("_review", `u_${userId}`);
     const dir = path.join(IMPORT_ROOT, relDir);
@@ -216,12 +297,19 @@ function holdForReview(
       }
     }
     db.prepare(
-      `INSERT INTO import_review (user_id, kind, file_rel, original_name, collection, matched_post_id)
-       VALUES (?, 'posts', ?, ?, ?, ?)`
-    ).run(userId, path.join(relDir, name), item.name, collection, matchedPostId);
+      `INSERT INTO import_review (user_id, kind, file_rel, original_name, collection, matched_post_id, match_type)
+       VALUES (?, 'posts', ?, ?, ?, ?, ?)`
+    ).run(
+      userId,
+      path.join(relDir, name),
+      item.name,
+      collection,
+      matchedPostId,
+      matchType
+    );
     res.skipped++;
     res.details.push(
-      `posts ${item.name}: duplicate of post #${matchedPostId} on ${collection} — held for review`
+      `posts ${item.name}: ${reason} on ${collection} — held for review`
     );
   } catch (err) {
     // Fall back to consuming the source rather than leaving it to re-collide
@@ -230,7 +318,7 @@ function holdForReview(
     if (sidecarAbs) consume(sidecarAbs);
     res.skipped++;
     res.details.push(
-      `posts ${item.name}: duplicate of post #${matchedPostId} on ${collection} (review park failed: ${(err as Error).message})`
+      `posts ${item.name}: ${reason} on ${collection} (review park failed: ${(err as Error).message})`
     );
   }
 }
@@ -301,23 +389,29 @@ export async function decideImportReview(
   }
   const tags = new Set<string>(parsed.hashtags);
   if (caption) for (const t of parseHashtags(caption)) tags.add(t);
-  const postId = db.transaction(() => {
+  const { postId, mediaId } = db.transaction(() => {
     const pid = Number(
       db
         .prepare("INSERT INTO posts (author_creator_id, caption) VALUES (?, ?)")
         .run(creatorId, caption).lastInsertRowid
     );
-    db.prepare(
-      `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position, content_hash)
-       VALUES (?, ?, 'image/jpeg', ?, ?, 0, ?)`
-    ).run(pid, stored.storageKey, stored.width, stored.height, contentHash);
+    const mid = Number(
+      db
+        .prepare(
+          `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position, content_hash)
+           VALUES (?, ?, 'image/jpeg', ?, ?, 0, ?)`
+        )
+        .run(pid, stored.storageKey, stored.width, stored.height, contentHash)
+        .lastInsertRowid
+    );
     for (const tag of Array.from(tags)) {
       db.prepare(
         "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)"
       ).run(pid, tag);
     }
-    return pid;
+    return { postId: pid, mediaId: mid };
   })();
+  let finalKey = stored.storageKey;
   try {
     const mediaKey = renamePostImageFiles(
       stored.storageKey,
@@ -327,9 +421,16 @@ export async function decideImportReview(
       mediaKey,
       postId
     );
+    finalKey = mediaKey;
   } catch {
     /* keep the original stored name if the rename fails */
   }
+  cacheMediaFingerprint(
+    mediaId,
+    mediaPathFor(finalKey),
+    contentHash,
+    await imageFingerprint(mediaPathFor(finalKey))
+  );
   consume(abs);
   consume(sidecar);
   dropRow();
@@ -675,9 +776,34 @@ async function importPostsSection(
             md.sidecar,
             item.collection as string,
             match.id,
+            "exact",
             res
           );
           continue;
+        }
+      }
+      // Perceptual pass: same picture at another resolution/re-compression
+      // slips past the exact hash — dHash proposes, SSIM confirms, and a
+      // confirmed near-duplicate parks for review like an exact one.
+      let newFp: Awaited<ReturnType<typeof imageFingerprint>> = null;
+      if (asCreator && creatorId) {
+        const newAbs = mediaPathFor(stored.storageKey);
+        newFp = await imageFingerprint(newAbs);
+        if (newFp) {
+          const near = await findNearDuplicate(creatorId, newFp, newAbs);
+          if (near) {
+            deletePostImageFiles(stored.storageKey);
+            holdForReview(
+              userId,
+              item,
+              md.sidecar,
+              item.collection as string,
+              near.postId,
+              "similar",
+              res
+            );
+            continue;
+          }
         }
       }
       // Hashtags from the caption AND the filename's [h_] tokens.
@@ -685,24 +811,33 @@ async function importPostsSection(
       if (caption) for (const t of parseHashtags(caption)) tags.add(t);
       // Post + media + hashtags commit atomically so a mid-write failure never
       // leaves an empty posts row behind (which would re-import as a duplicate).
-      const postId = db.transaction(() => {
+      const { postId, mediaId } = db.transaction(() => {
         const pid = Number(
           (asCreator
             ? insertCreatorPost.run(creatorId, caption)
             : insertUserPost.run(userId, caption)
           ).lastInsertRowid
         );
-        insertMedia.run(pid, stored.storageKey, "image/jpeg", stored.width, stored.height, contentHash);
+        const mid = Number(
+          insertMedia.run(pid, stored.storageKey, "image/jpeg", stored.width, stored.height, contentHash).lastInsertRowid
+        );
         for (const tag of Array.from(tags)) insertHashtag.run(pid, tag);
-        return pid;
+        return { postId: pid, mediaId: mid };
       })();
       // Rename to a site-relevant self-describing name now that we know the id
       // (outside the transaction — a disk rename must never be rolled back under).
+      let finalKey = stored.storageKey;
       try {
         const mediaKey = renamePostImageFiles(stored.storageKey, canonicalStem(parsed, postId, "post"));
         db.prepare("UPDATE post_media SET storage_key = ? WHERE post_id = ?").run(mediaKey, postId);
+        finalKey = mediaKey;
       } catch {
         /* keep the original stored name if the rename fails */
+      }
+      // Seed the scanner's fingerprint cache so the rest of this drop batch —
+      // and the next scanner run — compare against the new image.
+      if (asCreator && creatorId) {
+        cacheMediaFingerprint(mediaId, mediaPathFor(finalKey), contentHash, newFp);
       }
       consumeImported(item.abs, parsed, postId, "post", "posts", res);
       if (md.sidecar) consume(md.sidecar);

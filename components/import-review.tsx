@@ -9,6 +9,7 @@ interface ReviewItem {
   original_name: string;
   collection: string | null;
   matched_post_id: number | null;
+  match_type: string | null;
   matched_media_id: number | null;
   created_at: string;
   owner_email: string;
@@ -102,8 +103,21 @@ export default function ImportReview() {
               </figure>
             </div>
 
-            <div data-pii className="truncate text-sm">
-              {it.original_name}
+            <div className="flex items-center gap-2">
+              <span data-pii className="truncate text-sm">
+                {it.original_name}
+              </span>
+              <span
+                className={
+                  it.match_type === "similar"
+                    ? "shrink-0 rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] font-medium text-amber-300"
+                    : "shrink-0 rounded-full bg-red-500/20 px-2 py-0.5 text-[11px] font-medium text-red-300"
+                }
+              >
+                {it.match_type === "similar"
+                  ? "similar (other resolution?)"
+                  : "exact copy"}
+              </span>
             </div>
             <div className="text-xs text-white/40">
               {it.collection && <>creator {it.collection} · </>}
