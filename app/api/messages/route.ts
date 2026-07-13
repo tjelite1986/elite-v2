@@ -117,6 +117,13 @@ export async function POST(request: Request) {
       replyTo
     );
 
+  // Writing to someone is an implicit accept: replying moves their pending
+  // message request into Chats, and messaging someone I declined un-declines.
+  db.prepare(
+    `INSERT INTO dm_contacts (owner_id, peer_id, status) VALUES (?, ?, 'accepted')
+     ON CONFLICT(owner_id, peer_id) DO UPDATE SET status = 'accepted'`
+  ).run(meId, Number(recipientId));
+
   const message = getOne<MessageRow>(
     qb.selectFrom("messages").selectAll().where("id", "=", Number(result.lastInsertRowid))
   )!;

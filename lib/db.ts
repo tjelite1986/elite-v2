@@ -96,6 +96,17 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_messages_pair
       ON messages(sender_id, recipient_id, created_at);
 
+    -- Message-request decisions, one row per direction: owner accepted or
+    -- declined DMs from peer. Incoming messages with no reply and no row here
+    -- form the recipient's pending "Message requests" inbox.
+    CREATE TABLE IF NOT EXISTS dm_contacts (
+      owner_id INTEGER NOT NULL REFERENCES users(id),
+      peer_id INTEGER NOT NULL REFERENCES users(id),
+      status TEXT NOT NULL CHECK (status IN ('accepted', 'declined')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (owner_id, peer_id)
+    );
+
     CREATE TABLE IF NOT EXISTS gallery_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id),
@@ -709,6 +720,20 @@ function migrate(db: Database.Database) {
     );
   `);
 
+  // One-time backfill when the message-requests feature ships: pre-existing
+  // conversations must not retroactively turn into pending requests, so every
+  // historical sender is marked accepted by their recipient. Guarded on the
+  // table being empty (fresh installs no-op — they have no messages either).
+  {
+    const hasContacts = db.prepare("SELECT 1 FROM dm_contacts LIMIT 1").get();
+    if (!hasContacts) {
+      db.exec(
+        `INSERT OR IGNORE INTO dm_contacts (owner_id, peer_id, status)
+         SELECT DISTINCT recipient_id, sender_id, 'accepted' FROM messages`
+      );
+    }
+  }
+
   // Backfill the system-announcement columns on notifications for older
   // databases (type 'system' stores free text + a link target).
   {
@@ -1287,6 +1312,13 @@ export interface MessageRow {
   deleted_at: string | null;
   created_at: string;
   read_at: string | null;
+}
+
+export interface DmContactRow {
+  owner_id: number;
+  peer_id: number;
+  status: "accepted" | "declined";
+  created_at: string;
 }
 
 export interface GalleryItemRow {

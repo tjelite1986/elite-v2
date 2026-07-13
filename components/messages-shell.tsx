@@ -11,11 +11,15 @@ import {
   StoriesTab,
   NotificationsTab,
   MenuTab,
+  RequestsView,
 } from "@/components/messenger-tabs";
 
-type MainTab = "chats" | "stories" | "notifications" | "menu";
+// "requests" is a drill-in view under Menu, not a bar tab of its own.
+type MainTab = "chats" | "stories" | "notifications" | "menu" | "requests";
 
-const TABS: { key: MainTab; label: string; icon: typeof MessageCircle }[] = [
+type BarTab = Exclude<MainTab, "requests">;
+
+const TABS: { key: BarTab; label: string; icon: typeof MessageCircle }[] = [
   { key: "chats", label: "Chats", icon: MessageCircle },
   { key: "stories", label: "Stories", icon: Images },
   { key: "notifications", label: "Notifications", icon: Bell },
@@ -41,9 +45,11 @@ export default function MessagesShell({
   const [chatTab, setChatTab] = useState<"dm" | "channels">("dm");
   const [dmUnread, setDmUnread] = useState(0);
   const [notifCount, setNotifCount] = useState(0);
+  const [requestsCount, setRequestsCount] = useState(0);
 
-  // Device Back returns to Chats from any other tab before leaving the page.
-  useBackDismiss(tab !== "chats", () => setTab("chats"));
+  // Device Back unwinds one level: requests → menu, any other tab → chats.
+  useBackDismiss(tab === "requests", () => setTab("menu"));
+  useBackDismiss(tab !== "chats" && tab !== "requests", () => setTab("chats"));
 
   // Lift floating action buttons (privacy controls) above the bottom tab bar
   // while the messenger shell is mounted.
@@ -75,10 +81,20 @@ export default function MessagesShell({
     }
   }, []);
 
+  const loadRequestsCount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/messages/requests");
+      if (res.ok) setRequestsCount((await res.json()).count ?? 0);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
   useEffect(() => {
     loadNotifCount();
     loadDmUnread();
-  }, [loadNotifCount, loadDmUnread]);
+    loadRequestsCount();
+  }, [loadNotifCount, loadDmUnread, loadRequestsCount]);
 
   // Refresh badges on live events, debounced — a burst of messages should not
   // trigger a fetch per message.
@@ -92,12 +108,19 @@ export default function MessagesShell({
       refreshTimer.current = setTimeout(() => {
         loadNotifCount();
         loadDmUnread();
+        loadRequestsCount();
       }, 800);
     });
-  }, [subscribe, loadNotifCount, loadDmUnread]);
+  }, [subscribe, loadNotifCount, loadDmUnread, loadRequestsCount]);
 
-  const badge = (t: MainTab): number =>
-    t === "chats" ? dmUnread : t === "notifications" ? notifCount : 0;
+  const badge = (t: BarTab): number =>
+    t === "chats"
+      ? dmUnread
+      : t === "notifications"
+      ? notifCount
+      : t === "menu"
+      ? requestsCount
+      : 0;
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col text-white">
@@ -137,7 +160,23 @@ export default function MessagesShell({
           <NotificationsTab onCountChange={setNotifCount} />
         )}
         {tab === "menu" && (
-          <MenuTab myUsername={myUsername} myEmail={myEmail} isAdmin={isAdmin} />
+          <MenuTab
+            myUsername={myUsername}
+            myEmail={myEmail}
+            isAdmin={isAdmin}
+            requestsCount={requestsCount}
+            onOpenRequests={() => setTab("requests")}
+          />
+        )}
+        {tab === "requests" && (
+          <RequestsView
+            onBack={() => setTab("menu")}
+            onChanged={() => {
+              loadRequestsCount();
+              loadDmUnread();
+              loadNotifCount();
+            }}
+          />
         )}
       </div>
 
@@ -145,17 +184,18 @@ export default function MessagesShell({
       <nav className="flex shrink-0 border-t border-white/10 bg-black/40 pb-[env(safe-area-inset-bottom)]">
         {TABS.map(({ key, label, icon: Icon }) => {
           const count = badge(key);
+          const active = tab === key || (key === "menu" && tab === "requests");
           return (
             <button
               key={key}
               onClick={() => setTab(key)}
               className={cn(
                 "flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] transition",
-                tab === key ? "text-blue-400" : "text-white/50 hover:text-white/80"
+                active ? "text-blue-400" : "text-white/50 hover:text-white/80"
               )}
             >
               <span className="relative">
-                <Icon size={22} strokeWidth={tab === key ? 2.4 : 2} />
+                <Icon size={22} strokeWidth={active ? 2.4 : 2} />
                 {count > 0 && (
                   <span className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
                     {count > 99 ? "99+" : count}

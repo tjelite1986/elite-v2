@@ -5,6 +5,7 @@ import {
   type CodeRow,
   type InviteRequestRow,
   type MessageRow,
+  type DmContactRow,
   type GalleryItemRow,
   type GalleryAlbumRow,
   type ShortRow,
@@ -151,6 +152,7 @@ export interface DB {
   registration_codes: CodeRow;
   invite_requests: InviteRequestRow;
   messages: MessageRow;
+  dm_contacts: DmContactRow;
   gallery_items: GalleryItemRow;
   gallery_albums: GalleryAlbumRow;
   gallery_album_items: GalleryAlbumItemRow;

@@ -47,6 +47,15 @@ export async function GET() {
         ),
       ])
       .where("u.id", "!=", meId)
+      // Pending or declined message requests live in the Menu's requests inbox,
+      // not in the chat list: hide senders I never wrote to and never accepted.
+      .where(
+        sql<boolean>`NOT (
+          EXISTS (SELECT 1 FROM messages mr WHERE mr.sender_id = u.id AND mr.recipient_id = ${meId})
+          AND NOT EXISTS (SELECT 1 FROM messages ms WHERE ms.sender_id = ${meId} AND ms.recipient_id = u.id)
+          AND NOT EXISTS (SELECT 1 FROM dm_contacts c WHERE c.owner_id = ${meId} AND c.peer_id = u.id AND c.status = 'accepted')
+        )`
+      )
       .orderBy(sql`last_at desc`)
       .orderBy("u.email")
   );

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sql } from "kysely";
 import { db } from "@/lib/db";
 import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
@@ -43,6 +44,14 @@ export async function GET() {
       ])
       .where("m.recipient_id", "=", userId)
       .where("m.read_at", "is", null)
+      // Messages from pending/declined requests notify via the Menu's requests
+      // inbox instead — only conversations I take part in alert here.
+      .where(
+        sql<boolean>`(
+          EXISTS (SELECT 1 FROM messages ms WHERE ms.sender_id = ${userId} AND ms.recipient_id = m.sender_id)
+          OR EXISTS (SELECT 1 FROM dm_contacts c WHERE c.owner_id = ${userId} AND c.peer_id = m.sender_id AND c.status = 'accepted')
+        )`
+      )
       .groupBy("m.sender_id")
   );
 

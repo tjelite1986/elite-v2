@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  ArrowLeft,
   BookOpen,
   Check,
   Images,
@@ -16,6 +17,7 @@ import {
   ShieldCheck,
   Sparkles,
   Store,
+  Trash2,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -315,6 +317,127 @@ export function NotificationsTab({
 }
 
 // ---------------------------------------------------------------------------
+// Message requests — DMs from people you have never written to. Accept moves
+// the conversation into Chats (replying does too); Delete hides it.
+// ---------------------------------------------------------------------------
+
+interface MessageRequest {
+  id: number;
+  email: string;
+  message_count: number;
+  last_body: string | null;
+  last_at: string | null;
+}
+
+export function RequestsView({
+  onBack,
+  onChanged,
+}: {
+  onBack: () => void;
+  onChanged?: () => void;
+}) {
+  const [requests, setRequests] = useState<MessageRequest[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/messages/requests");
+      if (res.ok) setRequests((await res.json()).requests || []);
+    } catch {
+      /* noop */
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const decide = async (peerId: number, action: "accept" | "decline") => {
+    setBusyId(peerId);
+    try {
+      await fetch("/api/messages/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ peerId, action }),
+      });
+      await load();
+      onChanged?.();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="flex items-center gap-2 px-4 pt-4">
+        <button
+          onClick={onBack}
+          className="rounded-md p-1 hover:bg-white/10"
+          aria-label="Back to menu"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <span className="text-2xl font-bold">Message requests</span>
+      </div>
+      <div className="px-4 pb-1 pt-2 text-sm text-white/40">
+        Chats from people you haven&apos;t talked to yet. They aren&apos;t told
+        you&apos;ve seen the request until you accept or reply.
+      </div>
+
+      <div className="mt-2 pb-4">
+        {requests.map((r) => (
+          <div key={r.id} className="flex items-center gap-3 px-4 py-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
+              {initials(r.email)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span data-pii className="truncate text-sm font-semibold">
+                  {r.email.split("@")[0]}
+                </span>
+                {r.last_at && (
+                  <span className="shrink-0 text-xs text-white/40">
+                    {timeAgo(r.last_at)}
+                  </span>
+                )}
+              </div>
+              <div className="truncate text-xs text-white/50">
+                {r.last_body ||
+                  `${r.message_count} message${r.message_count === 1 ? "" : "s"}`}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={() => decide(r.id, "accept")}
+                  disabled={busyId === r.id}
+                  className="flex items-center gap-1.5 rounded-full bg-blue-600 px-4 py-1.5 text-xs font-semibold transition hover:bg-blue-500 disabled:opacity-50"
+                >
+                  <Check size={13} /> Accept
+                </button>
+                <button
+                  onClick={() => decide(r.id, "decline")}
+                  disabled={busyId === r.id}
+                  className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-1.5 text-xs font-semibold text-white/70 transition hover:bg-white/15 disabled:opacity-50"
+                >
+                  <Trash2 size={13} /> Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {loaded && requests.length === 0 && (
+          <div className="px-4 py-10 text-center text-sm text-white/40">
+            No message requests.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Menu tab — profile header plus quick links to the rest of the app, in the
 // style of Messenger's Menu page.
 // ---------------------------------------------------------------------------
@@ -350,10 +473,14 @@ export function MenuTab({
   myUsername,
   myEmail,
   isAdmin,
+  requestsCount,
+  onOpenRequests,
 }: {
   myUsername: string;
   myEmail: string;
   isAdmin: boolean;
+  requestsCount: number;
+  onOpenRequests: () => void;
 }) {
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -387,6 +514,27 @@ export function MenuTab({
       </Link>
 
       <div className="mt-1 border-t border-white/10 pt-1">
+        <button
+          onClick={onOpenRequests}
+          className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-white/5"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80">
+            <MessageCircleQuestion size={18} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-medium">
+              Message requests
+            </span>
+            <span className="block text-xs text-white/40">
+              Chats from people you haven&apos;t talked to
+            </span>
+          </span>
+          {requestsCount > 0 && (
+            <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold">
+              {requestsCount}
+            </span>
+          )}
+        </button>
         <MenuRow href="/settings" icon={<Settings size={18} />} label="Settings" />
         {isAdmin && (
           <MenuRow href="/admin" icon={<ShieldCheck size={18} />} label="Admin" />
