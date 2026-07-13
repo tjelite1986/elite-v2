@@ -80,6 +80,50 @@ export function notify(opts: {
   });
 }
 
+// Broadcast a system announcement: one 'system' notification row per user
+// (including the announcer), pushed live over WS and web push. Returns the
+// number of recipients.
+export function announce(
+  actorId: number,
+  message: string,
+  href?: string | null
+): number {
+  const users = getAll<{ id: number }>(qb.selectFrom("users").select("id"));
+  const insert = db.prepare(
+    `INSERT INTO notifications (user_id, type, actor_user_id, message, href)
+     VALUES (?, 'system', ?, ?, ?)`
+  );
+  const registry = (
+    globalThis as unknown as {
+      __wsClients?: Map<number, Set<{ send: (data: string) => void }>>;
+    }
+  ).__wsClients;
+
+  for (const u of users) {
+    const result = insert.run(u.id, actorId, message, href ?? null);
+    if (registry?.has(u.id)) {
+      const row = getOne<NotificationRow>(
+        NOTIFICATION_SELECT().where("n.id", "=", Number(result.lastInsertRowid))
+      );
+      const payload = JSON.stringify({ type: "notification", notification: row });
+      registry.get(u.id)?.forEach((ws) => {
+        try {
+          ws.send(payload);
+        } catch {
+          /* socket may be closing */
+        }
+      });
+    }
+    void sendPushToUser(u.id, {
+      title: "Elite",
+      body: message,
+      url: href || "/messages",
+      tag: `notif-system-${u.id}`,
+    });
+  }
+  return users.length;
+}
+
 export function unreadCount(userId: number): number {
   const r = getOne<{ c: number }>(
     qb

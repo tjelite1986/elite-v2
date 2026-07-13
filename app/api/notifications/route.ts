@@ -87,6 +87,8 @@ export async function GET() {
     createdAt: string;
     readAt: string | null;
     actor: string | null;
+    message: string | null;
+    href: string | null;
   }>(
     qb
       .selectFrom("notifications as n")
@@ -98,6 +100,8 @@ export async function GET() {
         "n.created_at as createdAt",
         "n.read_at as readAt",
         "up.username as actor",
+        "n.message",
+        "n.href",
       ])
       .where("n.user_id", "=", userId)
       .orderBy("n.id", "desc")
@@ -112,6 +116,19 @@ export async function GET() {
   };
 
   for (const n of postNotifs) {
+    if (n.type === "system") {
+      // Announcements: free text authored via /api/admin/announce, shown as
+      // coming from the app itself.
+      notifications.push({
+        id: `post-${n.id}`,
+        user: "Elite",
+        action: n.message ?? "has news for you",
+        timestamp: n.createdAt,
+        href: n.href || "/messages",
+        read: n.readAt !== null,
+      });
+      continue;
+    }
     const actor = n.actor ?? "someone";
     notifications.push({
       id: `post-${n.id}`,

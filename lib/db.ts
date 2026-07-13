@@ -462,10 +462,12 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL REFERENCES users(id),       -- recipient
-      type TEXT NOT NULL,                                  -- like|comment|follow|mention
+      type TEXT NOT NULL,                                  -- like|comment|follow|mention|system
       actor_user_id INTEGER NOT NULL REFERENCES users(id),
       post_id INTEGER,
       comment_id INTEGER,
+      message TEXT,                                        -- system: free-text announcement
+      href TEXT,                                           -- system: link target
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       read_at TEXT
     );
@@ -706,6 +708,18 @@ function migrate(db: Database.Database) {
       PRIMARY KEY (user_id, permission)
     );
   `);
+
+  // Backfill the system-announcement columns on notifications for older
+  // databases (type 'system' stores free text + a link target).
+  {
+    const cols = (
+      db.prepare("PRAGMA table_info(notifications)").all() as { name: string }[]
+    ).map((c) => c.name);
+    if (!cols.includes("message"))
+      db.exec("ALTER TABLE notifications ADD COLUMN message TEXT");
+    if (!cols.includes("href"))
+      db.exec("ALTER TABLE notifications ADD COLUMN href TEXT");
+  }
 
   // Backfill the Instagram-sync columns on profile_extras for older databases.
   {
@@ -1561,7 +1575,12 @@ export interface AppReviewRow {
   updated_at: string | null;
 }
 
-export type NotificationType = "like" | "comment" | "follow" | "mention";
+export type NotificationType =
+  | "like"
+  | "comment"
+  | "follow"
+  | "mention"
+  | "system";
 
 export interface NotificationRow {
   id: number;
@@ -1570,6 +1589,8 @@ export interface NotificationRow {
   actor_user_id: number;
   post_id: number | null;
   comment_id: number | null;
+  message: string | null;
+  href: string | null;
   created_at: string;
   read_at: string | null;
 }
