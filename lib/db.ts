@@ -96,6 +96,20 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_messages_pair
       ON messages(sender_id, recipient_id, created_at);
 
+    -- Import-time duplicate quarantine: instead of silently deleting a drop
+    -- file whose content already exists on the target creator, it is parked
+    -- under IMPORT_ROOT/_review/ for a side-by-side decision in Settings.
+    CREATE TABLE IF NOT EXISTS import_review (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL,                                  -- 'posts' (v1)
+      file_rel TEXT NOT NULL,                              -- path under IMPORT_ROOT
+      original_name TEXT NOT NULL,
+      collection TEXT,                                     -- creator drop folder
+      matched_post_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Message-request decisions, one row per direction: owner accepted or
     -- declined DMs from peer. Incoming messages with no reply and no row here
     -- form the recipient's pending "Message requests" inbox.
@@ -1318,6 +1332,17 @@ export interface DmContactRow {
   owner_id: number;
   peer_id: number;
   status: "accepted" | "declined";
+  created_at: string;
+}
+
+export interface ImportReviewRow {
+  id: number;
+  user_id: number;
+  kind: string;
+  file_rel: string;
+  original_name: string;
+  collection: string | null;
+  matched_post_id: number | null;
   created_at: string;
 }
 

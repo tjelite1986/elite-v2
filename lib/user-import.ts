@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { db } from "./db";
-import type { ShortChannel } from "./db";
+import type { ShortChannel, ImportReviewRow } from "./db";
 import { qb, getOne } from "./kysely";
 import {
   userHomeDir,
@@ -186,6 +186,154 @@ function consumeImported(
   res.details.push(
     `${section} ${path.basename(abs)}: imported as #${id} but the source could not be deleted — fix the drop folder permissions or it may re-import`
   );
+}
+
+// Park a duplicate drop file under IMPORT_ROOT/_review/ instead of deleting it,
+// so the importer can compare it against the matched post in Settings and
+// decide (import anyway / discard). The caption sidecar moves along with it.
+function holdForReview(
+  userId: number,
+  item: DropItem,
+  sidecarAbs: string | null,
+  collection: string,
+  matchedPostId: number,
+  res: ImportSummary
+): void {
+  try {
+    const relDir = path.join("_review", `u_${userId}`);
+    const dir = path.join(IMPORT_ROOT, relDir);
+    fs.mkdirSync(dir, { recursive: true });
+    const [stem, ext] = splitExt(item.name);
+    let name = item.name;
+    let n = 1;
+    while (fs.existsSync(path.join(dir, name))) name = `${stem} (${++n})${ext}`;
+    fs.renameSync(item.abs, path.join(dir, name));
+    if (sidecarAbs) {
+      try {
+        fs.renameSync(sidecarAbs, path.join(dir, `${splitExt(name)[0]}.md`));
+      } catch {
+        /* the caption sidecar is best-effort */
+      }
+    }
+    db.prepare(
+      `INSERT INTO import_review (user_id, kind, file_rel, original_name, collection, matched_post_id)
+       VALUES (?, 'posts', ?, ?, ?, ?)`
+    ).run(userId, path.join(relDir, name), item.name, collection, matchedPostId);
+    res.skipped++;
+    res.details.push(
+      `posts ${item.name}: duplicate of post #${matchedPostId} on ${collection} — held for review`
+    );
+  } catch (err) {
+    // Fall back to consuming the source rather than leaving it to re-collide
+    // on every scan.
+    consume(item.abs);
+    if (sidecarAbs) consume(sidecarAbs);
+    res.skipped++;
+    res.details.push(
+      `posts ${item.name}: duplicate of post #${matchedPostId} on ${collection} (review park failed: ${(err as Error).message})`
+    );
+  }
+}
+
+// Resolve a parked duplicate: 'import' stores it as a post on the same creator
+// despite the content match (the dedup was wrong or the copy is wanted);
+// 'discard' deletes the parked file. Both remove the review row + sidecar.
+export async function decideImportReview(
+  reviewId: number,
+  requester: { userId: number; isAdmin: boolean },
+  action: "import" | "discard"
+): Promise<{ ok: true; postId?: number } | { ok: false; error: string }> {
+  let q = qb.selectFrom("import_review").selectAll().where("id", "=", reviewId);
+  if (!requester.isAdmin) q = q.where("user_id", "=", requester.userId);
+  const row = getOne<ImportReviewRow>(q);
+  if (!row) return { ok: false, error: "Review item not found." };
+
+  const abs = path.join(IMPORT_ROOT, row.file_rel);
+  const sidecar = path.join(
+    path.dirname(abs),
+    `${splitExt(path.basename(abs))[0]}.md`
+  );
+  const dropRow = () =>
+    db.prepare("DELETE FROM import_review WHERE id = ?").run(row.id);
+
+  if (action === "discard") {
+    consume(abs);
+    consume(sidecar);
+    dropRow();
+    return { ok: true };
+  }
+
+  let buffer: Buffer;
+  try {
+    buffer = fs.readFileSync(abs);
+  } catch {
+    dropRow(); // the parked file is gone — nothing left to decide about
+    return { ok: false, error: "The parked file no longer exists." };
+  }
+
+  const collection = row.collection || "";
+  const creatorId = findOrCreatePostCreator(collection);
+  const [stem] = splitExt(row.original_name);
+  const parsed = parseImportName(stem);
+  let caption: string | null = null;
+  try {
+    caption = fs.readFileSync(sidecar, "utf8").trim() || null;
+  } catch {
+    /* no sidecar */
+  }
+  if (!caption) caption = parsed.collection ? parsed.title || null : null;
+
+  const stored = await storePostImage(
+    authorSlug(creatorHandle(collection)),
+    row.original_name,
+    "",
+    buffer,
+    null
+  );
+  let contentHash: string | null = null;
+  try {
+    contentHash = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(mediaPathFor(stored.storageKey)))
+      .digest("hex");
+  } catch {
+    /* unreadable just-written file — import without a hash */
+  }
+  const tags = new Set<string>(parsed.hashtags);
+  if (caption) for (const t of parseHashtags(caption)) tags.add(t);
+  const postId = db.transaction(() => {
+    const pid = Number(
+      db
+        .prepare("INSERT INTO posts (author_creator_id, caption) VALUES (?, ?)")
+        .run(creatorId, caption).lastInsertRowid
+    );
+    db.prepare(
+      `INSERT INTO post_media (post_id, storage_key, mime_type, width, height, position, content_hash)
+       VALUES (?, ?, 'image/jpeg', ?, ?, 0, ?)`
+    ).run(pid, stored.storageKey, stored.width, stored.height, contentHash);
+    for (const tag of Array.from(tags)) {
+      db.prepare(
+        "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)"
+      ).run(pid, tag);
+    }
+    return pid;
+  })();
+  try {
+    const mediaKey = renamePostImageFiles(
+      stored.storageKey,
+      canonicalStem(parsed, postId, "post")
+    );
+    db.prepare("UPDATE post_media SET storage_key = ? WHERE post_id = ?").run(
+      mediaKey,
+      postId
+    );
+  } catch {
+    /* keep the original stored name if the rename fails */
+  }
+  consume(abs);
+  consume(sidecar);
+  dropRow();
+  return { ok: true, postId };
 }
 
 // Remove now-empty collection subfolders so the drop tree stays tidy (the four
@@ -450,7 +598,7 @@ async function importPostsSection(
   // dedup mirroring scripts/import-posts.mjs, so re-dropping a creator's images —
   // or overlapping drops from several users — never duplicates.
   const creatorHashSeen = db.prepare(
-    `SELECT 1 FROM post_media pm JOIN posts p ON p.id = pm.post_id
+    `SELECT p.id FROM post_media pm JOIN posts p ON p.id = pm.post_id
       WHERE p.author_creator_id = ? AND pm.content_hash = ? LIMIT 1`
   );
 
@@ -512,12 +660,24 @@ async function importPostsSection(
         } catch {
           /* unreadable just-written file — skip dedup, still import */
         }
-        if (contentHash && creatorHashSeen.get(creatorId, contentHash)) {
+        const match = contentHash
+          ? (creatorHashSeen.get(creatorId, contentHash) as
+              | { id: number }
+              | undefined)
+          : undefined;
+        if (match) {
+          // Same content already on this creator — park the source for a
+          // side-by-side review instead of silently deleting it.
           deletePostImageFiles(stored.storageKey);
-          consume(item.abs);
-          if (md.sidecar) consume(md.sidecar);
-          res.skipped++;
-          continue; // already on this creator
+          holdForReview(
+            userId,
+            item,
+            md.sidecar,
+            item.collection as string,
+            match.id,
+            res
+          );
+          continue;
         }
       }
       // Hashtags from the caption AND the filename's [h_] tokens.
