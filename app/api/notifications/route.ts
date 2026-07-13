@@ -9,11 +9,14 @@ interface Notification {
   action: string;
   timestamp: string;
   href: string;
+  read: boolean;
 }
 
-// Notifications for the current user, derived from live state:
-//  - unread chat messages (grouped by sender)
-//  - pending invite requests (admins only)
+// Notifications for the current user:
+//  - unread chat messages (grouped by sender; transient — they clear once read)
+//  - pending invite requests (admins only; actionable until handled)
+//  - posts-module activity (likes/comments/follows/mentions) INCLUDING already
+//    read history, so the list keeps an "Earlier" section after mark-all-read
 export async function GET() {
   const session = await getSession();
   if (!session) {
@@ -50,6 +53,7 @@ export async function GET() {
       action: m.cnt > 1 ? `sent you ${m.cnt} messages` : "sent you a message",
       timestamp: m.lastAt,
       href: "/messages",
+      read: false,
     });
   }
 
@@ -69,16 +73,19 @@ export async function GET() {
         action: "requested an invite",
         timestamp: r.createdAt,
         href: "/admin",
+        read: false,
       });
     }
   }
 
-  // Unread posts-module notifications (likes/comments/follows).
+  // Posts-module notifications (likes/comments/follows), read and unread — the
+  // newest 50 form the history.
   const postNotifs = getAll<{
     id: number;
     type: string;
     postId: number | null;
     createdAt: string;
+    readAt: string | null;
     actor: string | null;
   }>(
     qb
@@ -89,10 +96,10 @@ export async function GET() {
         "n.type",
         "n.post_id as postId",
         "n.created_at as createdAt",
+        "n.read_at as readAt",
         "up.username as actor",
       ])
       .where("n.user_id", "=", userId)
-      .where("n.read_at", "is", null)
       .orderBy("n.id", "desc")
       .limit(50)
   );
@@ -112,6 +119,7 @@ export async function GET() {
       action: POST_ACTION[n.type] ?? "interacted with you",
       timestamp: n.createdAt,
       href: n.type === "follow" ? `/posts/u/${actor}` : `/posts/p/${n.postId ?? ""}`,
+      read: n.readAt !== null,
     });
   }
 
@@ -120,7 +128,7 @@ export async function GET() {
 
   return NextResponse.json({
     notifications,
-    unreadCount: notifications.length,
+    unreadCount: notifications.filter((n) => !n.read).length,
   });
 }
 

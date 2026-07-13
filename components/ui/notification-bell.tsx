@@ -11,6 +11,7 @@ interface Notification {
   action: string;
   timestamp: string;
   href: string;
+  read: boolean;
 }
 
 // SQLite stores UTC datetimes as "YYYY-MM-DD HH:MM:SS".
@@ -158,7 +159,9 @@ export default function NotificationBell() {
                       {relativeTime(n.timestamp)}
                     </span>
                   </span>
-                  <span className="mt-1.5 size-2 shrink-0 rounded-full bg-blue-400" />
+                  {!n.read && (
+                    <span className="mt-1.5 size-2 shrink-0 rounded-full bg-blue-400" />
+                  )}
                 </button>
               ))}
             </div>

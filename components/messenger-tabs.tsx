@@ -196,6 +196,34 @@ interface NotificationItem {
   action: string;
   timestamp: string;
   href: string;
+  read: boolean;
+}
+
+function NotificationRow({ n }: { n: NotificationItem }) {
+  return (
+    <Link
+      href={n.href}
+      className="flex items-center gap-3 px-4 py-3 transition hover:bg-white/5"
+    >
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
+        {initials(n.user)}
+      </span>
+      <span className="min-w-0 flex-1 text-sm">
+        <span data-pii className={cn("font-semibold", n.read && "text-white/70")}>
+          {n.user.split("@")[0]}
+        </span>{" "}
+        <span className={n.read ? "text-white/50" : "text-white/70"}>
+          {n.action}
+        </span>
+        <span className="ml-1.5 text-xs text-white/40">
+          · {timeAgo(n.timestamp)}
+        </span>
+      </span>
+      {!n.read && (
+        <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500" />
+      )}
+    </Link>
+  );
 }
 
 export function NotificationsTab({
@@ -236,11 +264,14 @@ export function NotificationsTab({
     }
   };
 
+  const fresh = items.filter((n) => !n.read);
+  const earlier = items.filter((n) => n.read);
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="flex items-center justify-between px-4 pt-4">
         <span className="text-2xl font-bold">Notifications</span>
-        {items.length > 0 && (
+        {fresh.length > 0 && (
           <button
             onClick={markAllRead}
             disabled={marking}
@@ -257,26 +288,21 @@ export function NotificationsTab({
       </div>
 
       <div className="mt-2 pb-4">
-        {items.map((n) => (
-          <Link
-            key={n.id}
-            href={n.href}
-            className="flex items-center gap-3 px-4 py-3 transition hover:bg-white/5"
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
-              {initials(n.user)}
-            </span>
-            <span className="min-w-0 flex-1 text-sm">
-              <span data-pii className="font-semibold">
-                {n.user.split("@")[0]}
-              </span>{" "}
-              <span className="text-white/70">{n.action}</span>
-              <span className="ml-1.5 text-xs text-white/40">
-                · {timeAgo(n.timestamp)}
-              </span>
-            </span>
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500" />
-          </Link>
+        {fresh.length > 0 && (
+          <div className="px-4 pb-1 pt-2 text-sm font-semibold text-white/60">
+            New
+          </div>
+        )}
+        {fresh.map((n) => (
+          <NotificationRow key={n.id} n={n} />
+        ))}
+        {earlier.length > 0 && (
+          <div className="px-4 pb-1 pt-3 text-sm font-semibold text-white/60">
+            Earlier
+          </div>
+        )}
+        {earlier.map((n) => (
+          <NotificationRow key={n.id} n={n} />
         ))}
         {loaded && items.length === 0 && (
           <div className="px-4 py-10 text-center text-sm text-white/40">
