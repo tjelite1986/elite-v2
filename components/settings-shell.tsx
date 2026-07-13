@@ -21,6 +21,7 @@ import {
   UserPlus,
   CalendarClock,
   ShieldCheck,
+  Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
@@ -46,6 +47,7 @@ import ShortsAdmin from "@/components/shorts-admin";
 import RenameTools from "@/components/rename-tools";
 import AdminInvites from "@/components/admin-invites";
 import JobsManager from "@/components/jobs-manager";
+import AdminAnnounce from "@/components/admin-announce";
 import UserPermissions from "@/components/user-permissions";
 
 interface SettingsShellProps {
@@ -75,7 +77,8 @@ type CategoryKey =
   | "rename"
   | "members"
   | "jobs"
-  | "permissions";
+  | "permissions"
+  | "announce";
 
 interface NavItem {
   key: CategoryKey;
@@ -211,6 +214,7 @@ export default function SettingsShell({
           { key: "members", label: "Members", icon: <UserPlus size={16} /> },
           { key: "jobs", label: "Background jobs", icon: <CalendarClock size={16} /> },
           { key: "permissions", label: "Permissions", icon: <ShieldCheck size={16} /> },
+          { key: "announce", label: "Announce", icon: <Megaphone size={16} /> },
         ]
       : [];
     return { personal, library, tools, admin };
@@ -541,6 +545,15 @@ export default function SettingsShell({
                   desc="The in-app scheduler: imports, cleanups, syncs and scans."
                 />
                 <JobsManager />
+              </div>
+            )}
+            {active === "announce" && isAdmin && (
+              <div>
+                <PanelHeader
+                  title="Announce"
+                  desc="Broadcast a notification to every user — release notes, downtime, news."
+                />
+                <AdminAnnounce />
               </div>
             )}
             {active === "permissions" && isAdmin && (

@@ -1,6 +1,39 @@
 import { NextResponse } from "next/server";
+import { sql } from "kysely";
 import { getSession } from "@/lib/auth";
+import { qb, getAll } from "@/lib/kysely";
 import { announce } from "@/lib/notifications";
+
+// Recent announcements (one row per broadcast — the per-user copies are
+// grouped by message + minute). Admin only.
+export async function GET() {
+  const session = await getSession();
+  if (!session || session.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const rows = getAll<{
+    message: string;
+    href: string | null;
+    created_at: string;
+    recipients: number;
+  }>(
+    qb
+      .selectFrom("notifications")
+      .select((eb) => [
+        "message",
+        "href",
+        eb.fn.min("created_at").as("created_at"),
+        eb.fn.countAll<number>().as("recipients"),
+      ])
+      .where("type", "=", "system")
+      .groupBy(["message", "href", sql`substr(created_at, 1, 16)`])
+      .orderBy("created_at", "desc")
+      .limit(10)
+  );
+
+  return NextResponse.json({ announcements: rows });
+}
 
 // Broadcast a system announcement to every user's notifications
 // (e.g. release notes for a new feature). Admin only.
