@@ -50,11 +50,7 @@ export default async function AuthedLayout({
           imp={session.imp ?? null}
           isRealAdmin={session.role === "admin" && !session.imp}
         />
-        <BottomNav
-          username={username}
-          email={session.email}
-          isAdmin={session.role === "admin"}
-        >
+        <BottomNav username={username} email={session.email}>
           {children}
         </BottomNav>
         <PrivacyControls />

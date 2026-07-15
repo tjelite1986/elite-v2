@@ -13,7 +13,6 @@ export default async function MessagesPage() {
       meId={Number(session.sub)}
       myUsername={profile.username}
       myEmail={session.email}
-      isAdmin={session.role === "admin"}
     />
   );
 }

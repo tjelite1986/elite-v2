@@ -4,6 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   BookOpen,
+  Flame,
+  House,
   Images,
   Loader2,
   LogOut,
@@ -11,7 +13,6 @@ import {
   Newspaper,
   Play,
   Settings,
-  ShieldCheck,
   Sparkles,
   Store,
   Users,
@@ -55,13 +56,11 @@ export function MenuRow({
 export default function NavMenuContent({
   myUsername,
   myEmail,
-  isAdmin,
-  beforeSettings,
+  beforeSections,
 }: {
   myUsername: string;
   myEmail: string;
-  isAdmin: boolean;
-  beforeSettings?: React.ReactNode;
+  beforeSections?: React.ReactNode;
 }) {
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -92,15 +91,14 @@ export default function NavMenuContent({
         </span>
       </Link>
 
-      <div className="mt-1 border-t border-white/10 pt-1">
-        {beforeSettings}
-        <MenuRow href="/settings" icon={<Settings size={18} />} label="Settings" />
-        {isAdmin && (
-          <MenuRow href="/admin" icon={<ShieldCheck size={18} />} label="Admin" />
-        )}
-      </div>
+      {beforeSections && (
+        <div className="mt-1 border-t border-white/10 pt-1">
+          {beforeSections}
+        </div>
+      )}
 
       <div className="mt-1 border-t border-white/10 pt-1">
+        <MenuRow href="/" icon={<House size={18} />} label="Home" />
         <MenuRow
           href="/messages"
           icon={<MessageCircle size={18} />}
@@ -110,6 +108,7 @@ export default function NavMenuContent({
         <MenuRow href="/posts" icon={<Newspaper size={18} />} label="Posts" />
         <MenuRow href="/gallery" icon={<Images size={18} />} label="Gallery" />
         <MenuRow href="/shorts" icon={<Play size={18} />} label="Shorts" />
+        <MenuRow href="/shorts18" icon={<Flame size={18} />} label="18+" />
         <MenuRow href="/books" icon={<BookOpen size={18} />} label="Books" />
         <MenuRow href="/store" icon={<Store size={18} />} label="App Store" />
       </div>
@@ -124,6 +123,7 @@ export default function NavMenuContent({
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
+        <MenuRow href="/settings" icon={<Settings size={18} />} label="Settings" />
         <button
           onClick={logout}
           disabled={loggingOut}

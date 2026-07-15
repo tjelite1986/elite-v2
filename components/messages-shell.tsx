@@ -33,12 +33,10 @@ export default function MessagesShell({
   meId,
   myUsername,
   myEmail,
-  isAdmin,
 }: {
   meId: number;
   myUsername: string;
   myEmail: string;
-  isAdmin: boolean;
 }) {
   const { subscribe } = useWs();
   const [tab, setTab] = useState<MainTab>("chats");
@@ -154,7 +152,6 @@ export default function MessagesShell({
           <MenuTab
             myUsername={myUsername}
             myEmail={myEmail}
-            isAdmin={isAdmin}
             requestsCount={requestsCount}
             onOpenRequests={() => setTab("requests")}
           />

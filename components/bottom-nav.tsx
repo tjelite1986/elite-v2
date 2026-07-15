@@ -18,12 +18,10 @@ import NavMenuSheet from "@/components/nav-menu-sheet";
 export default function BottomNav({
   username,
   email,
-  isAdmin,
   children,
 }: {
   username: string;
   email: string;
-  isAdmin: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -102,7 +100,6 @@ export default function BottomNav({
             onClose={() => setMenuOpen(false)}
             username={username}
             email={email}
-            isAdmin={isAdmin}
           />
         </>
       )}

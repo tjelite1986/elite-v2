@@ -10,13 +10,11 @@ export default function NavMenuSheet({
   onClose,
   username,
   email,
-  isAdmin,
 }: {
   open: boolean;
   onClose: () => void;
   username: string;
   email: string;
-  isAdmin: boolean;
 }) {
   useBackDismiss(open, onClose);
 
@@ -32,11 +30,7 @@ export default function NavMenuSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-white/20" />
-        <NavMenuContent
-          myUsername={username}
-          myEmail={email}
-          isAdmin={isAdmin}
-        />
+        <NavMenuContent myUsername={username} myEmail={email} />
       </div>
     </div>
   );

@@ -431,19 +431,17 @@ export function RequestsView({
 // ---------------------------------------------------------------------------
 // Menu tab — thin wrapper around the shared app menu (NavMenuContent, also
 // used by the global bottom-nav sheet), plus the messenger-only Message
-// requests row injected before Settings.
+// requests row injected before the sections list.
 // ---------------------------------------------------------------------------
 
 export function MenuTab({
   myUsername,
   myEmail,
-  isAdmin,
   requestsCount,
   onOpenRequests,
 }: {
   myUsername: string;
   myEmail: string;
-  isAdmin: boolean;
   requestsCount: number;
   onOpenRequests: () => void;
 }) {
@@ -454,8 +452,7 @@ export function MenuTab({
       <NavMenuContent
         myUsername={myUsername}
         myEmail={myEmail}
-        isAdmin={isAdmin}
-        beforeSettings={
+        beforeSections={
           <button
             onClick={onOpenRequests}
             className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-white/5"
