@@ -1174,6 +1174,9 @@ function migrate(db: Database.Database) {
     // An apkpure.com app-page URL linked for metadata/icon/screenshots +
     // version-check only (scraped via curl-impersonate chrome131).
     addApp("apkpure_url", "TEXT");
+    // The Android package id (from an imported APK's manifest) — the strongest
+    // match key for the app-store folder import.
+    addApp("package_name", "TEXT");
 
     const verCols = (
       db.prepare("PRAGMA table_info(app_versions)").all() as { name: string }[]
@@ -1190,6 +1193,27 @@ function migrate(db: Database.Database) {
       "CREATE INDEX IF NOT EXISTS idx_apps_source ON apps(source, update_available)"
     );
   }
+
+  // App-store folder import: an APK dropped in IMPORT_ROOT/appstore that could
+  // not be auto-matched to a catalog app is parked under IMPORT_ROOT/_review/
+  // with a row here, awaiting an admin decision on the Manage page.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS app_import_review (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      file_rel TEXT NOT NULL,                    -- path under IMPORT_ROOT
+      original_name TEXT NOT NULL,
+      parsed_name TEXT,
+      parsed_version TEXT,
+      package_name TEXT,
+      version_code INTEGER,
+      signer_sha256 TEXT,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL,                      -- no_match | ambiguous | duplicate | signer_mismatch
+      matched_app_id INTEGER,
+      suggestions TEXT,                          -- JSON [{appId,name,score,why}]
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
 
   // Background-job scheduler. Each row is one job from lib/jobs-runtime.mjs the
   // admin can enable/disable and schedule from the in-app Background Jobs panel,
@@ -1608,6 +1632,23 @@ export interface AppRow {
   modapk_url: string | null;
   fdroid_package: string | null;
   apkpure_url: string | null;
+  package_name: string | null;
+}
+
+export interface AppImportReviewRow {
+  id: number;
+  file_rel: string;
+  original_name: string;
+  parsed_name: string | null;
+  parsed_version: string | null;
+  package_name: string | null;
+  version_code: number | null;
+  signer_sha256: string | null;
+  file_size: number;
+  reason: string;
+  matched_app_id: number | null;
+  suggestions: string | null;
+  created_at: string;
 }
 
 export interface AppVersionRow {

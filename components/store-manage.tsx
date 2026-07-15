@@ -39,6 +39,7 @@ const SOURCE_LABEL: Record<string, string> = {
   github: "GitHub",
   fdroid: "F-Droid",
   playstore: "Play Store",
+  import: "Imported",
 };
 
 function Toggle({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {

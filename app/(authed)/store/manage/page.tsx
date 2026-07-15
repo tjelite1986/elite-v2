@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { adminListApps } from "@/lib/store";
+import { listAppImportReview, APP_IMPORT_DIR } from "@/lib/appstore-import";
 import StoreManage, { ManageApp } from "@/components/store-manage";
+import StoreImportReview, {
+  ImportReviewItem,
+  PickableApp,
+} from "@/components/store-import-review";
 
 export const dynamic = "force-dynamic";
 
@@ -41,9 +46,35 @@ export default async function StoreManagePage() {
     createdAt: a.created_at,
   }));
 
+  const reviewItems: ImportReviewItem[] = listAppImportReview().map((r) => ({
+    id: r.id,
+    originalName: r.originalName,
+    parsedName: r.parsedName,
+    parsedVersion: r.parsedVersion,
+    packageName: r.packageName,
+    fileSize: r.fileSize,
+    reason: r.reason,
+    matchedAppId: r.matchedAppId,
+    suggestions: r.suggestions,
+    createdAt: r.createdAt,
+  }));
+  const pickableApps: PickableApp[] = apps.map((a) => ({
+    id: a.id,
+    name: a.name,
+    iconUrl: a.iconUrl,
+  }));
+  // Shown to the admin as the drop location — the host path when provided via
+  // env (the container path is meaningless outside Docker).
+  const importPath = process.env.APP_IMPORT_HOST_DIR || APP_IMPORT_DIR;
+
   return (
     <div className="mx-auto max-w-3xl px-3 pb-24 pt-28 text-white">
       <h1 className="mb-4 px-1 text-2xl font-bold">Manage App Store</h1>
+      <StoreImportReview
+        items={reviewItems}
+        apps={pickableApps}
+        importPath={importPath}
+      />
       <StoreManage apps={apps} />
     </div>
   );

@@ -26,6 +26,7 @@ import {
   type StoryRow,
   type AppRow,
   type AppVersionRow,
+  type AppImportReviewRow,
   type AppScreenshotRow,
   type AppReviewRow,
   type NotificationRow,
@@ -195,6 +196,7 @@ export interface DB {
   app_reviews: AppReviewRow;
   saved_apps: SavedAppRow;
   user_app_installs: UserAppInstallRow;
+  app_import_review: AppImportReviewRow;
 }
 
 // Kysely is used ONLY to build and type-check queries. Execution stays
