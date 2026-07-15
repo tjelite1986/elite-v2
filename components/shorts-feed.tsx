@@ -330,7 +330,7 @@ export default function ShortsFeed({
           ? "fixed inset-0 z-30 bg-black"
           : fill
             ? "relative h-full w-full bg-black"
-            : "relative h-[calc(100dvh-3.5rem)] w-full bg-black"
+            : "relative h-dvh w-full bg-black"
       }
     >
       <div

@@ -36,7 +36,7 @@ export default function Shorts18Gate({ configured }: { configured: boolean }) {
   };
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col items-center justify-center px-6 text-white">
+    <div className="flex h-dvh flex-col items-center justify-center px-6 text-white">
       <div className="w-full max-w-sm rounded-2xl bg-white/5 p-8 text-center ring-1 ring-white/10">
         <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-rose-500/20 text-rose-400">
           <Lock size={28} />

@@ -2,12 +2,12 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { getAppearance, bgCss } from "@/lib/appearance";
-import TopNav from "@/components/top-nav";
 import BottomNav from "@/components/bottom-nav";
+import { ActAsBanner } from "@/components/ui/act-as-controls";
 import WebSocketProvider from "@/components/ws-provider";
 import PrivacyControls from "@/components/PrivacyControls";
 
-// Shared layout for all authenticated pages: renders the macOS menu bar on top
+// Shared layout for all authenticated pages: renders the global bottom nav
 // and provides the common dark background. Middleware already gates access, but
 // we re-check to read the session for the nav.
 export default async function AuthedLayout({
@@ -18,7 +18,7 @@ export default async function AuthedLayout({
   const session = await getSession();
   if (!session) redirect("/login");
 
-  // Own handle for the top-nav "Profile" entry — it links to the unified
+  // Own handle for the nav menu's profile entry — it links to the unified
   // /people/<username> profile (same page anyone else sees), so there's a single
   // profile surface. ensureUserProfile guarantees the row exists.
   const { username } = ensureUserProfile(Number(session.sub), session.email);
@@ -43,16 +43,17 @@ export default async function AuthedLayout({
         className="relative min-h-[100dvh] w-full"
         style={{ background: "var(--app-bg)" }}
       >
-        <TopNav
-          email={session.email}
-          role={session.role}
+        <BottomNav
           username={username}
-          imp={session.imp ?? null}
-          isRealAdmin={session.role === "admin" && !session.imp}
-        />
-        <BottomNav username={username} email={session.email}>
+          email={session.email}
+          canActAs={session.role === "admin" || !!session.imp}
+        >
           {children}
         </BottomNav>
+        <ActAsBanner
+          imp={session.imp ?? null}
+          actingAsEmail={session.email}
+        />
         <PrivacyControls />
       </div>
     </WebSocketProvider>

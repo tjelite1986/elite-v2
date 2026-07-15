@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
+  Bell,
   BookOpen,
   Flame,
   House,
@@ -103,6 +104,11 @@ export default function NavMenuContent({
           href="/messages"
           icon={<MessageCircle size={18} />}
           label="Messages"
+        />
+        <MenuRow
+          href="/messages?tab=notifications"
+          icon={<Bell size={18} />}
+          label="Notifications"
         />
         <MenuRow href="/people" icon={<Users size={18} />} label="People" />
         <MenuRow href="/posts" icon={<Newspaper size={18} />} label="Posts" />

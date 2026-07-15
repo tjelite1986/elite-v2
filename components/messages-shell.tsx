@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Bell, Images, Menu, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -28,7 +29,8 @@ const TABS: { key: BarTab; label: string; icon: typeof MessageCircle }[] = [
 
 // Messenger-style shell for /messages: a bottom tab bar switches between
 // Chats (Direct/Channels), Stories, Notifications and Menu. The shell owns the
-// viewport height below the top-nav and tracks unread badges for the bar.
+// full viewport height and tracks unread badges for the bar. ?tab= deep-links
+// into a specific bar tab (used by the global nav menu's Notifications row).
 export default function MessagesShell({
   meId,
   myUsername,
@@ -39,7 +41,17 @@ export default function MessagesShell({
   myEmail: string;
 }) {
   const { subscribe } = useWs();
-  const [tab, setTab] = useState<MainTab>("chats");
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab");
+  const [tab, setTab] = useState<MainTab>(
+    TABS.some((t) => t.key === initialTab) ? (initialTab as BarTab) : "chats"
+  );
+
+  // Also react to ?tab= changing while mounted (e.g. tapping the menu's
+  // Notifications row while already on /messages).
+  useEffect(() => {
+    if (TABS.some((t) => t.key === initialTab)) setTab(initialTab as BarTab);
+  }, [initialTab]);
   const [chatTab, setChatTab] = useState<"dm" | "channels">("dm");
   const [dmUnread, setDmUnread] = useState(0);
   const [notifCount, setNotifCount] = useState(0);
@@ -112,7 +124,7 @@ export default function MessagesShell({
       : 0;
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col text-white">
+    <div className="flex h-dvh flex-col text-white">
       <div className="min-h-0 flex-1">
         {tab === "chats" && (
           <div className="flex h-full flex-col">

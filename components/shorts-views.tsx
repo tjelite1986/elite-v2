@@ -86,7 +86,7 @@ export default function ShortsViews({
       </div>
       {ready && <ShortsGrid query={query} hrefPrefix={hrefPrefix} empty={empty} />}
       {ready && view === "feed" && (
-        <div className="fixed inset-x-0 bottom-0 top-14 z-40 bg-black">
+        <div className="fixed inset-x-0 bottom-0 top-0 z-40 bg-black">
           <ShortsFeed
             channel={feed.channel}
             handle={feed.handle}

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useWs } from "@/components/ws-provider";
 import {
   activeNavHref,
   getBottomNavItems,
@@ -14,21 +15,50 @@ import NavMenuSheet from "@/components/nav-menu-sheet";
 // Global Messenger-style bottom nav: three per-section contextual links plus
 // a Menu button (same everywhere) opening the shared menu sheet. Wraps the
 // page content so it can also own the bottom padding that keeps content from
-// hiding under the fixed bar.
+// hiding under the fixed bar. The Menu button carries the unread-notification
+// badge (the old top-nav bell's poll + websocket pattern).
 export default function BottomNav({
   username,
   email,
+  canActAs,
   children,
 }: {
   username: string;
   email: string;
+  canActAs: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { subscribe } = useWs();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifCount, setNotifCount] = useState(0);
 
   // Close the sheet when a menu link navigates away.
   useEffect(() => setMenuOpen(false), [pathname]);
+
+  const loadNotifCount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notifications");
+      if (res.ok) setNotifCount((await res.json()).unreadCount ?? 0);
+    } catch {
+      /* noop */
+    }
+  }, []);
+
+  // Initial load + light polling to stay in sync (reads clear server-side),
+  // plus immediate refresh on pushed notification events.
+  useEffect(() => {
+    loadNotifCount();
+    const t = setInterval(loadNotifCount, 30000);
+    return () => clearInterval(t);
+  }, [loadNotifCount]);
+  useEffect(() => {
+    return subscribe((event) => {
+      if (event.type === "message" || event.type === "notification") {
+        loadNotifCount();
+      }
+    });
+  }, [subscribe, loadNotifCount]);
 
   // /messages has its own bottom tab bar (MessagesShell) sized to the exact
   // viewport — no global bar and no extra padding there.
@@ -45,7 +75,7 @@ export default function BottomNav({
     <>
       <div
         className={cn(
-          "pt-14",
+          "pt-[env(safe-area-inset-top)]",
           !onMessages &&
             !fullBleed &&
             "pb-[calc(3.5rem+env(safe-area-inset-bottom))]"
@@ -90,7 +120,14 @@ export default function BottomNav({
                   : "text-white/50 hover:text-white/80"
               )}
             >
-              <Menu size={22} strokeWidth={menuOpen ? 2.4 : 2} />
+              <span className="relative">
+                <Menu size={22} strokeWidth={menuOpen ? 2.4 : 2} />
+                {notifCount > 0 && (
+                  <span className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                    {notifCount > 99 ? "99+" : notifCount}
+                  </span>
+                )}
+              </span>
               Menu
             </button>
           </nav>
@@ -100,6 +137,7 @@ export default function BottomNav({
             onClose={() => setMenuOpen(false)}
             username={username}
             email={email}
+            canActAs={canActAs}
           />
         </>
       )}

@@ -2,6 +2,7 @@
 
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import NavMenuContent from "@/components/nav-menu-content";
+import { ActAsMenuSection } from "@/components/ui/act-as-controls";
 
 // Bottom sheet opened by the global bottom nav's Menu button. Slides up over
 // the current page; backdrop click and device Back both dismiss it.
@@ -10,11 +11,13 @@ export default function NavMenuSheet({
   onClose,
   username,
   email,
+  canActAs,
 }: {
   open: boolean;
   onClose: () => void;
   username: string;
   email: string;
+  canActAs: boolean;
 }) {
   useBackDismiss(open, onClose);
 
@@ -30,7 +33,15 @@ export default function NavMenuSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto mt-3 h-1 w-10 rounded-full bg-white/20" />
-        <NavMenuContent myUsername={username} myEmail={email} />
+        <NavMenuContent
+          myUsername={username}
+          myEmail={email}
+          beforeSections={
+            canActAs ? (
+              <ActAsMenuSection actingAsEmail={email} onSwitched={onClose} />
+            ) : undefined
+          }
+        />
       </div>
     </div>
   );

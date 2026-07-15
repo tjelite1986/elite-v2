@@ -766,7 +766,7 @@ export default function GalleryClient() {
   };
 
   return (
-    <div className="flex min-h-[calc(100dvh-3.5rem)] text-white">
+    <div className="flex min-h-dvh text-white">
       {/* Sidebar (desktop) */}
       <aside
         className={`hidden shrink-0 border-r border-white/10 p-3 md:block ${
@@ -953,7 +953,7 @@ export default function GalleryClient() {
       {/* Main */}
       <main className="min-w-0 flex-1">
         {/* Header: search + actions + mobile tabs */}
-        <div className="sticky top-14 z-30 border-b border-white/10 bg-[#121212]/80 px-4 py-3 backdrop-blur">
+        <div className="sticky top-0 z-30 border-b border-white/10 bg-[#121212]/80 px-4 py-3 backdrop-blur">
           <div className="mx-auto flex max-w-4xl items-center gap-3">
             <div className="relative flex-1">
               <Search
