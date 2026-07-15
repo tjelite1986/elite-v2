@@ -163,7 +163,7 @@ export default function AskClient() {
       <form
         onSubmit={submit}
         data-immersive-hide
-        className="fixed bottom-6 left-1/2 w-[95%] max-w-3xl -translate-x-1/2 px-4"
+        className="fixed bottom-[calc(var(--fab-offset,0px)+1rem)] left-1/2 w-[95%] max-w-3xl -translate-x-1/2 px-4"
       >
         <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-zinc-900/90 p-2 pl-4 shadow-xl backdrop-blur">
           <input

@@ -87,7 +87,7 @@ export default function OwnPostsManager({ userId }: { userId: number }) {
       />
 
       {selecting && (
-        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#1c1c22]/95 px-4 py-3 backdrop-blur">
+        <div className="fixed inset-x-0 bottom-[var(--fab-offset,0px)] z-40 border-t border-white/10 bg-[#1c1c22]/95 px-4 py-3 backdrop-blur">
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-3">
             <span className="text-sm text-white/70">
               {selected.size} post{selected.size === 1 ? "" : "s"} selected

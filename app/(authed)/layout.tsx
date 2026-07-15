@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { getAppearance, bgCss } from "@/lib/appearance";
 import TopNav from "@/components/top-nav";
+import BottomNav from "@/components/bottom-nav";
 import WebSocketProvider from "@/components/ws-provider";
 import PrivacyControls from "@/components/PrivacyControls";
 
@@ -35,7 +36,7 @@ export default async function AuthedLayout({
         dangerouslySetInnerHTML={{
           __html: `:root{--accent:${appearance.accent};--app-bg:${bgCss(
             appearance.bgTheme
-          )}}`,
+          )};--fab-offset:3.5rem}`,
         }}
       />
       <div
@@ -49,7 +50,13 @@ export default async function AuthedLayout({
           imp={session.imp ?? null}
           isRealAdmin={session.role === "admin" && !session.imp}
         />
-        <div className="pt-14">{children}</div>
+        <BottomNav
+          username={username}
+          email={session.email}
+          isAdmin={session.role === "admin"}
+        >
+          {children}
+        </BottomNav>
         <PrivacyControls />
       </div>
     </WebSocketProvider>

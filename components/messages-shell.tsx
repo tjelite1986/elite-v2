@@ -51,15 +51,6 @@ export default function MessagesShell({
   useBackDismiss(tab === "requests", () => setTab("menu"));
   useBackDismiss(tab !== "chats" && tab !== "requests", () => setTab("chats"));
 
-  // Lift floating action buttons (privacy controls) above the bottom tab bar
-  // while the messenger shell is mounted.
-  useEffect(() => {
-    document.documentElement.style.setProperty("--fab-offset", "3.5rem");
-    return () => {
-      document.documentElement.style.removeProperty("--fab-offset");
-    };
-  }, []);
-
   const loadNotifCount = useCallback(async () => {
     try {
       const res = await fetch("/api/notifications");
