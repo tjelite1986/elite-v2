@@ -10,6 +10,12 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # Major bumps break this stack (Tailwind 4, Next 16, TS 7, native
+      # better-sqlite3 ABI tied to the container Node) — majors are handled
+      # deliberately, not by the bot.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
