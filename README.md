@@ -4,7 +4,7 @@ A private, invite-only personal hub: a shared photo/video gallery, short-video
 and post feeds, a shared bookshelf, an in-app app store, real-time messaging,
 and account management behind a glassmorphic, macOS menu-bar style interface.
 
-![Elite v2 gallery](screenshots/Screenshot_20260615_203535_Chrome.jpg)
+![Elite v2 dashboard with weather, server and Docker widgets](screenshots/2026-07/dashboard.jpg)
 
 ## Demo
 
@@ -21,6 +21,28 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
 | Settings | Library tools |
 | -------- | ------------- |
 | ![Unified settings with appearance themes and 18+ access](screenshots/gif/settings.gif) | ![Import, duplicate scanner and profile tools](screenshots/gif/settings-tools.gif) |
+
+## Screenshots
+
+| Dashboard | Menu | Notifications |
+| --------- | ---- | ------------- |
+| ![Dashboard with weather, server stats and Docker widgets](screenshots/2026-07/dashboard.jpg) | ![Bottom-sheet menu with account switcher and all sections](screenshots/2026-07/menu.jpg) | ![Notification center with history](screenshots/2026-07/notifications.jpg) |
+
+| Messages | New post | Ask AI |
+| -------- | -------- | ------ |
+| ![Messenger-style chat list](screenshots/2026-07/chats.jpg) | ![Post composer with hashtags, mentions and visibility options](screenshots/2026-07/create-post.jpg) | ![AI search with cited web sources](screenshots/2026-07/ask-ai.jpg) |
+
+| Shorts player | Profile shorts | Gallery |
+| ------------- | -------------- | ------- |
+| ![Vertical short-video player with in-player management actions](screenshots/2026-07/shorts-player.jpg) | ![Shorts grid on a person profile](screenshots/2026-07/profile-shorts.jpg) | ![Photo library with albums, map and smart albums](screenshots/2026-07/gallery.jpg) |
+
+| Bookshelf | App Store | Announcements |
+| --------- | --------- | ------------- |
+| ![Shared EPUB/PDF/comics library with reading progress](screenshots/2026-07/books.jpg) | ![App detail page with versions, APK download and reviews](screenshots/2026-07/app-store.jpg) | ![Admin broadcast announcements](screenshots/2026-07/announce.jpg) |
+
+| Sessions | Shorts import | Background jobs |
+| -------- | ------------- | --------------- |
+| ![Active device sessions with remote sign-out](screenshots/2026-07/settings-sessions.jpg) | ![Drop-folder import with filename grammar](screenshots/2026-07/shorts-import.jpg) | ![In-app job scheduler with per-job intervals](screenshots/2026-07/background-jobs.jpg) |
 
 ## Features
 
