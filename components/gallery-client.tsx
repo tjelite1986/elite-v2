@@ -33,6 +33,7 @@ import {
   Tag as TagIcon,
   Link2 as LinkIcon,
 } from "lucide-react";
+import BlurhashCanvas from "@/components/blurhash-canvas";
 import GalleryMap from "@/components/gallery-map";
 import { ShareDialog, type SharePayload } from "@/components/share-dialog";
 import SmartAlbumBuilder from "@/components/smart-album-builder";
@@ -52,6 +53,7 @@ interface Item {
   is_favorite: number;
   rating: number;
   is_deleted: number;
+  blurhash?: string | null;
 }
 
 interface ItemInfo extends Item {
@@ -1262,13 +1264,19 @@ export default function GalleryClient() {
                         onPointerCancel={cancelPress}
                         onContextMenu={(e) => e.preventDefault()}
                       >
+                        {it.blurhash && (
+                          <BlurhashCanvas
+                            hash={it.blurhash}
+                            className="absolute inset-0 h-full w-full"
+                          />
+                        )}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={`/api/gallery/${it.id}/media?variant=thumb&v=${it.media_version}`}
                           alt={it.filename}
                           loading="lazy"
                           draggable={false}
-                          className="h-full w-full object-cover"
+                          className="relative h-full w-full object-cover"
                         />
                         {/* selection overlay — inset ring + tint, no background reveal */}
                         {isSel && (

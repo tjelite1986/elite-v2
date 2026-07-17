@@ -34,6 +34,7 @@ export async function GET(request: Request) {
       "is_favorite",
       "rating",
       "is_deleted",
+      "blurhash",
     ])
     .where("user_id", "=", userId);
   if (tab === "favorites") {

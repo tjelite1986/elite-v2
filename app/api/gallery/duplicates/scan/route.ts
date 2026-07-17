@@ -48,7 +48,7 @@ export async function POST() {
   ).run();
 
   const script = path.join(process.cwd(), "scripts", "scan-gallery-duplicates.mjs");
-  const child = spawn(process.execPath, [script], {
+  const child = spawn(process.execPath, ["--max-old-space-size=768", script], {
     cwd: process.cwd(),
     detached: true,
     stdio: "ignore",

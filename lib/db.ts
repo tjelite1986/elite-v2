@@ -906,6 +906,8 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE gallery_items ADD COLUMN description TEXT");
     if (!galleryColumns.includes("rating"))
       db.exec("ALTER TABLE gallery_items ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
+    if (!galleryColumns.includes("blurhash"))
+      db.exec("ALTER TABLE gallery_items ADD COLUMN blurhash TEXT");
   }
 
   // Content hash on post_media so the importer can skip an image it already
@@ -1084,16 +1086,21 @@ function migrate(db: Database.Database) {
       /* FTS5 unavailable — search falls back to LIKE */
     }
   }
-  // One-time backfill: the sync triggers only see rows written after the FTS
-  // table was created, so older rows would be invisible to search. Applies to
-  // posts_fts too, which shipped without a backfill.
-  for (const { fts, src } of [...ftsSpecs, { fts: "posts_fts", src: "posts" }]) {
+  // Self-healing backfill: the sync triggers only see rows written after the
+  // FTS table was created, so older rows would be invisible — and a desynced
+  // index makes the triggers themselves throw "database disk image is
+  // malformed" on every write. NOTE: comparing counts does NOT detect this
+  // (count(*) on an external-content FTS table reads the CONTENT table);
+  // only the fts5 integrity-check command actually inspects the index.
+  for (const { fts } of [...ftsSpecs, { fts: "posts_fts" }]) {
     try {
-      const inFts = (db.prepare(`SELECT count(*) AS n FROM ${fts}`).get() as { n: number }).n;
-      const inSrc = (db.prepare(`SELECT count(*) AS n FROM ${src}`).get() as { n: number }).n;
-      if (inFts !== inSrc) db.exec(`INSERT INTO ${fts}(${fts}) VALUES('rebuild')`);
+      db.exec(`INSERT INTO ${fts}(${fts}, rank) VALUES('integrity-check', 0)`);
     } catch {
-      /* FTS5 unavailable */
+      try {
+        db.exec(`INSERT INTO ${fts}(${fts}) VALUES('rebuild')`);
+      } catch {
+        /* FTS5 unavailable */
+      }
     }
   }
 
@@ -1450,6 +1457,7 @@ export interface GalleryItemRow {
   rating: number;
   is_deleted: number;
   deleted_at: string | null;
+  blurhash: string | null;
 }
 
 export interface GalleryAlbumRow {

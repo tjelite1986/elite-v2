@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { db } from "./db";
+import { blurhashFromFile } from "./blurhash-encode";
 import { parseFilenameDate } from "./filename-date";
 import {
   isSupportedImage,
@@ -59,12 +60,13 @@ export async function ingestImage(
   const { width, height } = await writeAndProcess(paths, buffer, processBuffer, {
     autoOrient: !heic,
   });
+  const blurhash = await blurhashFromFile(paths.thumbPath);
 
   const result = db
     .prepare(
       `INSERT INTO gallery_items
-         (user_id, filename, storage_key, mime_type, size_bytes, width, height, latitude, longitude, camera, taken_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (user_id, filename, storage_key, mime_type, size_bytes, width, height, latitude, longitude, camera, taken_at, blurhash)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
@@ -77,7 +79,8 @@ export async function ingestImage(
       exif.latitude,
       exif.longitude,
       exif.camera,
-      toSqlite(takenAt)
+      toSqlite(takenAt),
+      blurhash
     );
   return Number(result.lastInsertRowid);
 }
@@ -109,6 +112,7 @@ export async function ingestVideo(
 
     let width = meta.width;
     let height = meta.height;
+    let blurhash: string | null = null;
     try {
       const poster = extractVideoPoster(tmp);
       // Poster is already upright (ffmpeg applies the display matrix on decode),
@@ -118,6 +122,7 @@ export async function ingestVideo(
       });
       if (!width) width = dims.width;
       if (!height) height = dims.height;
+      blurhash = await blurhashFromFile(paths.thumbPath);
     } catch (err) {
       console.error(`[gallery] poster extraction failed for ${filename}:`, err);
     }
@@ -125,8 +130,8 @@ export async function ingestVideo(
     const result = db
       .prepare(
         `INSERT INTO gallery_items
-           (user_id, filename, storage_key, mime_type, size_bytes, width, height, latitude, longitude, camera, taken_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (user_id, filename, storage_key, mime_type, size_bytes, width, height, latitude, longitude, camera, taken_at, blurhash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         userId,
@@ -139,7 +144,8 @@ export async function ingestVideo(
         meta.latitude,
         meta.longitude,
         null,
-        toSqlite(takenAt)
+        toSqlite(takenAt),
+        blurhash
       );
     return Number(result.lastInsertRowid);
   } finally {

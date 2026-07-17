@@ -31,7 +31,9 @@ function failAll(err: Error) {
 function ensureWorker(): Worker {
   if (worker) return worker;
   if (!fs.existsSync(WORKER_FILE)) throw new Error(`worker file missing: ${WORKER_FILE}`);
-  const w = new Worker(WORKER_FILE);
+  // Heap cap: a decode gone wrong kills the worker (the pool respawns it and
+  // callers fall back inline), not the server.
+  const w = new Worker(WORKER_FILE, { resourceLimits: { maxOldGenerationSizeMb: 256 } });
   w.on("message", (msg: { id: number; ok: boolean; result?: unknown; error?: string }) => {
     const p = pending.get(msg.id);
     if (!p) return;

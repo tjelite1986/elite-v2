@@ -12,6 +12,7 @@
     "@ark-ui/react": "^5.37.2",
     "archiver": "^8.0.0",
     "better-sqlite3": "^11.10.0",
+    "blurhash": "^2.0.5",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "epubjs": "^0.3.93",
