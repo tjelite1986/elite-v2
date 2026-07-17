@@ -30,18 +30,20 @@ export async function GET(request: Request) {
       .limit(10)
   );
 
-  const creators = getAll<{ username: string; display_name: string | null }>(
-    qb
-      .selectFrom("post_creators")
-      .select(["username", "display_name"])
-      .where(sql<boolean>`(username LIKE ${like} OR LOWER(display_name) LIKE ${like})`)
-      .orderBy("username")
-      .limit(10)
-  );
-
   // Without 18+ access, adult-only creator names and tags must not surface —
   // even the name is a leak.
   const adult = await has18Access();
+
+  let creatorsQuery = qb
+    .selectFrom("post_creators")
+    .select(["username", "display_name"])
+    .where(sql<boolean>`(username LIKE ${like} OR LOWER(display_name) LIKE ${like})`)
+    .orderBy("username")
+    .limit(10);
+  if (!adult) {
+    creatorsQuery = creatorsQuery.where("is_adult", "=", 0);
+  }
+  const creators = getAll<{ username: string; display_name: string | null }>(creatorsQuery);
 
   // Video creators (shorts) — name isn't normalized, so key by its handle.
   let shortCreatorsQuery = qb
