@@ -1,10 +1,33 @@
 # Elite v2
 
+[![CI](https://github.com/tjelite1986/elite-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/tjelite1986/elite-v2/actions/workflows/ci.yml)
+![Next.js 15](https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs)
+![React 19](https://img.shields.io/badge/React-19-087ea4?logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-WAL-003b57?logo=sqlite)
+![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ed?logo=docker&logoColor=white)
+
 A private, invite-only personal hub: a shared photo/video gallery, short-video
 and post feeds, a shared bookshelf, an in-app app store, real-time messaging,
 and account management behind a glassmorphic, macOS menu-bar style interface.
 
+Think of it as a self-hosted mix of Google Photos, Instagram, TikTok, Messenger
+and an app store — running on your own hardware, for a closed circle of people
+you invite.
+
 ![Elite v2 dashboard with weather, server and Docker widgets](screenshots/2026-07/dashboard.jpg)
+
+**New here?** Jump to [Getting started](#getting-started) — it assumes no prior
+experience. **Here for the internals?** See
+[Architecture](#architecture--how-it-works-under-the-hood).
+
+- [Demo](#demo) · [Screenshots](#screenshots)
+- [Features](#features)
+- [Tech stack](#tech-stack) · [Architecture](#architecture--how-it-works-under-the-hood)
+- [Guides](#guides) · [Getting started](#getting-started)
+- [Background jobs](#background-jobs-optional--only-for-a-real-server) · [Importing media](#importing-your-own-media-drop-folders)
+- [Configuration](#configuration) · [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting) · [CI](#ci)
 
 ## Demo
 
@@ -104,7 +127,7 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
 
 ## Tech stack
 
-- **Next.js 14** (App Router) + **React 18**, **TypeScript**
+- **Next.js 15** (App Router) + **React 19**, **TypeScript 5**
 - **Tailwind CSS 3** + **shadcn**-style UI on **Ark UI** primitives
 - **better-sqlite3** (SQLite, WAL mode) for storage; **Kysely** builds queries,
   `better-sqlite3` executes them synchronously
@@ -114,6 +137,68 @@ and account management behind a glassmorphic, macOS menu-bar style interface.
 - `sharp`, `exifr` / `exif-reader`, `leaflet`, `epubjs`, `pdfjs-dist`,
   `react-markdown`
 - Packaged as a multi-stage **Docker** image, run behind **Traefik**
+
+## Architecture — how it works under the hood
+
+For the curious: what actually happens inside the box.
+
+```mermaid
+flowchart LR
+  B[Browser / PWA] -->|HTTPS| T[Traefik]
+  T --> S["server.mjs — one Node process<br/>Next.js 15 · ws WebSocket · job scheduler"]
+  S --> D[("SQLite WAL<br/>better-sqlite3")]
+  S --> F["storage roots<br/>gallery · posts · shorts · books · appstore"]
+  S -->|"yt-dlp / gallery-dl"| X[(external sites)]
+  S -.->|optional| G[grabbit media grabber]
+```
+
+**One process, three jobs.** The app deliberately skips Next's `standalone`
+output in favor of a small custom server (`server.mjs`) that hosts three things
+in a single Node process: the Next.js request handler, the raw `ws` WebSocket
+endpoint (`/api/ws`) for messaging/presence, and the background-job scheduler.
+Same process means the WS layer and jobs can use the same synchronous DB handle
+and in-memory state as the app — no IPC, no extra containers.
+
+**Data layer.** Storage is a single SQLite file in WAL mode via
+`better-sqlite3`, which is synchronous — queries run to completion on the spot,
+so there's no connection pool and no async waterfall for reads. **Kysely** is
+used as a type-safe *query builder only*: it compiles the SQL, and
+`better-sqlite3` executes it. Reads go through Kysely for type safety; writes
+are hand-written prepared statements. Migrations are plain scripts that check
+`PRAGMA table_info` before altering.
+
+**Auth & sessions.** Login issues a `jose`-signed JWT in an httpOnly cookie.
+Every token carries a `jti` that must exist in a server-side `sessions` table —
+so any device can be revoked instantly from Settings, despite JWTs being
+stateless by design. Login attempts are throttled in the DB (survives
+restarts), and a per-user permissions table lets the admin grant individual
+users access to specific settings sections. Adult surfaces sit behind a
+per-user PIN with a per-device unlock window.
+
+**Media pipeline.** Uploads are EXIF-parsed (`exifr`), thumbnailed with `sharp`
+(every image is stored as a full `<uuid>.jpg` plus a `<uuid>_t.jpg` grid
+thumbnail), and geotagged media lands on the Leaflet map. Video imports run
+through `yt-dlp` / `gallery-dl` and are transcoded to web-friendly MP4.
+Duplicate detection is two-stage: a fast perceptual dHash pass proposes
+candidates, then SSIM pixel comparison confirms before anything is flagged.
+
+**Import pipeline.** Each user has a drop tree (`u_<user>/{gallery, posts,
+shorts, shorts18, books}`) outside served storage. A filename grammar
+(`title [h_tag][f_collection][id_n].ext`) encodes hashtags, albums/playlists
+and the DB id; imported files are renamed to that canonical form, so a stored
+file re-dropped into the tree is recognized by its `[id_]` and skipped instead
+of duplicated. Sidecar `.md` files supply captions.
+
+**Job scheduler.** Imports, polling, transcoding and cleanups are app-level
+jobs with DB-persisted schedules, managed from the admin panel (enable,
+interval, run-now, view output). The scheduler ticks inside the production
+server — no cron or systemd needed for the common case; only jobs that need
+host-level access (file ownership fixes) ship as optional systemd units.
+
+**PWA & updates.** A service worker makes the app installable; `web-push`
+(VAPID) delivers notifications when the app is closed. The client polls
+`/api/version` and auto-reloads when a new build is deployed, so stale PWA
+JavaScript doesn't linger.
 
 ## Guides
 
@@ -138,9 +223,10 @@ prior experience needed — just follow each step in order.
 
 **Before you start**, install these two free tools (skip any you already have):
 
-- **Node.js 18** — the runtime that runs the app. Download it from
-  [nodejs.org](https://nodejs.org) and pick version 18. To check if you already
-  have it, run `node --version` in a terminal; it should print `v18.something`.
+- **Node.js 20 (LTS)** — the runtime that runs the app. Download it from
+  [nodejs.org](https://nodejs.org) and pick version 20. To check if you already
+  have it, run `node --version` in a terminal; it should print `v20.something`
+  (any version from 18.18 up works).
 - **Git** — used to download the code. Get it from
   [git-scm.com](https://git-scm.com). Check with `git --version`.
 
@@ -536,12 +622,6 @@ The container writes as a non-root user. Make sure the host folders mounted as
 storage roots (gallery, posts, shorts, etc.) are writable — e.g.
 `chmod -R 777 /path/to/storage` for a quick local fix.
 
-## Screenshots
-
-| Messaging | Navigation | Account menu |
-| --------- | ---------- | ------------ |
-| ![Messaging](screenshots/Screenshot_20260615_203506_Chrome.jpg) | ![Navigation menu](screenshots/Screenshot_20260615_203435_Chrome.jpg) | ![Account menu](screenshots/Screenshot_20260615_203604_Chrome.jpg) |
-
 ## CI
 
 GitHub Actions runs on every push and pull request to `main`:
@@ -550,7 +630,6 @@ GitHub Actions runs on every push and pull request to `main`:
   is generated on arm64 (Raspberry Pi), the workflow installs the linux-x64
   `sharp` binary explicitly before building.
 - **npm audit** — fails the build on `critical` vulnerabilities; `high` and
-  `moderate` are reported but non-blocking (the known Next.js 14.x DoS advisories
-  have no fix without a major upgrade).
+  `moderate` are reported but non-blocking.
 
 Dependency updates are managed by Dependabot (npm and GitHub Actions, weekly).
