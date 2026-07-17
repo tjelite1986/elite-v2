@@ -249,6 +249,11 @@ export default function MessengerClient({
         }
       } else if (data.type === "stop_typing") {
         if (data.from === selectedIdRef.current) setTypingFrom(null);
+      } else if (data.type === "reconnected") {
+        // Messages sent while the socket was down never arrived — refetch.
+        loadUsers();
+        const sel = selectedIdRef.current;
+        if (sel !== null) loadConversation(sel);
       }
     });
   }, [subscribe, loadConversation, loadUsers]);

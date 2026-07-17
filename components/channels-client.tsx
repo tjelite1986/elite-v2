@@ -103,6 +103,10 @@ export default function ChannelsClient({ meId }: { meId: number }) {
           loadMessages(data.channelId as number);
         }
         loadChannels();
+      } else if (data.type === "reconnected") {
+        // Messages sent while the socket was down never arrived — refetch.
+        loadChannels();
+        if (selectedIdRef.current !== null) loadMessages(selectedIdRef.current);
       }
     });
   }, [subscribe, loadMessages, loadChannels]);

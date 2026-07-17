@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Bell,
   BookOpen,
+  CalendarHeart,
   Flame,
   House,
   Images,
@@ -126,6 +127,12 @@ export default function NavMenuContent({
           icon={<Search size={18} />}
           label="Search"
           sub="Posts, messages, photos, shorts, books"
+        />
+        <MenuRow
+          href="/memories"
+          icon={<CalendarHeart size={18} />}
+          label="On this day"
+          sub="Posts, photos and messages from earlier years"
         />
         <MenuRow
           href="/ask"

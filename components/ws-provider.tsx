@@ -60,11 +60,23 @@ export default function WebSocketProvider({
   useEffect(() => {
     let closed = false;
     let reconnect: ReturnType<typeof setTimeout>;
+    let attempts = 0;
+    let hadConnection = false;
 
     const connect = () => {
       const proto = window.location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(`${proto}://${window.location.host}/api/ws`);
       wsRef.current = ws;
+
+      ws.onopen = () => {
+        attempts = 0;
+        // Anything sent while we were away is lost (the server does not queue),
+        // so tell subscribers to refetch their world after a reconnect.
+        if (hadConnection) {
+          listenersRef.current.forEach((fn) => fn({ type: "reconnected" }));
+        }
+        hadConnection = true;
+      };
 
       ws.onmessage = (ev) => {
         let data: WsEvent;
@@ -91,7 +103,15 @@ export default function WebSocketProvider({
       };
 
       ws.onclose = () => {
-        if (!closed) reconnect = setTimeout(connect, 2000);
+        // Exponential backoff with jitter (1s → 30s cap) — a down server is
+        // not hammered, a blip recovers fast.
+        if (!closed) {
+          const delay =
+            Math.min(30_000, 1000 * 2 ** Math.min(attempts, 5)) *
+            (0.5 + Math.random() * 0.5);
+          attempts++;
+          reconnect = setTimeout(connect, delay);
+        }
       };
       ws.onerror = () => {
         try {
@@ -102,10 +122,29 @@ export default function WebSocketProvider({
       };
     };
 
+    // Mobile browsers kill background sockets; when the tab comes back (or the
+    // network returns) reconnect immediately instead of waiting out a backoff.
+    const retryNow = () => {
+      if (closed) return;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+        clearTimeout(reconnect);
+        attempts = 0;
+        connect();
+      }
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") retryNow();
+    };
+    window.addEventListener("online", retryNow);
+    document.addEventListener("visibilitychange", onVisible);
+
     connect();
     return () => {
       closed = true;
       clearTimeout(reconnect);
+      window.removeEventListener("online", retryNow);
+      document.removeEventListener("visibilitychange", onVisible);
       try {
         wsRef.current?.close();
       } catch {

@@ -104,7 +104,7 @@ export default function MessagesShell({
   );
   useEffect(() => {
     return subscribe((data) => {
-      if (data.type !== "message" && data.type !== "notification") return;
+      if (data.type !== "message" && data.type !== "notification" && data.type !== "reconnected") return;
       clearTimeout(refreshTimer.current);
       refreshTimer.current = setTimeout(() => {
         loadNotifCount();

@@ -54,7 +54,7 @@ export default function BottomNav({
   }, [loadNotifCount]);
   useEffect(() => {
     return subscribe((event) => {
-      if (event.type === "message" || event.type === "notification") {
+      if (event.type === "message" || event.type === "notification" || event.type === "reconnected") {
         loadNotifCount();
       }
     });
