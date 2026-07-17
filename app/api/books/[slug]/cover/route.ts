@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { db } from "@/lib/db";
-import { coverFilePath } from "@/lib/books-storage";
+import { coverFilePath, isUnderBooksRoot } from "@/lib/books-storage";
 import { extractCover, coverExists } from "@/lib/book-covers";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,9 @@ export async function GET(_request: Request, props: { params: Promise<{ slug: st
   if (!coverKey) return new NextResponse("No cover", { status: 404 });
 
   const filePath = coverFilePath(coverKey);
-  if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
+  if (!isUnderBooksRoot(filePath) || !fs.existsSync(filePath)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   const stream = fs.createReadStream(filePath);
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {

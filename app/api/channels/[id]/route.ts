@@ -10,7 +10,7 @@ import { reactionsForMessages, replyPreview } from "@/lib/message-actions";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const session = await getSession();
   if (!session) {
@@ -24,7 +24,14 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
   const member = isMember(channelId, userId);
   if (member) markRead(channelId, userId);
 
-  const messages = listMessages(channelId);
+  // ?before=<messageId> pages backwards through history.
+  const beforeParam = new URL(request.url).searchParams.get("before");
+  const before = beforeParam ? Number(beforeParam) : null;
+  const { messages, hasMore } = listMessages(
+    channelId,
+    200,
+    Number.isFinite(before as number) ? before : null
+  );
   const reactions = reactionsForMessages(
     "channel",
     messages.map((m) => m.id),
@@ -39,6 +46,7 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
   return NextResponse.json({
     channel,
     messages: withMeta,
+    has_more: hasMore,
     is_member: member,
   });
 }

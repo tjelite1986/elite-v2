@@ -3,7 +3,8 @@ import fs from "node:fs";
 import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
 import { isFollowing } from "@/lib/posts";
-import { getStory } from "@/lib/stories";
+import { getStory, adultAuthorId } from "@/lib/stories";
+import { has18Access } from "@/lib/shorts-gate";
 import { mediaPathFor, imageMimeFor } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,18 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
   if (
     story.author_user_id !== viewerId &&
     !isFollowing(viewerId, "user", story.author_user_id)
+  ) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  // Stories from the adult content account are 18+: require the PIN gate,
+  // matching the other post-adjacent media routes.
+  const adultId = adultAuthorId();
+  if (
+    adultId !== null &&
+    story.author_user_id === adultId &&
+    viewerId !== adultId &&
+    !(await has18Access())
   ) {
     return new NextResponse("Forbidden", { status: 403 });
   }

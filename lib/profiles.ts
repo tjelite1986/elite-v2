@@ -1,5 +1,6 @@
 import { db, UserProfileRow } from "./db";
 import { qb, getOne } from "./kysely";
+import { safeHttpUrl } from "./url";
 
 // Shared public-profile layer (username/avatar/bio), 1:1 with users. The posts
 // module attributes by these instead of splitting the email; other modules can
@@ -266,17 +267,10 @@ function upsertExtras(handle: string, fields: Record<string, string | null>) {
 }
 
 // Only http(s) links — reject javascript:/data: etc. (the url is rendered into
-// an href, so a bad scheme would be stored XSS).
-function safeHttpUrl(raw: string): string | null {
-  let url = raw.trim().slice(0, 300);
-  if (!url) return null;
-  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-  try {
-    const u = new URL(url);
-    return u.protocol === "http:" || u.protocol === "https:" ? url : null;
-  } catch {
-    return null;
-  }
+// an href, so a bad scheme would be stored XSS). Shared validator; user-typed
+// links may omit the scheme, so https:// is prepended before validation.
+function profileLinkUrl(raw: string): string | null {
+  return safeHttpUrl(raw.trim().slice(0, 300), { prependScheme: true });
 }
 
 export function setProfileBio(handle: string, bio: string | null): void {
@@ -286,7 +280,7 @@ export function setProfileBio(handle: string, bio: string | null): void {
 export function setProfileLinks(handle: string, links: ProfileLink[]): void {
   const clean = (links || [])
     .filter((l) => l && typeof l.url === "string")
-    .map((l) => ({ label: String(l.label || "").trim().slice(0, 40), url: safeHttpUrl(l.url) }))
+    .map((l) => ({ label: String(l.label || "").trim().slice(0, 40), url: profileLinkUrl(l.url) }))
     .filter((l): l is ProfileLink => l.url !== null)
     .slice(0, 10);
   upsertExtras(handle, { links_json: JSON.stringify(clean) });

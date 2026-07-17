@@ -101,8 +101,15 @@ export function memberIds(channelId: number): number[] {
   ).map((r) => r.user_id);
 }
 
-export function listMessages(channelId: number, limit = 200): ChannelMessage[] {
-  return db
+// Latest page of messages (ascending for display). `before` pages backwards:
+// pass the oldest already-loaded message id to fetch the previous page.
+// `hasMore` tells the client older history exists beyond this page.
+export function listMessages(
+  channelId: number,
+  limit = 200,
+  before: number | null = null
+): { messages: ChannelMessage[]; hasMore: boolean } {
+  const rows = db
     .prepare(
       `SELECT cm.id, cm.channel_id, cm.sender_id, cm.body, cm.reply_to,
               cm.edited_at, cm.deleted_at, cm.created_at,
@@ -111,10 +118,15 @@ export function listMessages(channelId: number, limit = 200): ChannelMessage[] {
        JOIN users u ON u.id = cm.sender_id
        LEFT JOIN user_profiles up ON up.user_id = cm.sender_id
        WHERE cm.channel_id = ?
-       ORDER BY cm.id ASC
+         AND (? IS NULL OR cm.id < ?)
+       ORDER BY cm.id DESC
        LIMIT ?`
     )
-    .all(channelId, limit) as ChannelMessage[];
+    .all(channelId, before, before, limit + 1) as ChannelMessage[];
+  const hasMore = rows.length > limit;
+  if (hasMore) rows.length = limit;
+  rows.reverse();
+  return { messages: rows, hasMore };
 }
 
 export function postMessage(

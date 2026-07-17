@@ -8,12 +8,37 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// In-memory throttle: each request is a billed Perplexity API call, so cap it
+// at 20 requests per 5 minutes per user. Resets on process restart, which is
+// fine for a single-box personal hub.
+const MAX_REQUESTS = 20;
+const WINDOW_MS = 5 * 60 * 1000;
+const usage = new Map<string, { count: number; resetAt: number }>();
+
+function isRateLimited(userId: string): boolean {
+  const now = Date.now();
+  const rec = usage.get(userId);
+  if (!rec || now > rec.resetAt) {
+    usage.set(userId, { count: 1, resetAt: now + WINDOW_MS });
+    return false;
+  }
+  rec.count++;
+  return rec.count > MAX_REQUESTS;
+}
+
 // Ask the Perplexity API a question (web search + LLM answer with cited
 // sources). History enables follow-up questions in the same thread.
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (isRateLimited(session.sub)) {
+    return NextResponse.json(
+      { error: "Too many searches. Try again in a few minutes." },
+      { status: 429 }
+    );
   }
 
   let body: { query?: unknown; history?: unknown };

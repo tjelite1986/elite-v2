@@ -27,10 +27,27 @@ interface StoryQueryRow {
   viewed: number;
 }
 
+// Stories carry no per-row adult flag; the only adult-content author is the
+// seeded ADULTS_EMAIL account, so its stories are treated as 18+ and hidden
+// from viewers who haven't cleared the PIN gate (checked by the callers).
+export function adultAuthorId(): number | null {
+  const email = process.env.ADULTS_EMAIL?.trim().toLowerCase();
+  if (!email) return null;
+  const row = db
+    .prepare("SELECT id FROM users WHERE lower(email) = ?")
+    .get(email) as { id: number } | undefined;
+  return row ? Number(row.id) : null;
+}
+
 // Active (non-expired) stories from the viewer + the users they follow, grouped
 // by author. The viewer's own group is sorted first, then authors with unseen
-// stories, then the rest.
-export function getActiveStoryGroups(viewerId: number): StoryGroup[] {
+// stories, then the rest. Without `include18`, stories from the adult content
+// account are excluded (unless the viewer IS that account).
+export function getActiveStoryGroups(
+  viewerId: number,
+  include18 = false
+): StoryGroup[] {
+  const adultId = include18 ? null : adultAuthorId();
   const rows = getAll<StoryQueryRow>(
     qb
       .selectFrom("stories as s")
@@ -45,6 +62,9 @@ export function getActiveStoryGroups(viewerId: number): StoryGroup[] {
         ),
       ])
       .where("s.expires_at", ">", sql<string>`datetime('now')`)
+      .$if(adultId !== null && adultId !== viewerId, (q) =>
+        q.where("s.author_user_id", "!=", adultId as number)
+      )
       .where((eb) =>
         eb.or([
           eb("s.author_user_id", "=", viewerId),

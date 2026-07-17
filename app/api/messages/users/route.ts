@@ -21,7 +21,7 @@ export async function GET() {
   const meId = Number(session.sub);
 
   // All other users, with the latest message in the pair and unread count.
-  const pair = sql`(m.sender_id = ${meId} AND m.recipient_id = u.id) OR (m.sender_id = u.id AND m.recipient_id = ${meId})`;
+  const pair = sql`((m.sender_id = ${meId} AND m.recipient_id = u.id) OR (m.sender_id = u.id AND m.recipient_id = ${meId})) AND m.deleted_at IS NULL`;
   const rows = getAll<ConversationRow>(
     qb
       .selectFrom("users as u")
@@ -42,7 +42,7 @@ export async function GET() {
         sql<string | null>`(SELECT m.created_at FROM messages m WHERE ${pair} ORDER BY m.created_at DESC, m.id DESC LIMIT 1)`.as(
           "last_at"
         ),
-        sql<number>`(SELECT COUNT(*) FROM messages m WHERE m.sender_id = u.id AND m.recipient_id = ${meId} AND m.read_at IS NULL)`.as(
+        sql<number>`(SELECT COUNT(*) FROM messages m WHERE m.sender_id = u.id AND m.recipient_id = ${meId} AND m.read_at IS NULL AND m.deleted_at IS NULL)`.as(
           "unread"
         ),
       ])

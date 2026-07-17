@@ -23,6 +23,7 @@ export function canViewItem(viewerId: number, itemId: number): boolean {
        FROM (
          SELECT attachment_data FROM messages
          WHERE attachment_data IS NOT NULL
+           AND deleted_at IS NULL
            AND (sender_id = @v OR recipient_id = @v)
        ) m, json_each(m.attachment_data, '$.ids') je
        WHERE je.value = @item

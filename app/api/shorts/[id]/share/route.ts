@@ -50,10 +50,13 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Recipient not found." }, { status: 404 });
   }
 
+  // Omit the caption for 18+ clips: the recipient may not have the PIN gate
+  // cleared, and the caption text would otherwise be readable in the thread.
+  // The media routes already gate the video/poster themselves.
   const attachment = {
     id: short.id,
     channel: short.channel,
-    caption: short.caption,
+    caption: short.channel === "18plus" ? "" : short.caption,
     has_poster: Boolean(short.poster_key),
   };
 
