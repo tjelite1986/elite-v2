@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { db } from "./db";
@@ -34,14 +35,12 @@ import {
   canonicalStem,
   type ParsedImportName,
 } from "./import-naming";
+import { ssim, hamming, HASH_TOL, SSIM_CONFIRM } from "@/scripts/lib/image-dupe.mjs";
 import {
-  imageFingerprint,
-  structuralSignature,
-  ssim,
-  hamming,
-  HASH_TOL,
-  SSIM_CONFIRM,
-} from "@/scripts/lib/image-dupe.mjs";
+  fingerprintOffThread,
+  signatureOffThread,
+  type Fingerprint,
+} from "./hash-offload";
 
 // Per-user folder import. Each account owns a top-level drop tree, separate from
 // its served storage:
@@ -228,14 +227,26 @@ async function findNearDuplicate(
     if (hamming(fp.hash, candidate) > HASH_TOL) continue;
     // Candidate — confirm on actual pixels (the whole point: dHash alone
     // would also park similar-but-different shots from the same shoot).
-    if (newSig === undefined) newSig = await structuralSignature(newFileAbs);
+    if (newSig === undefined) newSig = await signatureOffThread(newFileAbs);
     if (!newSig) return null; // undecodable new file — let it import
-    const oldSig = await structuralSignature(mediaPathFor(row.storage_key));
+    const oldSig = await signatureOffThread(mediaPathFor(row.storage_key));
     if (oldSig && ssim(newSig, oldSig) >= SSIM_CONFIRM) {
       return { postId: row.post_id };
     }
   }
   return null;
+}
+
+// Streamed sha256 — bulk drops hash many multi-MB files; reading them into a
+// Buffer and hashing synchronously would stall the single server event loop.
+function sha256File(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(filePath);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
 }
 
 // Cache a freshly imported image's fingerprint in the scanner's table (same
@@ -353,7 +364,7 @@ export async function decideImportReview(
 
   let buffer: Buffer;
   try {
-    buffer = fs.readFileSync(abs);
+    buffer = await fsp.readFile(abs);
   } catch {
     dropRow(); // the parked file is gone — nothing left to decide about
     return { ok: false, error: "The parked file no longer exists." };
@@ -380,10 +391,7 @@ export async function decideImportReview(
   );
   let contentHash: string | null = null;
   try {
-    contentHash = crypto
-      .createHash("sha256")
-      .update(fs.readFileSync(mediaPathFor(stored.storageKey)))
-      .digest("hex");
+    contentHash = await sha256File(mediaPathFor(stored.storageKey));
   } catch {
     /* unreadable just-written file — import without a hash */
   }
@@ -429,7 +437,7 @@ export async function decideImportReview(
     mediaId,
     mediaPathFor(finalKey),
     contentHash,
-    await imageFingerprint(mediaPathFor(finalKey))
+    await fingerprintOffThread(mediaPathFor(finalKey))
   );
   consume(abs);
   consume(sidecar);
@@ -730,7 +738,7 @@ async function importPostsSection(
     const caption = md.caption ?? (parsed.collection ? parsed.title || null : null);
     let buffer: Buffer;
     try {
-      buffer = fs.readFileSync(item.abs);
+      buffer = await fsp.readFile(item.abs);
     } catch {
       res.skipped++;
       continue;
@@ -754,10 +762,7 @@ async function importPostsSection(
       let contentHash: string | null = null;
       if (asCreator && creatorId) {
         try {
-          contentHash = crypto
-            .createHash("sha256")
-            .update(fs.readFileSync(mediaPathFor(stored.storageKey)))
-            .digest("hex");
+          contentHash = await sha256File(mediaPathFor(stored.storageKey));
         } catch {
           /* unreadable just-written file — skip dedup, still import */
         }
@@ -785,10 +790,10 @@ async function importPostsSection(
       // Perceptual pass: same picture at another resolution/re-compression
       // slips past the exact hash — dHash proposes, SSIM confirms, and a
       // confirmed near-duplicate parks for review like an exact one.
-      let newFp: Awaited<ReturnType<typeof imageFingerprint>> = null;
+      let newFp: Fingerprint = null;
       if (asCreator && creatorId) {
         const newAbs = mediaPathFor(stored.storageKey);
-        newFp = await imageFingerprint(newAbs);
+        newFp = await fingerprintOffThread(newAbs);
         if (newFp) {
           const near = await findNearDuplicate(creatorId, newFp, newAbs);
           if (near) {
@@ -951,7 +956,7 @@ async function importBooksSection(
     }
     let buffer: Buffer;
     try {
-      buffer = fs.readFileSync(item.abs);
+      buffer = await fsp.readFile(item.abs);
     } catch {
       res.skipped++;
       continue;

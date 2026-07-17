@@ -1051,6 +1051,52 @@ function migrate(db: Database.Database) {
     /* FTS5 unavailable — search uses a LIKE fallback */
   }
 
+  // Full-text indexes for the global search page — same guarded content-table
+  // pattern as posts_fts. Books and people are searched with LIKE instead:
+  // books has a TEXT primary key (its rowid is not VACUUM-stable, which would
+  // desync a content-table index) and both stay small.
+  const ftsSpecs: { fts: string; src: string; cols: string[] }[] = [
+    { fts: "messages_fts", src: "messages", cols: ["body"] },
+    { fts: "channel_messages_fts", src: "channel_messages", cols: ["body"] },
+    { fts: "gallery_fts", src: "gallery_items", cols: ["filename", "description", "location_name"] },
+    { fts: "shorts_fts", src: "shorts", cols: ["caption"] },
+  ];
+  for (const { fts, src, cols } of ftsSpecs) {
+    try {
+      const colList = cols.join(", ");
+      const newVals = cols.map((c) => `new.${c}`).join(", ");
+      const oldVals = cols.map((c) => `old.${c}`).join(", ");
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS ${fts}
+          USING fts5(${colList}, content='${src}', content_rowid='id');
+        CREATE TRIGGER IF NOT EXISTS ${src}_fts_ai AFTER INSERT ON ${src} BEGIN
+          INSERT INTO ${fts}(rowid, ${colList}) VALUES (new.id, ${newVals});
+        END;
+        CREATE TRIGGER IF NOT EXISTS ${src}_fts_ad AFTER DELETE ON ${src} BEGIN
+          INSERT INTO ${fts}(${fts}, rowid, ${colList}) VALUES('delete', old.id, ${oldVals});
+        END;
+        CREATE TRIGGER IF NOT EXISTS ${src}_fts_au AFTER UPDATE ON ${src} BEGIN
+          INSERT INTO ${fts}(${fts}, rowid, ${colList}) VALUES('delete', old.id, ${oldVals});
+          INSERT INTO ${fts}(rowid, ${colList}) VALUES (new.id, ${newVals});
+        END;
+      `);
+    } catch {
+      /* FTS5 unavailable — search falls back to LIKE */
+    }
+  }
+  // One-time backfill: the sync triggers only see rows written after the FTS
+  // table was created, so older rows would be invisible to search. Applies to
+  // posts_fts too, which shipped without a backfill.
+  for (const { fts, src } of [...ftsSpecs, { fts: "posts_fts", src: "posts" }]) {
+    try {
+      const inFts = (db.prepare(`SELECT count(*) AS n FROM ${fts}`).get() as { n: number }).n;
+      const inSrc = (db.prepare(`SELECT count(*) AS n FROM ${src}`).get() as { n: number }).n;
+      if (inFts !== inSrc) db.exec(`INSERT INTO ${fts}(${fts}) VALUES('rebuild')`);
+    } catch {
+      /* FTS5 unavailable */
+    }
+  }
+
   // --- App Store module (phase 1: local APK archive catalog) ---
   db.exec(`
     CREATE TABLE IF NOT EXISTS apps (

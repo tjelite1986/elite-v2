@@ -13,6 +13,7 @@ import {
   MessageCircle,
   Newspaper,
   Play,
+  Search,
   Settings,
   Sparkles,
   Store,
@@ -120,6 +121,12 @@ export default function NavMenuContent({
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
+        <MenuRow
+          href="/search"
+          icon={<Search size={18} />}
+          label="Search"
+          sub="Posts, messages, photos, shorts, books"
+        />
         <MenuRow
           href="/ask"
           icon={<Sparkles size={18} />}
