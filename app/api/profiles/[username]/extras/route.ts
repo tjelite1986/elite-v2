@@ -58,7 +58,10 @@ export async function PATCH(request: Request, props: { params: Promise<{ usernam
   // auto-poll flag. Empty/invalid input disconnects it.
   if ("instagramHandle" in body) {
     const ig = parseInstagramUsername(String(body.instagramHandle ?? ""));
-    setProfileInstagram(handle, ig, Boolean(body?.igAutoPoll));
+    setProfileInstagram(handle, ig, Boolean(body?.igAutoPoll), {
+      stories: Boolean(body?.igStories),
+      highlights: Boolean(body?.igHighlights),
+    });
   }
 
   // Optional TikTok source: a username/URL to pull media from, plus an

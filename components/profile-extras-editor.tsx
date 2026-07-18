@@ -19,6 +19,8 @@ export default function ProfileExtrasEditor({
   hasBanner,
   initialInstagram,
   initialIgAutoPoll,
+  initialIgStories,
+  initialIgHighlights,
   initialTiktok,
   initialTtAutoPoll,
 }: {
@@ -30,6 +32,8 @@ export default function ProfileExtrasEditor({
   hasBanner: boolean;
   initialInstagram: string;
   initialIgAutoPoll: boolean;
+  initialIgStories: boolean;
+  initialIgHighlights: boolean;
   initialTiktok: string;
   initialTtAutoPoll: boolean;
 }) {
@@ -46,6 +50,8 @@ export default function ProfileExtrasEditor({
   const [cropFile, setCropFile] = useState<File | null>(null);
   const [instagram, setInstagram] = useState(initialInstagram);
   const [igAutoPoll, setIgAutoPoll] = useState(initialIgAutoPoll);
+  const [igStories, setIgStories] = useState(initialIgStories);
+  const [igHighlights, setIgHighlights] = useState(initialIgHighlights);
   const [tiktok, setTiktok] = useState(initialTiktok);
   const [ttAutoPoll, setTtAutoPoll] = useState(initialTtAutoPoll);
   const [cookieState, setCookieState] = useState<"active" | "expired" | "missing" | null>(null);
@@ -142,6 +148,8 @@ export default function ProfileExtrasEditor({
         fields: cleanFields,
         instagramHandle: instagram.trim(),
         igAutoPoll,
+        igStories,
+        igHighlights,
         tiktokHandle: tiktok.trim(),
         ttAutoPoll,
       }),
@@ -360,10 +368,27 @@ export default function ProfileExtrasEditor({
           />
           Auto-poll daily (pull new posts automatically)
         </label>
+        <label className="mt-2 flex items-center gap-2 text-sm text-white/70">
+          <input
+            type="checkbox"
+            checked={igHighlights}
+            onChange={(e) => setIgHighlights(e.target.checked)}
+          />
+          Include Highlights (curated permanent collections)
+        </label>
+        <label className="mt-2 flex items-center gap-2 text-sm text-white/70">
+          <input
+            type="checkbox"
+            checked={igStories}
+            onChange={(e) => setIgStories(e.target.checked)}
+          />
+          Include Stories (24h — only what’s live at sync time)
+        </label>
         <p className="mt-1 text-xs text-white/40">
           Connect an Instagram account to import its photos as posts and videos
-          as shorts on this profile. Use the “Sync from Instagram” button on the
-          profile to pull now.
+          as shorts on this profile. Highlights and Stories are pulled in
+          addition to regular posts when enabled. Use the “Sync from Instagram”
+          button on the profile to pull now.
         </p>
         {cookieState === "expired" && (
           <p className="mt-1 text-xs text-amber-400">

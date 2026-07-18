@@ -103,6 +103,8 @@ interface ProfileExtraRow {
   updated_at: string;
   instagram_handle: string | null;
   ig_auto_poll: number;
+  ig_stories: number;
+  ig_highlights: number;
   ig_last_synced_at: string | null;
   ig_last_sync_error: string | null;
   ig_syncing: number;

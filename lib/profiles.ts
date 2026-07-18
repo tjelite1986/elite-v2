@@ -159,6 +159,8 @@ export interface ProfileExtras {
   banner_key: string | null;
   instagramHandle: string | null;
   igAutoPoll: boolean;
+  igStories: boolean;
+  igHighlights: boolean;
   igLastSyncedAt: string | null;
   igLastSyncError: string | null;
   igSyncing: boolean;
@@ -178,6 +180,8 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
     banner_key: string | null;
     instagram_handle: string | null;
     ig_auto_poll: number;
+    ig_stories: number;
+    ig_highlights: number;
     ig_last_synced_at: string | null;
     ig_last_sync_error: string | null;
     ig_syncing: number;
@@ -197,6 +201,8 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
         "banner_key",
         "instagram_handle",
         "ig_auto_poll",
+        "ig_stories",
+        "ig_highlights",
         "ig_last_synced_at",
         "ig_last_sync_error",
         "ig_syncing",
@@ -243,6 +249,8 @@ export function getProfileExtras(handle: string): ProfileExtras | null {
     banner_key: row.banner_key,
     instagramHandle: row.instagram_handle,
     igAutoPoll: !!row.ig_auto_poll,
+    igStories: !!row.ig_stories,
+    igHighlights: !!row.ig_highlights,
     igLastSyncedAt: row.ig_last_synced_at,
     igLastSyncError: row.ig_last_sync_error,
     igSyncing: !!row.ig_syncing,
@@ -328,11 +336,14 @@ export function setProfileLocation(handle: string, location: string | null): voi
 export function setProfileInstagram(
   handle: string,
   instagramHandle: string | null,
-  autoPoll: boolean
+  autoPoll: boolean,
+  opts: { stories?: boolean; highlights?: boolean } = {}
 ): void {
   upsertExtras(handle, {
     instagram_handle: instagramHandle,
     ig_auto_poll: autoPoll ? "1" : "0",
+    ig_stories: opts.stories ? "1" : "0",
+    ig_highlights: opts.highlights ? "1" : "0",
   });
 }
 

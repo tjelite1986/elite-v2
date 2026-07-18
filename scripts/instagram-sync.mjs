@@ -250,16 +250,13 @@ function randMsFromRange(range, fallbackMin, fallbackMax) {
 // via gallery-dl (photos, carousels, and videos), using the given cookie pool
 // member. Returns { added, error, blocked } — blocked=true on a rate-limit/
 // auth rejection (the caller cools that cookie down and retries with another).
-function downloadProfile(localHandle, igUsername, cookie) {
-  const dir = path.join(IMPORT_DIR, localHandle);
-  fs.mkdirSync(dir, { recursive: true });
-  const before = countFiles(dir);
-  const cookies = cookie ? writableCookies(cookie.path, cookie.id) : null;
-  const gdArchive = path.join(dir, ".gallery-dl-archive.sqlite");
-
-  const rangeUpper = Math.min(before + MAX_PER_RUN, 500);
+// Run gallery-dl for ONE Instagram source URL into dir. Returns
+// { error, blocked }; blocked=true on a rate-limit/auth rejection. Highlights
+// and stories items have media ids (no shortcode), so the filename pattern
+// falls back to {id}; the shared download-archive dedupes across all sources.
+function runGalleryDl(url, dir, cookies, gdArchive, rangeUpper) {
   const gdArgs = [
-    `https://www.instagram.com/${igUsername}/`,
+    url,
     "-D",
     dir,
     "--filename",
@@ -281,8 +278,6 @@ function downloadProfile(localHandle, igUsername, cookie) {
   if (mode === "photos") gdArgs.push("-o", "videos=false");
   if (cookies) gdArgs.push("--cookies", cookies);
 
-  let lastErr = null;
-  let blocked = false;
   try {
     execFileSync(GALLERY_DL, gdArgs, {
       stdio: ["ignore", "ignore", "pipe"],
@@ -291,14 +286,51 @@ function downloadProfile(localHandle, igUsername, cookie) {
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
     });
+    return { error: null, blocked: false };
   } catch (err) {
     const stderr = `${err.stderr || ""}\n${err.message || ""}`;
     if (/NotFoundError|could not be found|\b401\b|\b429\b|login_required|Please wait a few minutes/i.test(stderr)) {
-      blocked = true;
-      lastErr = "Instagram rejected the request (rate-limit / expired session).";
-    } else {
-      const m = stderr.match(/\[[a-z]+\]\[error\][^\n]*/i);
-      lastErr = (m ? m[0] : err.message || "download failed").slice(0, 300);
+      return { error: "Instagram rejected the request (rate-limit / expired session).", blocked: true };
+    }
+    const m = stderr.match(/\[[a-z]+\]\[error\][^\n]*/i);
+    return { error: (m ? m[0] : err.message || "download failed").slice(0, 300), blocked: false };
+  }
+}
+
+// Download a profile's posts, plus (opt-in per profile) its Highlights and live
+// Stories, into the same import dir so they all flow through the normal
+// photo->post / video->short importers. target carries ig_stories/ig_highlights
+// flags. Returns { added, error, blocked }.
+function downloadProfile(localHandle, igUsername, cookie, target = {}) {
+  const dir = path.join(IMPORT_DIR, localHandle);
+  fs.mkdirSync(dir, { recursive: true });
+  const before = countFiles(dir);
+  const cookies = cookie ? writableCookies(cookie.path, cookie.id) : null;
+  const gdArchive = path.join(dir, ".gallery-dl-archive.sqlite");
+  const rangeUpper = Math.min(before + MAX_PER_RUN, 500);
+
+  // Posts first; Highlights and Stories need a logged-in cookie, so skip them
+  // when none is available rather than wasting a guaranteed-failing request.
+  const sources = [{ label: "posts", url: `https://www.instagram.com/${igUsername}/` }];
+  if (cookies && target.ig_highlights) {
+    sources.push({ label: "highlights", url: `https://www.instagram.com/${igUsername}/highlights/` });
+  }
+  if (cookies && target.ig_stories) {
+    sources.push({ label: "stories", url: `https://www.instagram.com/stories/${igUsername}/` });
+  }
+
+  let lastErr = null;
+  let blocked = false;
+  for (const src of sources) {
+    const res = runGalleryDl(src.url, dir, cookies, gdArchive, rangeUpper);
+    if (res.error) {
+      lastErr = res.error;
+      // A rate-limit/auth block will hit every subsequent source too — stop and
+      // let the caller cool the cookie down and retry the whole profile.
+      if (res.blocked) {
+        blocked = true;
+        break;
+      }
     }
   }
 
@@ -324,12 +356,12 @@ try {
 const targets = handleArg
   ? db
       .prepare(
-        "SELECT handle, instagram_handle FROM profile_extras WHERE handle = ? AND instagram_handle IS NOT NULL AND instagram_handle <> ''"
+        "SELECT handle, instagram_handle, ig_stories, ig_highlights FROM profile_extras WHERE handle = ? AND instagram_handle IS NOT NULL AND instagram_handle <> ''"
       )
       .all(handleArg)
   : db
       .prepare(
-        "SELECT handle, instagram_handle FROM profile_extras WHERE ig_auto_poll = 1 AND instagram_handle IS NOT NULL AND instagram_handle <> ''"
+        "SELECT handle, instagram_handle, ig_stories, ig_highlights FROM profile_extras WHERE ig_auto_poll = 1 AND instagram_handle IS NOT NULL AND instagram_handle <> ''"
       )
       .all();
 
@@ -374,10 +406,11 @@ for (const [i, t] of targets.entries()) {
     continue;
   }
 
-  log(`sync ${t.handle} <- instagram.com/${t.instagram_handle} (mode=${mode}) via cookie=${cookie?.id ?? "none"}`);
+  const extraSrc = [t.ig_highlights ? "highlights" : null, t.ig_stories ? "stories" : null].filter(Boolean).join("+");
+  log(`sync ${t.handle} <- instagram.com/${t.instagram_handle} (mode=${mode}${extraSrc ? ", +" + extraSrc : ""}) via cookie=${cookie?.id ?? "none"}`);
   let r;
   try {
-    r = downloadProfile(t.handle, t.instagram_handle, cookie);
+    r = downloadProfile(t.handle, t.instagram_handle, cookie, t);
   } catch (err) {
     r = { added: 0, error: String(err.message || err).slice(0, 300), blocked: false };
   }
@@ -390,7 +423,7 @@ for (const [i, t] of targets.entries()) {
     if (next && next.id !== cookie.id) {
       log(`  ${t.handle}: cookie=${cookie.id} blocked → retry via cookie=${next.id}`);
       try {
-        r = downloadProfile(t.handle, t.instagram_handle, next);
+        r = downloadProfile(t.handle, t.instagram_handle, next, t);
       } catch (err) {
         r = { added: 0, error: String(err.message || err).slice(0, 300), blocked: false };
       }

@@ -541,6 +541,8 @@ function migrate(db: Database.Database) {
       banner_key TEXT,
       instagram_handle TEXT,
       ig_auto_poll INTEGER NOT NULL DEFAULT 0,
+      ig_stories INTEGER NOT NULL DEFAULT 0,
+      ig_highlights INTEGER NOT NULL DEFAULT 0,
       ig_last_synced_at TEXT,
       ig_last_sync_error TEXT,
       ig_syncing INTEGER NOT NULL DEFAULT 0,
@@ -780,6 +782,10 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE profile_extras ADD COLUMN instagram_handle TEXT");
     if (!cols.includes("ig_auto_poll"))
       db.exec("ALTER TABLE profile_extras ADD COLUMN ig_auto_poll INTEGER NOT NULL DEFAULT 0");
+    if (!cols.includes("ig_stories"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_stories INTEGER NOT NULL DEFAULT 0");
+    if (!cols.includes("ig_highlights"))
+      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_highlights INTEGER NOT NULL DEFAULT 0");
     if (!cols.includes("ig_last_synced_at"))
       db.exec("ALTER TABLE profile_extras ADD COLUMN ig_last_synced_at TEXT");
     if (!cols.includes("ig_last_sync_error"))

@@ -48,6 +48,8 @@ export default async function EditProfilePage(
         hasBanner={person.hasBanner}
         initialInstagram={extras?.instagramHandle ?? ""}
         initialIgAutoPoll={extras?.igAutoPoll ?? false}
+        initialIgStories={extras?.igStories ?? false}
+        initialIgHighlights={extras?.igHighlights ?? false}
         initialTiktok={extras?.tiktokHandle ?? ""}
         initialTtAutoPoll={extras?.ttAutoPoll ?? false}
       />
