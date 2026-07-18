@@ -101,7 +101,9 @@ export function getFeed(
   // Backward pagination: fetch the clips immediately NEWER than this id (the
   // feed opened mid-list from a grid tile and the user scrolls up). Mutually
   // exclusive with cursor. Items are still returned newest-first.
-  after: number | null = null
+  after: number | null = null,
+  // Hashtag scope: only clips whose caption contains #tag (case-insensitive).
+  tag: string | null = null
 ): { items: FeedShort[]; nextCursor: number | null } {
   const profIds = profileId !== null ? [profileId, ...profileIds] : [...profileIds];
   const ownIds = ownerId !== null ? [ownerId, ...ownerIds] : [...ownerIds];
@@ -176,6 +178,14 @@ export function getFeed(
       (q) => q.where("s.channel", "=", channel)
     )
     .$if(category !== null, (q) => q.where("s.category", "=", category!))
+    // Hashtag scope: caption contains "#tag". Matches the hashtag followed by a
+    // word boundary (a trailing space is appended so an end-of-caption tag also
+    // matches) so #cat doesn't also surface #caturday.
+    .$if(tag !== null, (q) =>
+      q.where(
+        sql<boolean>`lower(s.caption) || ' ' GLOB ${"*#" + tag!.toLowerCase() + "[^a-z0-9_]*"}`
+      )
+    )
     .$if(playlistId !== null, (q) =>
       q.where(
         "s.id",

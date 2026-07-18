@@ -85,6 +85,35 @@ function displayName(email: string | null): string {
   return email.split("@")[0];
 }
 
+// Render a caption with clickable hashtags. Each #tag links to that channel's
+// tag view (main and 18+ are separate namespaces); tapping it must not bubble
+// to the card's video tap handler. Unicode word chars are kept so åäö tags work.
+const HASHTAG_RE = /#([\p{L}\p{N}_]+)/gu;
+function renderCaption(text: string, channel: string) {
+  const base = channel === "18plus" ? "/shorts18/tag/" : "/shorts/tag/";
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  HASHTAG_RE.lastIndex = 0;
+  while ((m = HASHTAG_RE.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    const tag = m[1];
+    out.push(
+      <Link
+        key={`${m.index}-${tag}`}
+        href={`${base}${encodeURIComponent(tag)}`}
+        onClick={(e) => e.stopPropagation()}
+        className="font-medium text-sky-300 transition active:scale-95"
+      >
+        #{tag}
+      </Link>
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
 // Attribution for a clip: the creator profile when the clip belongs to one
 // (keeps the label in sync with the /people link), otherwise the uploader.
 function authorLabel(short: FeedShort): string {
@@ -657,7 +686,9 @@ export default function ShortCard({
             </div>
           )}
           {caption && (
-            <p className="mt-1 line-clamp-3 text-sm drop-shadow">{caption}</p>
+            <p className="mt-1 line-clamp-3 text-sm drop-shadow">
+              {renderCaption(caption, short.channel)}
+            </p>
           )}
         </div>
       )}

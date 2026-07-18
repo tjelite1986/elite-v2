@@ -37,6 +37,9 @@ export async function GET(request: Request) {
   const category = parseCategory(url.searchParams.get("category"));
   // "Mine" view: only the viewer's own uploads (public + private).
   const mineOnly = url.searchParams.get("mine") === "1";
+  // Hashtag scope: only clips whose caption carries #tag (letters/digits/_).
+  const tagRaw = url.searchParams.get("tag");
+  const tag = tagRaw ? tagRaw.replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "").slice(0, 100) || null : null;
   const isAdmin = session.role === "admin";
 
   // Profile-scoped feed: derive the channel from the profile so 18+ gating still
@@ -86,7 +89,8 @@ export async function GET(request: Request) {
     allow18,
     profileIds,
     ownerIds,
-    after
+    after,
+    tag
   );
 
   return NextResponse.json({ items, nextCursor });

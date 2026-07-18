@@ -9,13 +9,14 @@ export const dynamic = "force-dynamic";
 // The category chips (under the tab bar) filter the feed via the `cat` param.
 export default async function Shorts18Page(
   props: {
-    searchParams: Promise<{ focus?: string; cat?: string }>;
+    searchParams: Promise<{ focus?: string; cat?: string; tag?: string }>;
   }
 ) {
   const searchParams = await props.searchParams;
   const session = await getSession();
   const focus = Number(searchParams?.focus);
   const category = parseCategory(searchParams?.cat);
+  const tag = searchParams?.tag?.replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "") || undefined;
   return (
     <>
       <div
@@ -25,10 +26,11 @@ export default async function Shorts18Page(
         <ShortsCategoryChips className="rounded-full bg-black/50 px-2 py-1 backdrop-blur ring-1 ring-white/10" />
       </div>
       <ShortsFeed
-        key={category ?? "all"}
+        key={(category ?? "all") + ":" + (tag ?? "")}
         channel="18plus"
         basePath="/shorts18"
         category={category ?? undefined}
+        tag={tag}
         focusId={focus && !isNaN(focus) ? focus : undefined}
         isAdmin={session?.role === "admin"}
         viewerId={Number(session?.sub) || 0}

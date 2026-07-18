@@ -13,6 +13,7 @@ export default function ShortsFeed({
   profileId,
   playlistId,
   category,
+  tag,
   handle,
   isAdmin = false,
   viewerId,
@@ -33,6 +34,8 @@ export default function ShortsFeed({
   playlistId?: number;
   // When set, the channel feed is filtered to a single 18+ category.
   category?: string;
+  // When set, the feed is scoped to clips whose caption carries this hashtag.
+  tag?: string;
   // When set, the feed is scoped to a person handle (profile clips + owner
   // uploads across linked members) — the same scope as the profile grid.
   handle?: string;
@@ -146,6 +149,7 @@ export default function ShortsFeed({
       if (profileId) url.searchParams.set("profile", String(profileId));
       if (playlistId) url.searchParams.set("playlist", String(playlistId));
       if (category) url.searchParams.set("category", category);
+      if (tag) url.searchParams.set("tag", tag);
       if (handle) url.searchParams.set("handle", handle);
       if (cursor) url.searchParams.set("cursor", String(cursor));
       const res = await fetch(url.toString());
@@ -162,7 +166,7 @@ export default function ShortsFeed({
     } finally {
       setLoading(false);
     }
-  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, handle]);
+  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle]);
 
   // Backward load: clips immediately newer than the current top, prepended.
   // Held until the initial focus jump is done; the prepend is committed
@@ -177,6 +181,7 @@ export default function ShortsFeed({
       if (profileId) url.searchParams.set("profile", String(profileId));
       if (playlistId) url.searchParams.set("playlist", String(playlistId));
       if (category) url.searchParams.set("category", category);
+      if (tag) url.searchParams.set("tag", tag);
       if (handle) url.searchParams.set("handle", handle);
       url.searchParams.set("after", String(prevCursor));
       const res = await fetch(url.toString());
@@ -229,6 +234,7 @@ export default function ShortsFeed({
     profileId,
     playlistId,
     category,
+    tag,
     handle,
   ]);
 
