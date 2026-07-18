@@ -330,7 +330,10 @@ export default function ShortsFeed({
           ? "fixed inset-0 z-30 bg-black"
           : fill
             ? "relative h-full w-full bg-black"
-            : "relative h-dvh w-full bg-black"
+            : // Stop above the global bottom bar (3.5rem + safe areas) so the
+              // caption/creator overlay at the video's bottom stays visible;
+              // fullscreen mode hides the bar and takes the full viewport.
+              "relative w-full bg-black h-[calc(100dvh-3.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]"
       }
     >
       <div
