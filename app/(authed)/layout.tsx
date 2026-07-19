@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { getAppearance, bgCss } from "@/lib/appearance";
 import BottomNav from "@/components/bottom-nav";
+import InstallBanner from "@/components/install-banner";
 import { ActAsBanner } from "@/components/ui/act-as-controls";
 import WebSocketProvider from "@/components/ws-provider";
 import PrivacyControls from "@/components/PrivacyControls";
@@ -54,6 +55,7 @@ export default async function AuthedLayout({
           imp={session.imp ?? null}
           actingAsEmail={session.email}
         />
+        <InstallBanner />
         <PrivacyControls />
       </div>
     </WebSocketProvider>
