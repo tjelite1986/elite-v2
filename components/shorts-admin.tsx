@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useConfirm } from "@/components/confirm-dialog";
 import Link from "next/link";
 import { Trash2, Plus, Radio, RefreshCw, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,6 +47,7 @@ export default function ShortsAdmin({
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmDialog, confirmAsk] = useConfirm();
   const [polling, setPolling] = useState<Set<number>>(new Set());
   const pollWatch = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -130,13 +132,18 @@ export default function ShortsAdmin({
   };
 
   const remove = async (p: Profile) => {
-    if (!confirm(`Delete profile "${p.name}"? Imported clips are kept.`)) return;
+    const ok = await confirmAsk({
+      title: `Delete profile "${p.name}"?`,
+      message: "Only the profile is removed — imported clips are kept.",
+    });
+    if (!ok) return;
     await fetch(`/api/shorts/profiles/${p.id}`, { method: "DELETE" });
     refresh();
   };
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 text-white">
+      {confirmDialog}
       <div className="mb-1 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Auto-poll profiles</h1>
         <button

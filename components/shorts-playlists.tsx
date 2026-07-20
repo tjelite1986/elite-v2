@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useConfirm } from "@/components/confirm-dialog";
 import Link from "next/link";
 import { Plus, Trash2, ListVideo, Pencil, Check, X } from "lucide-react";
 
@@ -20,6 +21,7 @@ export default function ShortsPlaylists({
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmDialog, confirmAsk] = useConfirm();
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
@@ -55,7 +57,11 @@ export default function ShortsPlaylists({
   };
 
   const remove = async (p: Playlist) => {
-    if (!confirm(`Delete playlist "${p.name}"?`)) return;
+    const ok = await confirmAsk({
+      title: `Delete playlist "${p.name}"?`,
+      message: "Only the playlist is removed — its clips are kept.",
+    });
+    if (!ok) return;
     await fetch(`/api/shorts/playlists/${p.id}`, { method: "DELETE" });
     refresh();
   };
@@ -175,6 +181,7 @@ export default function ShortsPlaylists({
           ))}
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 }

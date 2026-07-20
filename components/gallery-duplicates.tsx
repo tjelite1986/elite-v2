@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/confirm-dialog";
 import {
   Copy,
   Loader2,
@@ -77,6 +78,7 @@ export default function GalleryDuplicates() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [confirmDialog, confirmAsk] = useConfirm();
   // Review controls: minimum similarity to show, and a large (uncropped) view
   // so identical-looking copies can actually be told apart.
   const [minSim, setMinSim] = useState(0);
@@ -175,12 +177,12 @@ export default function GalleryDuplicates() {
     // Only trash images that are currently visible under the active filter.
     const ids = Array.from(selected).filter((id) => visibleIds.has(id));
     if (ids.length === 0) return;
-    if (
-      !window.confirm(
-        `Move ${ids.length} image(s) to the trash? If a whole group is selected its best is kept automatically.`
-      )
-    )
-      return;
+    const ok = await confirmAsk({
+      title: `Move ${ids.length} image(s) to the trash?`,
+      message: "If a whole group is selected its best is kept automatically.",
+      confirmLabel: "Move to trash",
+    });
+    if (!ok) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -444,6 +446,7 @@ export default function GalleryDuplicates() {
           </div>
         ))}
       </div>
+      {confirmDialog}
     </section>
   );
 }

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Play, Heart, Pencil, Trash2, FolderInput, X, Plus, Check, Lock } from "lucide-react";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
+import { useConfirm } from "@/components/confirm-dialog";
 
 interface PickerProfile {
   id: number;
@@ -57,6 +58,7 @@ export default function ShortsGrid({
   const [loading, setLoading] = useState(false);
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [moveId, setMoveId] = useState<number | null>(null);
+  const [confirmDialog, confirmAsk] = useConfirm();
   const sentinel = useRef<HTMLDivElement>(null);
   // Device Back closes the move sheet instead of leaving the page.
   useBackDismiss(moveId !== null, () => setMoveId(null));
@@ -132,8 +134,11 @@ export default function ShortsGrid({
   };
 
   const deleteClip = async (id: number) => {
-    if (!window.confirm("Delete this clip? The video file will be removed."))
-      return;
+    const ok = await confirmAsk({
+      title: "Delete this clip?",
+      message: "The video file is removed. This can't be undone.",
+    });
+    if (!ok) return;
     const res = await fetch(`/api/shorts/${id}`, { method: "DELETE" });
     if (res.ok) {
       setItems((list) => list.filter((s) => s.id !== id));
@@ -272,6 +277,7 @@ export default function ShortsGrid({
           onMoved={onMoved}
         />
       )}
+      {confirmDialog}
     </>
   );
 }

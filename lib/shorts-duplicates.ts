@@ -18,6 +18,7 @@ export interface DupeMember {
   size_bytes: number;
   status: string;
   created_at: string;
+  source_id: string | null;
 }
 
 export interface DupeGroup {
@@ -58,6 +59,7 @@ export function getDupeGroups(channel?: ShortChannel): DupeGroup[] {
         "s.size_bytes",
         "s.status",
         "s.created_at",
+        "s.source_id",
         "p.name as profile_name",
       ])
       .$if(!!channel, (q) => q.where("g.channel", "=", channel!))
@@ -93,6 +95,7 @@ export function getDupeGroups(channel?: ShortChannel): DupeGroup[] {
       size_bytes: r.size_bytes,
       status: r.status,
       created_at: r.created_at,
+      source_id: r.source_id,
     });
   }
 

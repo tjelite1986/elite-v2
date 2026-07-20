@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/confirm-dialog";
 import { Copy, Loader2, ScanSearch, Trash2, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,8 @@ interface Member {
   duration: number | null;
   size_bytes: number;
   status: string;
+  created_at: string;
+  source_id: string | null;
 }
 
 interface Group {
@@ -49,6 +52,12 @@ function fmtRes(w: number | null, h: number | null): string {
   return w && h ? `${w}×${h}` : "unknown";
 }
 
+// "YYYY-MM-DD HH:MM:SS" (UTC in the DB) → local "YYYY-MM-DD".
+function fmtAdded(s: string): string {
+  const d = new Date(s.replace(" ", "T") + "Z");
+  return isNaN(d.getTime()) ? s.slice(0, 10) : d.toLocaleDateString("sv-SE");
+}
+
 // Admin tool: scan the shorts library for byte-identical or perceptually
 // identical clips, then review each group and delete the redundant copies. The
 // highest-quality clip in a group is marked to keep and can't be deleted here.
@@ -63,6 +72,7 @@ export default function ShortsDuplicates({
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [confirmDialog, confirmAsk] = useConfirm();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -147,12 +157,11 @@ export default function ShortsDuplicates({
   const deleteSelected = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${ids.length} duplicate clip(s)? The best-quality ones are kept. This removes the files.`
-      )
-    )
-      return;
+    const ok = await confirmAsk({
+      title: `Delete ${ids.length} duplicate clip(s)?`,
+      message: "The best-quality ones are kept. This removes the files.",
+    });
+    if (!ok) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -255,6 +264,12 @@ export default function ShortsDuplicates({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
               {g.members.map((m) => {
                 const isSel = selected.has(m.short_id);
+                // Compare metadata across the copies: mark the most recently
+                // added one (a fresh grabbit download carries the richest
+                // title/tags metadata) so it's easy to spot.
+                const newest = g.members.every(
+                  (o) => o.short_id === m.short_id || o.created_at <= m.created_at
+                );
                 return (
                   <button
                     key={m.short_id}
@@ -304,6 +319,27 @@ export default function ShortsDuplicates({
                       <p>
                         {fmtSize(m.size_bytes)} · {fmtDuration(m.duration)}
                       </p>
+                      <p className={cn(newest ? "text-sky-300" : "text-white/50")}>
+                        Added {fmtAdded(m.created_at)}
+                        {newest && g.members.length > 1 ? " · newest" : ""}
+                      </p>
+                      {m.caption ? (
+                        // Full title/tags/description from the download —
+                        // hover (or long-press) shows the whole text.
+                        <p
+                          className="line-clamp-3 whitespace-pre-wrap text-white/60"
+                          title={m.caption}
+                        >
+                          {m.caption}
+                        </p>
+                      ) : (
+                        <p className="italic text-white/30">No title</p>
+                      )}
+                      {m.source_id && (
+                        <p className="truncate text-white/30" title={m.source_id}>
+                          src: {m.source_id}
+                        </p>
+                      )}
                       {m.profile_name && (
                         <p className="truncate text-white/40">{m.profile_name}</p>
                       )}
@@ -315,6 +351,7 @@ export default function ShortsDuplicates({
           </div>
         ))}
       </div>
+      {confirmDialog}
     </section>
   );
 }

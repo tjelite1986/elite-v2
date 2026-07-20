@@ -38,6 +38,7 @@ import GalleryMap from "@/components/gallery-map";
 import { ShareDialog, type SharePayload } from "@/components/share-dialog";
 import SmartAlbumBuilder from "@/components/smart-album-builder";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
+import { useConfirm } from "@/components/confirm-dialog";
 
 interface Item {
   id: number;
@@ -172,6 +173,7 @@ export default function GalleryClient() {
   const [loading, setLoading] = React.useState(true);
   const [query, setQuery] = React.useState("");
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
+  const [confirmDialog, confirmAsk] = useConfirm();
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [lightboxId, setLightboxId] = React.useState<number | null>(null);
   const [uploading, setUploading] = React.useState(0);
@@ -345,6 +347,12 @@ export default function GalleryClient() {
   };
 
   const removeSmartAlbum = async (id: number) => {
+    const name = smartAlbums.find((a) => a.id === id)?.name ?? "";
+    const ok = await confirmAsk({
+      title: `Delete smart album${name ? ` "${name}"` : ""}?`,
+      message: "Only the saved filter is removed — no photos are touched.",
+    });
+    if (!ok) return;
     setSmartAlbums((s) => s.filter((a) => a.id !== id));
     if (activeSmartAlbum === id) setActiveSmartAlbum(null);
     await fetch(`/api/gallery/smart-albums/${id}`, { method: "DELETE" }).catch(() => {});
@@ -519,8 +527,22 @@ export default function GalleryClient() {
   // --- bulk actions ---
   const bulk = async (action: string, extra?: Record<string, unknown>) => {
     if (selected.size === 0) return;
-    if (action === "delete" && !confirm("Permanently delete the selected photos?"))
-      return;
+    const n = selected.size;
+    if (action === "trash") {
+      const ok = await confirmAsk({
+        title: `Move ${n} photo${n === 1 ? "" : "s"} to the trash?`,
+        message: "You can restore them from Trash later.",
+        confirmLabel: "Move to trash",
+      });
+      if (!ok) return;
+    }
+    if (action === "delete") {
+      const ok = await confirmAsk({
+        title: `Permanently delete ${n} photo${n === 1 ? "" : "s"}?`,
+        message: "The files are removed. This can't be undone.",
+      });
+      if (!ok) return;
+    }
     await fetch("/api/gallery/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -591,7 +613,11 @@ export default function GalleryClient() {
 
   const deleteAlbum = async () => {
     if (!activeAlbum) return;
-    if (!confirm(`Delete album "${activeAlbum.name}"? Photos are kept.`)) return;
+    const ok = await confirmAsk({
+      title: `Delete album "${activeAlbum.name}"?`,
+      message: "Only the album is removed — its photos are kept.",
+    });
+    if (!ok) return;
     await fetch(`/api/gallery/albums/${activeAlbum.id}`, { method: "DELETE" });
     setActiveAlbum(null);
   };
@@ -1347,6 +1373,8 @@ export default function GalleryClient() {
           }}
         />
       )}
+
+      {confirmDialog}
 
       {/* Lightbox */}
       {lightboxItem && (

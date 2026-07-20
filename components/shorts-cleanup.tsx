@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/confirm-dialog";
 import { Loader2, ScanSearch, Trash2, FileX2, ListX } from "lucide-react";
 
 interface Orphan {
@@ -35,6 +36,7 @@ export default function ShortsCleanup({
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState<null | "orphans" | "playlists">(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [confirmDialog, confirmAsk] = useConfirm();
 
   const scan = useCallback(async () => {
     setScanning(true);
@@ -61,12 +63,12 @@ export default function ShortsCleanup({
 
   const removeOrphans = async () => {
     if (!orphans || orphans.length === 0) return;
-    if (
-      !window.confirm(
-        `Remove ${orphans.length} clip(s) whose file is missing? They cannot be played anyway.`
-      )
-    )
-      return;
+    const ok = await confirmAsk({
+      title: `Remove ${orphans.length} broken clip(s)?`,
+      message: "Their files are missing, so they cannot be played anyway.",
+      confirmLabel: "Remove",
+    });
+    if (!ok) return;
     setBusy("orphans");
     setMsg(null);
     try {
@@ -92,7 +94,12 @@ export default function ShortsCleanup({
 
   const removePlaylists = async () => {
     if (!playlists || playlists.length === 0) return;
-    if (!window.confirm(`Remove ${playlists.length} empty playlists?`)) return;
+    const ok = await confirmAsk({
+      title: `Remove ${playlists.length} empty playlists?`,
+      message: "Only playlists without any clips are removed.",
+      confirmLabel: "Remove",
+    });
+    if (!ok) return;
     setBusy("playlists");
     setMsg(null);
     try {
@@ -223,6 +230,7 @@ export default function ShortsCleanup({
           </ul>
         </div>
       )}
+      {confirmDialog}
     </section>
   );
 }

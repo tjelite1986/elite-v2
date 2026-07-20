@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
+import { useConfirm } from "@/components/confirm-dialog";
 import { CommentsSheet } from "@/components/post-card";
 import PostAvatar from "@/components/post-avatar";
 import Markdown from "@/components/markdown";
@@ -53,6 +54,7 @@ export default function PostLightbox({
   onRemove?: (id: number) => void;
 }) {
   const post = open ? posts.find((p) => p.id === open.id) ?? null : null;
+  const [confirmDialog, confirmAsk] = useConfirm();
   const [commentsOpen, setCommentsOpen] = useState(false);
   // Caption expansion, keyed to the post so stepping resets to clamped.
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -111,7 +113,12 @@ export default function PostLightbox({
   const deletePost = useCallback(
     async (p: FeedPost) => {
       if (!onRemove) return;
-      if (!window.confirm("Delete this post? The images will be removed.")) return;
+      const hasVideo = p.media.some((m) => m.is_video);
+      const ok = await confirmAsk({
+        title: "Delete this post?",
+        message: `Its ${hasVideo ? "media files" : "photos"} are removed. This can't be undone.`,
+      });
+      if (!ok) return;
       const res = await fetch(`/api/posts/${p.id}`, { method: "DELETE" });
       if (!res.ok) return;
       const idx = posts.findIndex((x) => x.id === p.id);
@@ -121,7 +128,7 @@ export default function PostLightbox({
       if (next) onNavigate(next.id);
       else onClose();
     },
-    [posts, onRemove, onNavigate, onClose]
+    [posts, onRemove, onNavigate, onClose, confirmAsk]
   );
 
   // Move the current video media to shorts (owner/admin). One tap, like the
@@ -411,6 +418,7 @@ export default function PostLightbox({
           onCountChange={(n) => onPatch(post.id, { comment_count: n })}
         />
       )}
+      {confirmDialog}
     </>
   );
 }

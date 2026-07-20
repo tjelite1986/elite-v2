@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/confirm-dialog";
 import {
   Copy,
   Loader2,
@@ -78,6 +79,7 @@ export default function PostsDuplicates() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [confirmDialog, confirmAsk] = useConfirm();
   // Review controls: minimum similarity to show, and a large (uncropped) view
   // so identical-looking copies can actually be told apart.
   const [minSim, setMinSim] = useState(0);
@@ -176,12 +178,12 @@ export default function PostsDuplicates() {
     // Only delete images that are currently visible under the active filter.
     const ids = Array.from(selected).filter((id) => visibleIds.has(id));
     if (ids.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${ids.length} image(s)? If a whole group is selected its best is kept automatically. This removes the files.`
-      )
-    )
-      return;
+    const ok = await confirmAsk({
+      title: `Delete ${ids.length} image(s)?`,
+      message:
+        "If a whole group is selected its best is kept automatically. This removes the files.",
+    });
+    if (!ok) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -453,6 +455,7 @@ export default function PostsDuplicates() {
           </div>
         ))}
       </div>
+      {confirmDialog}
     </section>
   );
 }
