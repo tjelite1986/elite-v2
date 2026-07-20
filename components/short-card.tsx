@@ -298,7 +298,14 @@ export default function ShortCard({
   // `cat` filter the chips drive, so both stay in sync via the URL.
   const activeFeedGenre = searchParams.get("cat") || "all";
   const showOnlyGenre = (cat: string) => {
-    setShowMore(false);
+    if (cat === activeFeedGenre) {
+      setShowMore(false);
+      return;
+    }
+    // Do NOT close the sheet first: its useBackDismiss cleanup calls
+    // history.back(), which races the push and swallows the ?cat URL. The
+    // navigation remounts the feed (the page keys on the filter), unmounting
+    // the sheet, and the hook's navigated-away guard skips the back() then.
     router.push(cat === "all" ? "/shorts18" : `/shorts18?cat=${cat}`);
   };
 
