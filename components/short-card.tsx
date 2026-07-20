@@ -23,6 +23,7 @@ import {
   Globe,
   Lock,
   ArrowRightLeft,
+  Clapperboard,
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -305,6 +306,29 @@ export default function ShortCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ channel: otherChannel }),
       });
+      if (res.ok) {
+        setCoverMsg(null);
+        onRemoved?.(short.id);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setCoverMsg(d.error || "Move failed");
+        setTimeout(() => setCoverMsg(null), 2500);
+      }
+    } catch {
+      setCoverMsg("Move failed");
+      setTimeout(() => setCoverMsg(null), 2500);
+    }
+    setBusyAction(false);
+  };
+
+  // Owner/admin: move the clip out of shorts into the posts Videos tab. The
+  // short is retired once the video post exists, so the card leaves this feed.
+  const moveToVideos = async () => {
+    if (busyAction) return;
+    setBusyAction(true);
+    setCoverMsg("Moving to Videos…");
+    try {
+      const res = await fetch(`/api/shorts/${short.id}/to-post`, { method: "POST" });
       if (res.ok) {
         setCoverMsg(null);
         onRemoved?.(short.id);
@@ -625,6 +649,13 @@ export default function ShortCard({
             icon={<ArrowRightLeft size={22} className={cn(busyAction && "opacity-50")} />}
             label={otherChannel === "18plus" ? "To 18+" : "To Shorts"}
             onClick={moveChannel}
+          />
+        )}
+        {(isOwner || isAdmin) && (
+          <RailButton
+            icon={<Clapperboard size={22} className={cn(busyAction && "opacity-50")} />}
+            label="To Videos"
+            onClick={moveToVideos}
           />
         )}
         {(isOwner || isAdmin) && (

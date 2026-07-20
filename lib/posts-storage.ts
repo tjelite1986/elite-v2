@@ -248,6 +248,56 @@ export async function storePostVideo(
   }
 }
 
+// Persist a post video from an on-disk file (no buffering) — used when moving
+// a short into the posts Videos tab. Same handling as storePostVideo: MP4-family
+// sources are remuxed to a faststart MP4 (stream copy, no quality loss), WebM is
+// copied as-is, and a square poster frame is written as the _t.jpg thumb. The
+// SOURCE file is left in place; the caller decides when to delete it.
+export function storePostVideoFromFile(
+  slug: string,
+  srcPath: string,
+  userHome?: string | null
+): StoredPostImage {
+  const ext = getExt(srcPath);
+  const rel = userHome ? `${userHome}/posts` : slug;
+  const dir = path.join(userHome ? PROFILE_ROOT : POSTS_ROOT, rel);
+  ensureDir(dir);
+
+  const uuid = randomUUID();
+  const finalExt = ext === "webm" ? "webm" : "mp4";
+  const finalPath = path.join(dir, `${uuid}.${finalExt}`);
+  try {
+    if (finalExt === "webm") {
+      fs.copyFileSync(srcPath, finalPath);
+    } else {
+      try {
+        execFileSync(
+          "ffmpeg",
+          ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+           "-i", srcPath, "-c", "copy", "-movflags", "+faststart", finalPath],
+          { stdio: "ignore" }
+        );
+      } catch {
+        fs.rmSync(finalPath, { force: true });
+        fs.copyFileSync(srcPath, finalPath);
+      }
+    }
+
+    makeVideoPoster(finalPath, path.join(dir, `${uuid}_t.jpg`));
+    const { width, height } = videoDimensions(finalPath);
+    return {
+      storageKey: `${rel}/${uuid}.${finalExt}`,
+      mimeType: finalExt === "webm" ? "video/webm" : "video/mp4",
+      width,
+      height,
+    };
+  } catch (err) {
+    fs.rmSync(finalPath, { force: true });
+    fs.rmSync(path.join(dir, `${uuid}_t.jpg`), { force: true });
+    throw err;
+  }
+}
+
 // Persist an avatar (square crop). Returns the avatar_key.
 export async function storeAvatar(
   filename: string,
