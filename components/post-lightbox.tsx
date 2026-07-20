@@ -10,6 +10,7 @@ import {
   ChevronRight,
   ExternalLink,
   Trash2,
+  Clapperboard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -84,6 +85,8 @@ export default function PostLightbox({
     !!onRemove &&
     (viewer.isAdmin ||
       (post.author.type === "user" && post.author.id === viewer.userId));
+  // Same owner/admin rule for moving the current video to shorts.
+  const canMoveToShorts = canDelete && !!post.media[photoIndex]?.is_video;
 
   const toggleLike = useCallback(
     async (p: FeedPost) => {
@@ -119,6 +122,31 @@ export default function PostLightbox({
       else onClose();
     },
     [posts, onRemove, onNavigate, onClose]
+  );
+
+  // Move the current video media to shorts (owner/admin). One tap, like the
+  // shorts-side "To Videos" button. The post stays if it has other media left;
+  // an emptied post is retired server-side and leaves the list here.
+  const moveToShorts = useCallback(
+    async (p: FeedPost, mediaIdx: number) => {
+      const m = p.media[mediaIdx];
+      if (!m?.is_video) return;
+      const res = await fetch(`/api/posts/media/${m.id}/to-short`, { method: "POST" });
+      if (!res.ok) return;
+      const d = await res.json().catch(() => ({}));
+      if (d.postDeleted && onRemove) {
+        const idx = posts.findIndex((x) => x.id === p.id);
+        const next = posts[idx + 1] ?? posts[idx - 1];
+        setCommentsOpen(false);
+        onRemove(p.id);
+        if (next) onNavigate(next.id);
+        else onClose();
+      } else {
+        onPatch(p.id, { media: p.media.filter((x) => x.id !== m.id) });
+        setPhotoState({ id: p.id, idx: 0 });
+      }
+    },
+    [posts, onRemove, onNavigate, onClose, onPatch]
   );
 
   // Step between photos inside the open post (chevrons, arrow keys, h-swipe).
@@ -259,6 +287,19 @@ export default function PostLightbox({
             className="absolute right-14 top-3 rounded-full bg-black/60 p-2 text-rose-300 transition hover:bg-black/80 hover:text-rose-400"
           >
             <Trash2 size={20} />
+          </button>
+        )}
+        {canMoveToShorts && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              moveToShorts(post, photoIndex);
+            }}
+            aria-label="Move to Shorts"
+            title="Move to Shorts"
+            className="absolute right-[6.25rem] top-3 rounded-full bg-black/60 p-2 text-white transition hover:bg-black/80"
+          >
+            <Clapperboard size={20} />
           </button>
         )}
         <Link
