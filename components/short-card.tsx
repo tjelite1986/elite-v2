@@ -32,6 +32,7 @@ import {
   Hash,
   Maximize,
   Link2,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -198,7 +199,7 @@ export default function ShortCard({
   const [showSave, setShowSave] = useState(false);
   const [saved, setSaved] = useState(short.viewer_saved);
   const [commentCount, setCommentCount] = useState(short.comment_count);
-  const [showCategory, setShowCategory] = useState(false);
+  const [showGenre, setShowGenre] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -207,7 +208,7 @@ export default function ShortCard({
   useBackDismiss(showComments, () => setShowComments(false));
   useBackDismiss(showShare, () => setShowShare(false));
   useBackDismiss(showSave, () => setShowSave(false));
-  useBackDismiss(showCategory, () => setShowCategory(false));
+  useBackDismiss(showGenre, () => setShowGenre(false));
   useBackDismiss(showDelete, () => setShowDelete(false));
   useBackDismiss(showMore, () => setShowMore(false));
   useBackDismiss(showEdit, () => setShowEdit(false));
@@ -288,6 +289,24 @@ export default function ShortCard({
       setCoverMsg("Failed");
     }
     setTimeout(() => setCoverMsg(null), 2500);
+  };
+
+  // 18+ admin: set the clip's genre from the side dropdown (optimistic).
+  const setGenre = async (next: string) => {
+    setShowGenre(false);
+    if (busyAction || next === category) return;
+    const prev = category;
+    setCategory(next);
+    try {
+      const res = await fetch(`/api/shorts/${short.id}/category`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: next }),
+      });
+      if (!res.ok) setCategory(prev);
+    } catch {
+      setCategory(prev);
+    }
   };
 
   // Owner/admin: flip this clip between public and private.
@@ -542,6 +561,41 @@ export default function ShortCard({
         </button>
       )}
 
+      {/* Genre picker (18+ admin): a pill on the left side with a dropdown —
+          quick sorting without opening any menus. "Genre", not "category":
+          categories are reserved for tag-like things. */}
+      {!chromeHidden && categoryEditable && (
+        <div className="absolute left-2 top-1/2 z-10 -translate-y-1/2">
+          <button
+            onClick={() => setShowGenre((v) => !v)}
+            className="flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70"
+          >
+            <Tag size={13} />
+            {CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? "Genre"}
+            <ChevronDown
+              size={13}
+              className={cn("transition-transform", showGenre && "rotate-180")}
+            />
+          </button>
+          {showGenre && (
+            <div className="absolute left-0 top-full mt-1.5 max-h-72 w-44 overflow-y-auto rounded-xl bg-neutral-900/95 py-1 ring-1 ring-white/15 backdrop-blur">
+              {SHORT_CATEGORIES.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setGenre(c)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-xs transition hover:bg-white/10"
+                >
+                  <span className={cn(category === c && "font-semibold")}>
+                    {CATEGORY_LABELS[c]}
+                  </span>
+                  {category === c && <Check size={14} className="text-rose-500" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Private badge (only the owner/admin can see a private clip at all) */}
       {!chromeHidden && isPrivate && (isOwner || isAdmin) && (
         <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-amber-300 backdrop-blur-sm">
@@ -792,19 +846,6 @@ export default function ShortCard({
                     setShowEdit(true);
                   }}
                 />
-                {categoryEditable && (
-                  <MoreRow
-                    icon={<Tag size={18} />}
-                    label={`Category — ${
-                      CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ??
-                      "uncategorized"
-                    }`}
-                    onClick={() => {
-                      setShowMore(false);
-                      setShowCategory(true);
-                    }}
-                  />
-                )}
                 {isAdmin && (
                   <MoreRow
                     icon={<Type size={18} />}
@@ -880,79 +921,11 @@ export default function ShortCard({
           onSavedChange={setSaved}
         />
       )}
-      {showCategory && (
-        <CategorySheet
-          shortId={short.id}
-          current={category}
-          onClose={() => setShowCategory(false)}
-          onChange={setCategory}
-        />
-      )}
     </section>
   );
 }
 
 // Admin category picker for the 18+ feed: tap a bucket to sort the clip in place.
-function CategorySheet({
-  shortId,
-  current,
-  onClose,
-  onChange,
-}: {
-  shortId: number;
-  current: string;
-  onClose: () => void;
-  onChange: (category: string) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-
-  const set = async (category: string) => {
-    if (busy || category === current) {
-      onClose();
-      return;
-    }
-    setBusy(true);
-    const prev = current;
-    onChange(category); // optimistic
-    const res = await fetch(`/api/shorts/${shortId}/category`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category }),
-    });
-    if (!res.ok) onChange(prev);
-    setBusy(false);
-    onClose();
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
-      <div
-        className="flex flex-col rounded-t-2xl bg-neutral-900 text-white"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <span className="font-semibold">Category</span>
-          <button onClick={onClose}>
-            <X size={20} />
-          </button>
-        </div>
-        <div className="px-2 py-2">
-          {SHORT_CATEGORIES.map((c) => (
-            <button
-              key={c}
-              onClick={() => set(c)}
-              disabled={busy}
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left hover:bg-white/5 disabled:opacity-50"
-            >
-              <span className="text-sm font-medium">{CATEGORY_LABELS[c]}</span>
-              {current === c && <Check size={18} className="text-rose-500" />}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function RailButton({
   icon,
