@@ -26,6 +26,8 @@ interface Member {
   height: number | null;
   author_name: string | null;
   post_media_count: number;
+  caption: string | null;
+  created_at: string;
 }
 
 interface Group {
@@ -48,6 +50,12 @@ function fmtRes(w: number | null, h: number | null): string {
 
 function fmtSimilarity(similarity: number): string {
   return `${Math.max(0, Math.min(100, Math.round(similarity)))}% match`;
+}
+
+// "YYYY-MM-DD HH:MM:SS" (UTC in the DB) → local "YYYY-MM-DD".
+function fmtAdded(s: string): string {
+  const d = new Date(s.replace(" ", "T") + "Z");
+  return isNaN(d.getTime()) ? s.slice(0, 10) : d.toLocaleDateString("sv-SE");
 }
 
 // Lowest non-best similarity in a group — how confident the whole group is a
@@ -371,6 +379,11 @@ export default function PostsDuplicates() {
             >
               {g.members.map((m) => {
                 const isSel = selected.has(m.media_id);
+                // Mark the most recently added copy — a fresh import carries
+                // the richest caption/tags metadata.
+                const newest = g.members.every(
+                  (o) => o.media_id === m.media_id || o.created_at <= m.created_at
+                );
                 return (
                   <button
                     key={m.media_id}
@@ -442,6 +455,20 @@ export default function PostsDuplicates() {
                           </span>
                         )}
                       </p>
+                      <p className={cn(newest ? "text-sky-300" : "text-white/50")}>
+                        Added {fmtAdded(m.created_at)}
+                        {newest && g.members.length > 1 ? " · newest" : ""}
+                      </p>
+                      {m.caption ? (
+                        <p
+                          className="line-clamp-3 whitespace-pre-wrap text-white/60"
+                          title={m.caption}
+                        >
+                          {m.caption}
+                        </p>
+                      ) : (
+                        <p className="italic text-white/30">No caption</p>
+                      )}
                       {m.author_name && (
                         <p className="truncate text-white/40">
                           @{m.author_name}

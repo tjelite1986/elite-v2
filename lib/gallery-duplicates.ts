@@ -15,6 +15,12 @@ export interface GalleryDupeMember {
   width: number | null;
   height: number | null;
   owner_name: string | null;
+  filename: string;
+  size_bytes: number;
+  taken_at: string;
+  uploaded_at: string;
+  description: string | null;
+  tags: string | null; // comma-joined gallery tags
 }
 
 export interface GalleryDupeGroup {
@@ -52,7 +58,15 @@ export function getGalleryDupeGroups(): GalleryDupeGroup[] {
         "gi.storage_key",
         "gi.width",
         "gi.height",
+        "gi.filename",
+        "gi.size_bytes",
+        "gi.taken_at",
+        "gi.uploaded_at",
+        "gi.description",
         sql<string | null>`up.username`.as("owner_name"),
+        sql<string | null>`(SELECT GROUP_CONCAT(tag, ', ') FROM gallery_tags t WHERE t.item_id = gi.id)`.as(
+          "tags"
+        ),
       ])
       .orderBy("g.group_key")
       .orderBy("g.is_best", "desc")
@@ -81,6 +95,12 @@ export function getGalleryDupeGroups(): GalleryDupeGroup[] {
       width: r.width,
       height: r.height,
       owner_name: r.owner_name,
+      filename: r.filename,
+      size_bytes: r.size_bytes,
+      taken_at: r.taken_at,
+      uploaded_at: r.uploaded_at,
+      description: r.description,
+      tags: r.tags,
     });
   }
 

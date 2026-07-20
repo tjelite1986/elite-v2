@@ -17,6 +17,8 @@ export interface PostDupeMember {
   author_name: string | null;
   position: number;
   post_media_count: number;
+  caption: string | null;
+  created_at: string;
 }
 
 export interface PostDupeGroup {
@@ -56,6 +58,8 @@ export function getPostDupeGroups(): PostDupeGroup[] {
         "pm.width",
         "pm.height",
         "pm.position",
+        "p.caption",
+        "p.created_at",
         sql<string | null>`COALESCE(up.username, pc.username)`.as("author_name"),
         sql<number>`(SELECT COUNT(*) FROM post_media m2 WHERE m2.post_id = pm.post_id)`.as(
           "post_media_count"
@@ -90,6 +94,8 @@ export function getPostDupeGroups(): PostDupeGroup[] {
       author_name: r.author_name,
       position: r.position,
       post_media_count: r.post_media_count,
+      caption: r.caption,
+      created_at: r.created_at,
     });
   }
 

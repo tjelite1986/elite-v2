@@ -24,6 +24,12 @@ interface Member {
   width: number | null;
   height: number | null;
   owner_name: string | null;
+  filename: string;
+  size_bytes: number;
+  taken_at: string;
+  uploaded_at: string;
+  description: string | null;
+  tags: string | null;
 }
 
 interface Group {
@@ -42,6 +48,18 @@ interface ScanState {
 
 function fmtRes(w: number | null, h: number | null): string {
   return w && h ? `${w}×${h}` : "unknown";
+}
+
+// "YYYY-MM-DD HH:MM:SS" (UTC in the DB) → local "YYYY-MM-DD".
+function fmtAdded(s: string): string {
+  const d = new Date(s.replace(" ", "T") + "Z");
+  return isNaN(d.getTime()) ? s.slice(0, 10) : d.toLocaleDateString("sv-SE");
+}
+
+function fmtSize(bytes: number): string {
+  if (!bytes) return "";
+  const mb = bytes / (1024 * 1024);
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 }
 
 function fmtSimilarity(similarity: number): string {
@@ -370,6 +388,10 @@ export default function GalleryDuplicates() {
             >
               {g.members.map((m) => {
                 const isSel = selected.has(m.item_id);
+                // Mark the most recently uploaded copy for comparison.
+                const newest = g.members.every(
+                  (o) => o.item_id === m.item_id || o.uploaded_at <= m.uploaded_at
+                );
                 return (
                   <button
                     key={m.item_id}
@@ -433,6 +455,30 @@ export default function GalleryDuplicates() {
                           </span>
                         )}
                       </p>
+                      <p className={cn(newest ? "text-sky-300" : "text-white/50")}>
+                        Added {fmtAdded(m.uploaded_at)}
+                        {newest && g.members.length > 1 ? " · newest" : ""}
+                      </p>
+                      <p className="text-white/50">
+                        Taken {fmtAdded(m.taken_at)}
+                        {m.size_bytes ? ` · ${fmtSize(m.size_bytes)}` : ""}
+                      </p>
+                      <p className="truncate text-white/50" title={m.filename}>
+                        {m.filename}
+                      </p>
+                      {m.tags && (
+                        <p className="truncate text-white/50" title={m.tags}>
+                          #{m.tags.split(", ").join(" #")}
+                        </p>
+                      )}
+                      {m.description && (
+                        <p
+                          className="line-clamp-2 whitespace-pre-wrap text-white/60"
+                          title={m.description}
+                        >
+                          {m.description}
+                        </p>
+                      )}
                       {m.owner_name && (
                         <p className="truncate text-white/40">
                           @{m.owner_name}
