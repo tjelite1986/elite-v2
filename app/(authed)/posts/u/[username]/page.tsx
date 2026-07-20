@@ -62,7 +62,7 @@ export default async function PostsProfilePage(
     : postCountForCreator(targetId);
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pb-24 pt-24 text-white">
+    <div className="mx-auto max-w-2xl px-4 pb-24 pt-6 text-white">
       <header className="mb-6 flex items-start gap-5">
         <PostAvatar username={username} size={80} className="text-xl" />
         <div className="min-w-0 flex-1">

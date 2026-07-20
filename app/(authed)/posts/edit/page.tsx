@@ -14,7 +14,7 @@ export default async function PostsEditProfilePage() {
   const profile = ensureUserProfile(Number(session.sub), session.email);
 
   return (
-    <div className="mx-auto max-w-md px-4 pb-24 pt-24 text-white">
+    <div className="mx-auto max-w-md px-4 pb-24 pt-6 text-white">
       <div className="mb-4 flex items-center gap-2">
         <Link
           href={`/posts/u/${profile.username}`}

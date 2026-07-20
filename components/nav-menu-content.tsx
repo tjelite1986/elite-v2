@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Bell,
   BookOpen,
   CalendarHeart,
+  Camera,
   Flame,
   House,
   Images,
@@ -66,6 +67,21 @@ export default function NavMenuContent({
   beforeSections?: React.ReactNode;
 }) {
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // Visibility of the floating screenshot/privacy button. Persisted per device
+  // (localStorage); PrivacyControls listens for the event and hides instantly.
+  const [fabHidden, setFabHidden] = useState(false);
+  useEffect(() => {
+    setFabHidden(localStorage.getItem("privacy_fab_hidden") === "1");
+  }, []);
+  const toggleFab = () => {
+    setFabHidden((prev) => {
+      const next = !prev;
+      localStorage.setItem("privacy_fab_hidden", next ? "1" : "0");
+      window.dispatchEvent(new Event("privacy-fab-visibility"));
+      return next;
+    });
+  };
 
   const logout = async () => {
     setLoggingOut(true);
@@ -144,6 +160,20 @@ export default function NavMenuContent({
 
       <div className="mt-1 border-t border-white/10 pt-1">
         <MenuRow href="/settings" icon={<Settings size={18} />} label="Settings" />
+        <button
+          onClick={toggleFab}
+          className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-white/5"
+        >
+          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80">
+            <Camera size={18} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[15px] font-medium">Screenshot button</span>
+            <span className="block text-xs text-white/40">
+              {fabHidden ? "Hidden — tap to show" : "Shown — tap to hide"}
+            </span>
+          </span>
+        </button>
         <button
           onClick={logout}
           disabled={loggingOut}

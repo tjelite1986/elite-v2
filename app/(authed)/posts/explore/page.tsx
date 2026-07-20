@@ -16,7 +16,7 @@ export default async function PostsExplorePage() {
 
   return (
     // Full-bleed grid: 3 columns spanning the whole screen edge to edge.
-    <div className="w-full pb-24 pt-24 text-white">
+    <div className="w-full pb-24 pt-6 text-white">
       <div className="px-1">
         <PostSearch />
       </div>

@@ -16,7 +16,7 @@ export default async function PostsHomePage() {
 
   return (
     // Full-bleed feed: post photos span the whole screen edge to edge.
-    <div className="w-full pb-24 pt-24 text-white">
+    <div className="w-full pb-24 pt-6 text-white">
       <StoryRail myUsername={profile.username} />
       <PostViews
         query={{ scope: "home" }}

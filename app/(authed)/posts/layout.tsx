@@ -1,16 +1,10 @@
-import PostsTabs from "@/components/posts-tabs";
-
-// Shared chrome for the Photos section: the floating Feed/Explore/Create/Profile
-// tab bar over each page (mirrors the Shorts layout).
-export default async function PostsLayout({
+// The Photos section has no chrome of its own anymore: the global bottom nav
+// carries the section tabs (Feed/Explore/Videos/Create) and the Menu sheet the
+// rest — the old floating top tab bar is gone.
+export default function PostsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <>
-      <PostsTabs />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }

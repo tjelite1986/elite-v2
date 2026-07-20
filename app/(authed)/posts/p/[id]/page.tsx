@@ -33,7 +33,7 @@ export default async function PostPermalinkPage(
     isAdmin || (post.author.type === "user" && post.author.id === viewerId);
 
   return (
-    <div className="mx-auto max-w-md px-1 pb-24 pt-24 text-white">
+    <div className="mx-auto max-w-md px-1 pb-24 pt-6 text-white">
       <div className="mb-2 flex items-center justify-between gap-3 px-2">
         <Link
           href="/posts"

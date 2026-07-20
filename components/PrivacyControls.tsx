@@ -652,6 +652,21 @@ export default function PrivacyControls() {
     return () => clearTimeout(t);
   }, [flash]);
 
+  // The floating button can be hidden from the app menu ("Screenshot button"
+  // toggle). Synced via a custom event (same tab) + storage event (other tabs).
+  const [fabHidden, setFabHidden] = useState(false);
+  useEffect(() => {
+    const sync = () =>
+      setFabHidden(localStorage.getItem("privacy_fab_hidden") === "1");
+    sync();
+    window.addEventListener("privacy-fab-visibility", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("privacy-fab-visibility", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
   const copyError = useCallback(async () => {
     if (!flash) return;
     const text = flash.details
@@ -673,6 +688,8 @@ export default function PrivacyControls() {
       }
     }
   }, [flash]);
+
+  if (fabHidden) return null;
 
   return (
     <div

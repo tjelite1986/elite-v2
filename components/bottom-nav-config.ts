@@ -55,10 +55,13 @@ const SECTIONS: {
     ],
   },
   {
+    // Posts has no top tab bar anymore, so the bottom bar carries all four
+    // section destinations (profile lives in the Menu sheet).
     prefix: "/posts",
     items: () => [
       { label: "Feed", href: "/posts", icon: Newspaper },
       { label: "Explore", href: "/posts/explore", icon: Compass },
+      { label: "Videos", href: "/posts/videos", icon: Play },
       { label: "Create", href: "/posts/create", icon: SquarePlus },
     ],
   },

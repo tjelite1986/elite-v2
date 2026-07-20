@@ -18,7 +18,7 @@ export default async function PostsTagPage(
   const tag = decodeURIComponent(params.tag).toLowerCase();
 
   return (
-    <div className="mx-auto max-w-2xl px-1 pb-24 pt-24 text-white">
+    <div className="mx-auto max-w-2xl px-1 pb-24 pt-6 text-white">
       <h1 className="mb-4 px-3 text-lg font-semibold">#{tag}</h1>
       <PostGrid
         query={{ scope: "tag", tag }}
