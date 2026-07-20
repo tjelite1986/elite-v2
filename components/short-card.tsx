@@ -603,7 +603,7 @@ export default function ShortCard({
           tap. "Genre", not "category": categories are reserved for tag-like
           things. */}
       {!chromeHidden && categoryEditable && (
-        <div className="absolute right-[5.5rem] top-2 z-10">
+        <div className="absolute left-2 top-2 z-10">
           <button
             onClick={() => setShowGenre((v) => !v)}
             className="flex h-[34px] items-center gap-1.5 rounded-full bg-black/50 px-3 text-xs font-medium text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70"
@@ -616,7 +616,7 @@ export default function ShortCard({
             />
           </button>
           {showGenre && (
-            <div className="absolute right-0 top-full mt-1.5 max-h-72 w-44 overflow-y-auto rounded-xl bg-neutral-900/95 py-1 ring-1 ring-white/15 backdrop-blur">
+            <div className="absolute left-0 top-full mt-1.5 max-h-72 w-44 overflow-y-auto rounded-xl bg-neutral-900/95 py-1 ring-1 ring-white/15 backdrop-blur">
               {SHORT_CATEGORIES.map((c) => (
                 <button
                   key={c}
@@ -634,9 +634,10 @@ export default function ShortCard({
         </div>
       )}
 
-      {/* Private badge (only the owner/admin can see a private clip at all) */}
+      {/* Private badge (only the owner/admin can see a private clip at all).
+          Sits below the genre pill's top-left slot. */}
       {!chromeHidden && isPrivate && (isOwner || isAdmin) && (
-        <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-amber-300 backdrop-blur-sm">
+        <div className="pointer-events-none absolute left-2 top-12 z-10 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-amber-300 backdrop-blur-sm">
           <Lock size={12} /> Private
         </div>
       )}
