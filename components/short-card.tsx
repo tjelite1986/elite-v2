@@ -528,6 +528,20 @@ export default function ShortCard({
         </div>
       )}
 
+      {/* Thumbnail button, up by the view-control cluster: pause on the frame
+          you want and tap to make it the clip's poster (admin). Sits to the
+          LEFT of the feed's chevron (right-2), clear of its expansion. */}
+      {!chromeHidden && isAdmin && (
+        <button
+          onClick={setCover}
+          title="Thumbnail — use current frame"
+          aria-label="Set thumbnail from current frame"
+          className="absolute right-12 top-2 z-10 rounded-full bg-black/50 p-2 text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70"
+        >
+          <ImageIcon size={18} />
+        </button>
+      )}
+
       {/* Private badge (only the owner/admin can see a private clip at all) */}
       {!chromeHidden && isPrivate && (isOwner || isAdmin) && (
         <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-amber-300 backdrop-blur-sm">
@@ -762,16 +776,6 @@ export default function ShortCard({
                     toggleVisibility();
                   }}
                 />
-                {isAdmin && (
-                  <MoreRow
-                    icon={<ImageIcon size={18} />}
-                    label="Thumbnail — use current frame"
-                    onClick={() => {
-                      setShowMore(false);
-                      setCover();
-                    }}
-                  />
-                )}
                 <MoreRow
                   icon={<Pencil size={18} />}
                   label="Edit title"
