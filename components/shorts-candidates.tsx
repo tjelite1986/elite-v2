@@ -196,14 +196,13 @@ export default function ShortsCandidates({
               >
                 <div className="relative aspect-[9/16] bg-black/40">
                   {c.thumbnail ? (
-                    // Public TikTok/YT CDN thumbnail loaded directly — the SSRF
-                    // image-proxy rejects these CDN IPs, and they need no auth.
+                    // Via the image proxy: the CSP (img-src 'self') blocks
+                    // loading TikTok/YT CDN thumbnails directly.
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={c.thumbnail}
+                      src={`/api/image-proxy?url=${encodeURIComponent(c.thumbnail)}`}
                       alt=""
                       loading="lazy"
-                      referrerPolicy="no-referrer"
                       className="h-full w-full object-cover"
                     />
                   ) : null}

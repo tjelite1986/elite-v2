@@ -103,10 +103,12 @@ function fullTranscode(src, dst) {
     "nice",
     ["-n", "19", "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", src,
      "-c:v", "libx264", "-profile:v", "main", "-level", "4.0",
-     "-preset", "veryfast", "-crf", "26",
-     "-maxrate", "1800k", "-bufsize", "3600k",
+     // crf 22 + a 4 Mbps ceiling keeps quality close to the source for
+     // 1080x1920 clips (the old crf 26 / 1800k cap visibly degraded them).
+     "-preset", "veryfast", "-crf", "22",
+     "-maxrate", "4000k", "-bufsize", "8000k",
      "-vf", "scale='min(1080,iw)':-2",
-     "-c:a", "aac", "-b:a", "96k", "-ac", "2",
+     "-c:a", "aac", "-b:a", "128k", "-ac", "2",
      "-threads", "2",
      "-movflags", "+faststart", dst],
     { stdio: "ignore" }
