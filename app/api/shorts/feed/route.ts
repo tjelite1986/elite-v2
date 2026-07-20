@@ -5,6 +5,7 @@ import {
   getFeed,
   getProfileSummary,
   parseChannel,
+  parseShortsSort,
 } from "@/lib/shorts";
 import { parseCategory } from "@/lib/shorts-categories";
 import { personContentIds } from "@/lib/profile-links";
@@ -41,6 +42,10 @@ export async function GET(request: Request) {
   const tagRaw = url.searchParams.get("tag");
   const tag = tagRaw ? tagRaw.replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "").slice(0, 100) || null : null;
   const isAdmin = session.role === "admin";
+  // Feed ordering mode + shuffle seed (foryou/random reshuffle per seed).
+  const sort = parseShortsSort(url.searchParams.get("sort"));
+  const seedRaw = Number(url.searchParams.get("seed"));
+  const seed = Number.isFinite(seedRaw) ? seedRaw : 0;
 
   // Profile-scoped feed: derive the channel from the profile so 18+ gating still
   // applies. Channel-scoped feed: use the requested channel.
@@ -90,7 +95,9 @@ export async function GET(request: Request) {
     profileIds,
     ownerIds,
     after,
-    tag
+    tag,
+    sort,
+    seed
   );
 
   return NextResponse.json({ items, nextCursor });

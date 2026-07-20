@@ -48,7 +48,7 @@ const SECTIONS: {
       { label: "Videos", href: "/shorts18", icon: Flame },
       { label: "Explore", href: "/shorts18/explore", icon: Compass },
       { label: "Profiles", href: "/shorts18/profiles", icon: Users },
-      { label: "Mine", href: "/shorts18/mine", icon: Clapperboard },
+      { label: "Playlists", href: "/shorts18/playlists", icon: ListVideo },
     ],
   },
   {
@@ -57,7 +57,7 @@ const SECTIONS: {
       { label: "Videos", href: "/shorts", icon: Play },
       { label: "Explore", href: "/shorts/explore", icon: Compass },
       { label: "Profiles", href: "/shorts/profiles", icon: Users },
-      { label: "Mine", href: "/shorts/mine", icon: Clapperboard },
+      { label: "Playlists", href: "/shorts/playlists", icon: ListVideo },
     ],
   },
   {
@@ -101,13 +101,11 @@ export function getBottomNavExtras(
   ctx: { isAdmin: boolean }
 ): BottomNavItem[] {
   if (pathname === "/shorts18" || pathname.startsWith("/shorts18/")) {
-    return [
-      { label: "Playlists", href: "/shorts18/playlists", icon: ListVideo },
-    ];
+    return [{ label: "Mine", href: "/shorts18/mine", icon: Clapperboard }];
   }
   if (pathname === "/shorts" || pathname.startsWith("/shorts/")) {
     return [
-      { label: "Playlists", href: "/shorts/playlists", icon: ListVideo },
+      { label: "Mine", href: "/shorts/mine", icon: Clapperboard },
       { label: "Grab", href: "/shorts/grab", icon: Download },
     ];
   }

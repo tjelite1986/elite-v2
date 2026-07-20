@@ -3,16 +3,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Eye,
   EyeOff,
   Maximize,
   Minimize,
+  ChevronDown,
   ChevronsDown,
   ChevronsUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import ShortCard, { type FeedShort } from "@/components/short-card";
+
+// Feed ordering modes for the top-center selector (matches lib/shorts
+// parseShortsSort). "For You" reshuffles per visit via a client seed.
+const SORT_LABELS: Record<string, string> = {
+  foryou: "For You",
+  new: "New",
+  following: "Following",
+  random: "Random",
+};
+const SORT_ORDER = ["foryou", "new", "following", "random"] as const;
 
 export default function ShortsFeed({
   channel,
@@ -26,6 +38,8 @@ export default function ShortsFeed({
   viewerId,
   basePath = "/shorts",
   fill = false,
+  sort = "new",
+  showModeSelector = false,
 }: {
   channel: "main" | "18plus";
   focusId?: number;
@@ -49,7 +63,17 @@ export default function ShortsFeed({
   // Fill the parent instead of sizing against the viewport (used when the
   // feed is embedded in an overlay that already owns the layout).
   fill?: boolean;
+  // Feed ordering mode (foryou/new/following/random) — driven by ?sort on the
+  // main channel pages.
+  sort?: "new" | "foryou" | "following" | "random";
+  // Show the top-center expandable mode selector (main channel feeds only).
+  showModeSelector?: boolean;
 }) {
+  const router = useRouter();
+  // One shuffle seed per mount: For You / Random stay stable while paginating,
+  // reshuffle on the next visit.
+  const [seed] = useState(() => Math.floor(Math.random() * 2147483646) + 1);
+  const [modeOpen, setModeOpen] = useState(false);
   const [items, setItems] = useState<FeedShort[]>([]);
   // Opening from a grid tile: start the feed at that clip (older ones follow).
   const [cursor, setCursor] = useState<number | null>(focusId ? focusId + 1 : null);
@@ -160,6 +184,10 @@ export default function ShortsFeed({
       if (category) url.searchParams.set("category", category);
       if (tag) url.searchParams.set("tag", tag);
       if (handle) url.searchParams.set("handle", handle);
+      if (sort !== "new") {
+        url.searchParams.set("sort", sort);
+        url.searchParams.set("seed", String(seed));
+      }
       if (cursor) url.searchParams.set("cursor", String(cursor));
       const res = await fetch(url.toString());
       if (res.ok) {
@@ -175,13 +203,16 @@ export default function ShortsFeed({
     } finally {
       setLoading(false);
     }
-  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle]);
+  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle, sort, seed]);
 
   // Backward load: clips immediately newer than the current top, prepended.
   // Held until the initial focus jump is done; the prepend is committed
   // synchronously (flushSync) and the scroll compensated right after, so no
   // other effect can scroll in between.
   const loadPrev = useCallback(async () => {
+    // Backward pagination needs an id-ordered feed; the seeded modes don't
+    // have one (focus deep-links force sort=new at the page level anyway).
+    if (sort !== "new") return;
     if (loadingPrev || !hasPrev || prevCursor === null || !focusJumped) return;
     setLoadingPrev(true);
     try {
@@ -245,6 +276,7 @@ export default function ShortsFeed({
     category,
     tag,
     handle,
+    sort,
   ]);
 
   // Initial load.
@@ -398,6 +430,49 @@ export default function ShortsFeed({
           </div>
         )}
       </div>
+
+      {/* Top-center feed mode selector: "For You ˅" expanding to the four
+          ordering modes. Navigates via ?sort so the page remounts the feed. */}
+      {showModeSelector && (
+        <div
+          data-immersive-hide
+          className="absolute left-1/2 top-2 z-40 -translate-x-1/2"
+        >
+          <button
+            onClick={() => setModeOpen((v) => !v)}
+            className="flex items-center gap-1.5 rounded-full bg-black/50 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70"
+          >
+            {SORT_LABELS[sort]}
+            <ChevronDown
+              size={15}
+              className={cn("transition-transform", modeOpen && "rotate-180")}
+            />
+          </button>
+          {modeOpen && (
+            <div className="absolute left-1/2 top-full mt-1.5 w-40 -translate-x-1/2 overflow-hidden rounded-xl bg-neutral-900/95 py-1 ring-1 ring-white/15 backdrop-blur">
+              {SORT_ORDER.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => {
+                    setModeOpen(false);
+                    if (m !== sort) {
+                      router.push(
+                        m === "foryou" ? basePath : `${basePath}?sort=${m}`
+                      );
+                    }
+                  }}
+                  className={cn(
+                    "block w-full px-4 py-2.5 text-center text-sm transition hover:bg-white/10",
+                    m === sort ? "font-semibold text-white" : "text-white/70"
+                  )}
+                >
+                  {SORT_LABELS[m]}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Collapsible view-control cluster ("^^"): a single chevron by default,
           expanding to fullscreen / overlay show-hide / auto-scroll. Stays

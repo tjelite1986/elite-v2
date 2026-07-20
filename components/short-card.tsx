@@ -38,6 +38,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
+import PostAvatar from "@/components/post-avatar";
 
 // Player interaction tuning.
 const SEEK_SECONDS = 10; // double-tap skip distance
@@ -70,6 +71,8 @@ export interface FeedShort {
   height: number | null;
   duration: number | null;
   created_at: string;
+  source: string;
+  source_id: string | null;
   like_count: number;
   comment_count: number;
   viewer_liked: boolean;
@@ -95,33 +98,43 @@ function displayName(email: string | null): string {
   return email.split("@")[0];
 }
 
-// Render a caption with clickable hashtags. Each #tag links to that channel's
-// tag view (main and 18+ are separate namespaces); tapping it must not bubble
-// to the card's video tap handler. Unicode word chars are kept so åäö tags work.
+// The caption carries both the title and the #tags; the overlay renders them
+// separately (title text + tag chips). Unicode word chars keep åäö tags working.
 const HASHTAG_RE = /#([\p{L}\p{N}_]+)/gu;
-function renderCaption(text: string, channel: string) {
-  const base = channel === "18plus" ? "/shorts18/tag/" : "/shorts/tag/";
-  const out: React.ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  HASHTAG_RE.lastIndex = 0;
-  while ((m = HASHTAG_RE.exec(text)) !== null) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    const tag = m[1];
-    out.push(
-      <Link
-        key={`${m.index}-${tag}`}
-        href={`${base}${encodeURIComponent(tag)}`}
-        onClick={(e) => e.stopPropagation()}
-        className="font-medium text-sky-300 transition active:scale-95"
-      >
-        #{tag}
-      </Link>
-    );
-    last = m.index + m[0].length;
+const TITLE_CLAMP = 80; // chars before the title gets a "more" expander
+
+function splitCaption(caption: string | null): { title: string; tags: string[] } {
+  const tags = caption?.match(HASHTAG_RE) ?? [];
+  const title = (caption ?? "")
+    .replace(HASHTAG_RE, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return { title, tags: Array.from(new Set(tags)) };
+}
+
+// Best-effort link back to the clip's original source. A full URL is used
+// as-is; a long numeric id on a creator clip is a TikTok video id; an
+// 11-char id looks like YouTube. Anything else gets no link.
+function sourceLink(short: FeedShort): { url: string; label: string } | null {
+  const sid = short.source_id;
+  if (!sid) return null;
+  if (/^https?:\/\//i.test(sid)) {
+    try {
+      return { url: sid, label: new URL(sid).hostname.replace(/^www\./, "") };
+    } catch {
+      return null;
+    }
   }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
+  if (/^\d{15,}$/.test(sid) && short.profile_name) {
+    return {
+      url: `https://www.tiktok.com/@${short.profile_name}/video/${sid}`,
+      label: "tiktok.com",
+    };
+  }
+  if (/^[\w-]{11}$/.test(sid)) {
+    return { url: `https://www.youtube.com/watch?v=${sid}`, label: "youtube.com" };
+  }
+  return null;
 }
 
 // Attribution for a clip: the creator profile when the clip belongs to one
@@ -219,6 +232,12 @@ export default function ShortCard({
   const [coverMsg, setCoverMsg] = useState<string | null>(null);
   const [caption, setCaption] = useState(short.caption);
   const [isPrivate, setIsPrivate] = useState(short.is_private);
+  // Overlay expansion for a long title / many tag chips.
+  const [titleExpanded, setTitleExpanded] = useState(false);
+  const [tagsExpanded, setTagsExpanded] = useState(false);
+  const { title, tags } = splitCaption(caption);
+  const titleLong = title.length > TITLE_CLAMP;
+  const srcLink = sourceLink(short);
   // The uploader of a clip (and admins) can flip its public/private visibility.
   const isOwner = short.uploader_id != null && short.uploader_id === viewerId;
 
@@ -750,25 +769,81 @@ export default function ShortCard({
       </div>
       )}
 
-      {/* Caption / uploader */}
+      {/* Author / title / source / tags — FikFap-style stacked overlay:
+          avatar + plain profile name (no @), the title (expandable), the
+          original-source link, then tag chips (expandable). */}
       {!chromeHidden && (
-        <div className="absolute bottom-6 left-4 right-20 text-white">
+        <div
+          className="absolute bottom-6 left-3 right-20 text-white"
+          onClick={(e) => e.stopPropagation()}
+        >
           {short.profile_id && short.profile_name ? (
             <Link
               href={`/people/${personHandle(short.profile_name)}`}
-              className="inline-block text-sm font-semibold drop-shadow transition active:scale-95"
+              className="flex w-fit items-center gap-2.5 transition active:scale-95"
             >
-              @{authorLabel(short)}
+              <PostAvatar username={personHandle(short.profile_name)} size={40} />
+              <span className="text-[15px] font-semibold drop-shadow">
+                {authorLabel(short)}
+              </span>
             </Link>
           ) : (
-            <div className="text-sm font-semibold drop-shadow">
-              @{authorLabel(short)}
+            <div className="flex w-fit items-center gap-2.5">
+              <PostAvatar username={displayName(short.uploader_email)} size={40} />
+              <span className="text-[15px] font-semibold drop-shadow">
+                {authorLabel(short)}
+              </span>
             </div>
           )}
-          {caption && (
-            <p className="mt-1 line-clamp-3 text-sm drop-shadow">
-              {renderCaption(caption, short.channel)}
+          {title && (
+            <p
+              onClick={() => titleLong && setTitleExpanded((v) => !v)}
+              className={cn(
+                "mt-1.5 text-sm drop-shadow",
+                titleExpanded
+                  ? "max-h-[35vh] overflow-y-auto whitespace-pre-wrap"
+                  : "line-clamp-2",
+                titleLong && "cursor-pointer"
+              )}
+            >
+              {title}
+              {titleLong && (
+                <span className="ml-1 font-medium text-white/60">
+                  {titleExpanded ? " less" : "… more"}
+                </span>
+              )}
             </p>
+          )}
+          {srcLink && (
+            <a
+              href={srcLink.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 flex w-fit max-w-full items-center gap-1 truncate text-xs text-sky-300 drop-shadow transition active:scale-95"
+            >
+              <Link2 size={12} className="shrink-0" /> {srcLink.label}
+            </a>
+          )}
+          {tags.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {(tagsExpanded ? tags : tags.slice(0, 3)).map((t) => (
+                <Link
+                  key={t}
+                  href={`${short.channel === "18plus" ? "/shorts18" : "/shorts"}/tag/${encodeURIComponent(t.slice(1))}`}
+                  className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium backdrop-blur transition active:scale-95"
+                >
+                  {t}
+                </Link>
+              ))}
+              {tags.length > 3 && (
+                <button
+                  onClick={() => setTagsExpanded((v) => !v)}
+                  className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium text-white/70 backdrop-blur transition active:scale-95"
+                >
+                  {tagsExpanded ? "less" : `+${tags.length - 3} more`}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

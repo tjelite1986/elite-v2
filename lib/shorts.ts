@@ -37,6 +37,14 @@ export function canViewShort(
   return short.is_private === 0 || short.uploader_id === viewerId || isAdmin;
 }
 
+export type ShortsSort = "new" | "foryou" | "following" | "random";
+
+export function parseShortsSort(raw: string | null): ShortsSort {
+  return raw === "foryou" || raw === "following" || raw === "random"
+    ? raw
+    : "new";
+}
+
 export interface FeedShort {
   id: number;
   channel: ShortChannel;
@@ -50,6 +58,8 @@ export interface FeedShort {
   height: number | null;
   duration: number | null;
   created_at: string;
+  source: string;
+  source_id: string | null;
   like_count: number;
   comment_count: number;
   viewer_liked: boolean;
@@ -103,8 +113,18 @@ export function getFeed(
   // exclusive with cursor. Items are still returned newest-first.
   after: number | null = null,
   // Hashtag scope: only clips whose caption contains #tag (case-insensitive).
-  tag: string | null = null
+  tag: string | null = null,
+  // Feed ordering mode. "new" (default) = newest first with id-cursor
+  // pagination; "following" = newest first, scoped to followed profiles/users;
+  // "foryou" = engagement-weighted with a seeded shuffle; "random" = seeded
+  // shuffle. foryou/random paginate by OFFSET (cursor doubles as the offset —
+  // a seeded order has no monotone id to cut on).
+  sort: ShortsSort = "new",
+  seed = 0
 ): { items: FeedShort[]; nextCursor: number | null } {
+  const offsetMode = sort === "foryou" || sort === "random";
+  // Keep the seed inside SQLite's integer math comfort zone.
+  const s32 = Math.abs(Math.floor(seed)) % 2147483647;
   const profIds = profileId !== null ? [profileId, ...profileIds] : [...profileIds];
   const ownIds = ownerId !== null ? [ownerId, ...ownerIds] : [...ownerIds];
   // Structure (joins, filters, ordering, pagination) is built with the typed
@@ -125,6 +145,8 @@ export function getFeed(
       "s.height",
       "s.duration",
       "s.created_at",
+      "s.source",
+      "s.source_id",
       "s.poster_key",
       "s.is_private",
       "u.email as uploader_email",
@@ -196,11 +218,55 @@ export function getFeed(
           .where("playlist_id", "=", playlistId!)
       )
     )
-    .$if(cursor !== null, (q) => q.where("s.id", "<", cursor!))
+    // Following mode: only clips from followed shorts profiles or uploads by
+    // followed users.
+    .$if(sort === "following", (q) =>
+      q.where((eb) =>
+        eb.or([
+          eb(
+            "s.profile_id",
+            "in",
+            qb
+              .selectFrom("follows")
+              .select("target_id")
+              .where("follower_id", "=", viewerId)
+              .where("target_type", "=", "shorts")
+          ),
+          eb(
+            "s.uploader_id",
+            "in",
+            qb
+              .selectFrom("follows")
+              .select("target_id")
+              .where("follower_id", "=", viewerId)
+              .where("target_type", "=", "user")
+          ),
+        ])
+      )
+    )
+    // Cursor cut / backward mode only make sense for id-ordered feeds; the
+    // seeded orders paginate by offset instead.
+    .$if(!offsetMode && cursor !== null, (q) => q.where("s.id", "<", cursor!))
     // Backward mode: ascending picks the ids immediately above `after` (not the
     // newest overall); the page is flipped back to newest-first below.
-    .$if(after !== null, (q) => q.where("s.id", ">", after!))
+    .$if(!offsetMode && after !== null, (q) => q.where("s.id", ">", after!))
+    // A deterministic per-seed shuffle: SQLite has no seeded RANDOM(), so an
+    // LCG-style hash of the id gives a stable order for one seed and a fresh
+    // one for the next visit. "For you" weighs engagement on top of it.
+    .$if(sort === "random", (q) =>
+      q.orderBy(sql`((s.id * 1103515245 + ${s32}) % 2147483647)`)
+    )
+    .$if(sort === "foryou", (q) =>
+      q.orderBy(
+        sql`(
+          (SELECT COUNT(*) FROM short_likes l2 WHERE l2.short_id = s.id) * 40
+          + (SELECT COUNT(*) FROM short_comments c2 WHERE c2.short_id = s.id) * 25
+          + (((s.id * 1103515245 + ${s32}) % 97) + 97) % 97
+        ) DESC`
+      )
+    )
     .orderBy("s.id", after !== null ? "asc" : "desc")
+    .$if(offsetMode, (q) => q.offset(Math.max(0, cursor ?? 0)))
     .limit(limit + 1);
 
   const rows = getAll<FeedRow>(query);
@@ -225,6 +291,8 @@ export function getFeed(
     height: r.height,
     duration: r.duration,
     created_at: r.created_at,
+    source: r.source,
+    source_id: r.source_id,
     like_count: Number(r.like_count),
     comment_count: Number(r.comment_count),
     viewer_liked: Boolean(r.viewer_liked),
@@ -233,7 +301,12 @@ export function getFeed(
     is_private: Boolean(r.is_private),
   }));
 
-  const nextCursor = hasMore ? pageEndId : null;
+  // Offset mode: the "cursor" is simply where the next page starts.
+  const nextCursor = hasMore
+    ? offsetMode
+      ? Math.max(0, cursor ?? 0) + page.length
+      : pageEndId
+    : null;
   return { items, nextCursor };
 }
 
