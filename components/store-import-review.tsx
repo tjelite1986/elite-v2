@@ -199,8 +199,13 @@ function ReviewCard({
               className={cn(btn, "flex items-center gap-1.5 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25")}
             >
               {r.iconUrl && (
+                /* Play CDN icon via the image proxy — CSP blocks it directly. */
                 /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={r.iconUrl} alt="" className="h-4 w-4 rounded" />
+                <img
+                  src={`/api/image-proxy?url=${encodeURIComponent(r.iconUrl)}`}
+                  alt=""
+                  className="h-4 w-4 rounded"
+                />
               )}
               {r.name}
               {r.developer && <span className="text-emerald-300/50">{r.developer}</span>}
