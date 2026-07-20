@@ -726,7 +726,7 @@ export default function MessengerClient({
                           {shortAtt.has_poster && (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              src={`/api/shorts/${shortAtt.id}/poster`}
+                              src={`/api/shorts/${shortAtt.id}/poster?c=2`}
                               alt=""
                               className="h-full w-full object-cover"
                             />

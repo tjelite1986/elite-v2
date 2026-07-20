@@ -285,7 +285,7 @@ export default function ShortsDuplicates({
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={`/api/shorts/${m.short_id}/poster`}
+                      src={`/api/shorts/${m.short_id}/poster?c=2`}
                       alt=""
                       loading="lazy"
                       className="aspect-[9/16] w-full bg-black/40 object-cover"

@@ -26,7 +26,7 @@ export default function ProfilesPage() {
                   {c.cover_id ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={`/api/shorts/${c.cover_id}/poster`}
+                      src={`/api/shorts/${c.cover_id}/poster?c=2`}
                       alt=""
                       loading="lazy"
                       className="h-full w-full object-cover"

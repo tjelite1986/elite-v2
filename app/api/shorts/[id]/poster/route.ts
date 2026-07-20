@@ -9,7 +9,10 @@ import { posterPathFor, setCustomPoster } from "@/lib/shorts-storage";
 export const dynamic = "force-dynamic";
 
 // Serve a short's poster (JPEG). Same gate enforcement as the video route.
-export async function GET(_request: Request, props: { params: Promise<{ id: string }> }) {
+// no-cache + an ETag from the file: every render revalidates, so a changed
+// cover ("Thumbnail" button) shows up immediately — an unchanged one is a
+// cheap 304. (The old private,max-age=86400 kept serving a day-old cover.)
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
@@ -30,14 +33,24 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
     return new NextResponse("Not found", { status: 404 });
   }
 
+  const stat = fs.statSync(filePath);
+  const etag = `"${short.poster_key}-${stat.size}-${Math.floor(stat.mtimeMs)}"`;
+  const headers = {
+    ETag: etag,
+    "Cache-Control": "private, no-cache",
+    "X-Content-Type-Options": "nosniff",
+  };
+  if (request.headers.get("if-none-match") === etag) {
+    return new NextResponse(null, { status: 304, headers });
+  }
+
   const stream = fs.createReadStream(filePath);
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
     headers: {
+      ...headers,
       "Content-Type": "image/jpeg",
-      "Content-Length": String(fs.statSync(filePath).size),
-      "X-Content-Type-Options": "nosniff",
+      "Content-Length": String(stat.size),
       "Content-Disposition": "inline",
-      "Cache-Control": "private, max-age=86400",
     },
   });
 }

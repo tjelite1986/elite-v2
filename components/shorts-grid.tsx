@@ -170,7 +170,7 @@ export default function ShortsGrid({
               const poster = s.has_poster ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={`/api/shorts/${s.id}/poster`}
+                  src={`/api/shorts/${s.id}/poster?c=2`}
                   alt=""
                   loading="lazy"
                   className="h-full w-full object-cover transition group-hover:opacity-80"
