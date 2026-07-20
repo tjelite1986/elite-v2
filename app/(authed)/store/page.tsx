@@ -16,7 +16,7 @@ export default async function StoreDiscoverPage() {
   const { hero, shelves } = getDiscover(Number(session.sub), adult);
 
   return (
-    <div className="mx-auto max-w-3xl px-3 pb-24 pt-28 text-white">
+    <div className="mx-auto max-w-3xl px-3 pb-24 pt-6 text-white">
       <h1 className="mb-4 px-1 text-2xl font-bold">App Store</h1>
       <StoreAdultToggle unlocked={adult} />
       <StoreHero apps={hero} />

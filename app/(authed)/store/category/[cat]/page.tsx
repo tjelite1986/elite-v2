@@ -22,7 +22,7 @@ export default async function StoreCategoryPage(
   });
 
   return (
-    <div className="mx-auto max-w-3xl px-3 pb-24 pt-28 text-white">
+    <div className="mx-auto max-w-3xl px-3 pb-24 pt-6 text-white">
       <h1 className="mb-4 px-1 text-2xl font-bold">{category}</h1>
       <StoreGrid apps={apps} />
     </div>

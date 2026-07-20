@@ -48,6 +48,7 @@ export default async function AuthedLayout({
           username={username}
           email={session.email}
           canActAs={session.role === "admin" || !!session.imp}
+          isAdmin={session.role === "admin"}
         >
           {children}
         </BottomNav>

@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 // Your own uploaded clips (public + private) on the 18+ channel.
 export default function My18ShortsPage() {
   return (
-    <div className="mx-auto max-w-5xl px-2 pb-24 pt-16">
+    <div className="mx-auto max-w-5xl px-2 pb-24 pt-6">
       <ShortsGrid
         query={{ channel: "18plus", mine: "1" }}
         hrefPrefix="/shorts18?focus="

@@ -9,7 +9,7 @@ export default function Profiles18Page() {
   const creators = getCreators("18plus");
 
   return (
-    <div className="mx-auto max-w-5xl px-3 pb-24 pt-16 text-white">
+    <div className="mx-auto max-w-5xl px-3 pb-24 pt-6 text-white">
       <h1 className="mb-4 px-1 text-lg font-semibold">Profiles</h1>
       {creators.length === 0 ? (
         <p className="py-16 text-center text-sm text-white/50">No profiles yet.</p>

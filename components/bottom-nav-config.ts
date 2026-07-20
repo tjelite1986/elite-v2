@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Bookmark,
   CircleUser,
   Clapperboard,
   Compass,
@@ -7,6 +8,7 @@ import {
   Flame,
   House,
   Images,
+  ListVideo,
   MessageCircle,
   Newspaper,
   Play,
@@ -14,6 +16,7 @@ import {
   SquarePlus,
   Store,
   Users,
+  Wrench,
 } from "lucide-react";
 
 export type BottomNavItem = {
@@ -30,10 +33,11 @@ const DEFAULT_ITEMS: BottomNavItem[] = [
   { label: "Posts", href: "/posts", icon: Newspaper },
 ];
 
-// Ordered longest-prefix-first so /shorts18 wins over /shorts. Each section
-// gets the three most useful in-section destinations; the rest stay in the
-// section's own pill tabs and the shared Menu sheet. The 18+ section must
-// stay strictly inside /shorts18 (never cross-link to main shorts).
+// Ordered longest-prefix-first so /shorts18 wins over /shorts. The sections
+// have no top pill bars anymore: the bottom bar carries the four most useful
+// in-section destinations and the overflow lives in the Menu sheet's
+// section block (see getBottomNavExtras). The 18+ section must stay strictly
+// inside /shorts18 (never cross-link to main shorts).
 const SECTIONS: {
   prefix: string;
   items: (ctx: { username: string }) => BottomNavItem[];
@@ -43,6 +47,7 @@ const SECTIONS: {
     items: () => [
       { label: "Videos", href: "/shorts18", icon: Flame },
       { label: "Explore", href: "/shorts18/explore", icon: Compass },
+      { label: "Profiles", href: "/shorts18/profiles", icon: Users },
       { label: "Mine", href: "/shorts18/mine", icon: Clapperboard },
     ],
   },
@@ -51,6 +56,7 @@ const SECTIONS: {
     items: () => [
       { label: "Videos", href: "/shorts", icon: Play },
       { label: "Explore", href: "/shorts/explore", icon: Compass },
+      { label: "Profiles", href: "/shorts/profiles", icon: Users },
       { label: "Mine", href: "/shorts/mine", icon: Clapperboard },
     ],
   },
@@ -71,6 +77,7 @@ const SECTIONS: {
       { label: "Discover", href: "/store", icon: Store },
       { label: "Search", href: "/store/search", icon: Search },
       { label: "Installed", href: "/store/installed", icon: Download },
+      { label: "Saved", href: "/store/saved", icon: Bookmark },
     ],
   },
   {
@@ -86,6 +93,31 @@ const SECTIONS: {
     ],
   },
 ];
+
+// Section destinations that don't fit the four bottom slots — surfaced as a
+// contextual block at the top of the Menu sheet while inside that section.
+export function getBottomNavExtras(
+  pathname: string,
+  ctx: { isAdmin: boolean }
+): BottomNavItem[] {
+  if (pathname === "/shorts18" || pathname.startsWith("/shorts18/")) {
+    return [
+      { label: "Playlists", href: "/shorts18/playlists", icon: ListVideo },
+    ];
+  }
+  if (pathname === "/shorts" || pathname.startsWith("/shorts/")) {
+    return [
+      { label: "Playlists", href: "/shorts/playlists", icon: ListVideo },
+      { label: "Grab", href: "/shorts/grab", icon: Download },
+    ];
+  }
+  if (pathname === "/store" || pathname.startsWith("/store/")) {
+    return ctx.isAdmin
+      ? [{ label: "Manage", href: "/store/manage", icon: Wrench }]
+      : [];
+  }
+  return [];
+}
 
 export function getBottomNavItems(
   pathname: string,

@@ -1,8 +1,9 @@
 "use client";
 
 import { useBackDismiss } from "@/lib/use-back-dismiss";
-import NavMenuContent from "@/components/nav-menu-content";
+import NavMenuContent, { MenuRow } from "@/components/nav-menu-content";
 import { ActAsMenuSection } from "@/components/ui/act-as-controls";
+import type { BottomNavItem } from "@/components/bottom-nav-config";
 
 // Bottom sheet opened by the global bottom nav's Menu button. Slides up over
 // the current page; backdrop click and device Back both dismiss it.
@@ -12,12 +13,16 @@ export default function NavMenuSheet({
   username,
   email,
   canActAs,
+  extras = [],
 }: {
   open: boolean;
   onClose: () => void;
   username: string;
   email: string;
   canActAs: boolean;
+  // Section-contextual overflow destinations (the old top pill bars' tabs
+  // that don't fit the bottom bar), shown as a block above the app links.
+  extras?: BottomNavItem[];
 }) {
   useBackDismiss(open, onClose);
 
@@ -37,8 +42,20 @@ export default function NavMenuSheet({
           myUsername={username}
           myEmail={email}
           beforeSections={
-            canActAs ? (
-              <ActAsMenuSection actingAsEmail={email} onSwitched={onClose} />
+            canActAs || extras.length > 0 ? (
+              <>
+                {canActAs && (
+                  <ActAsMenuSection actingAsEmail={email} onSwitched={onClose} />
+                )}
+                {extras.map(({ label, href, icon: Icon }) => (
+                  <MenuRow
+                    key={href}
+                    href={href}
+                    icon={<Icon size={18} />}
+                    label={label}
+                  />
+                ))}
+              </>
             ) : undefined
           }
         />

@@ -1,4 +1,3 @@
-import Shorts18Tabs from "@/components/shorts18-tabs";
 import Shorts18Gate from "@/components/shorts-18-gate";
 import { has18Access } from "@/lib/shorts-gate";
 
@@ -18,10 +17,5 @@ export default async function Shorts18Layout({
     return <Shorts18Gate configured={true} />;
   }
 
-  return (
-    <>
-      <Shorts18Tabs />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }

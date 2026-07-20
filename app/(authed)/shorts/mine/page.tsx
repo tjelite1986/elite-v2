@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 // opens the immersive feed there, where the visibility toggle lives.
 export default function MyShortsPage() {
   return (
-    <div className="mx-auto max-w-5xl px-2 pb-24 pt-16">
+    <div className="mx-auto max-w-5xl px-2 pb-24 pt-6">
       <ShortsGrid
         query={{ channel: "main", mine: "1" }}
         hrefPrefix="/shorts?focus="

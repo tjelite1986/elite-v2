@@ -28,7 +28,7 @@ export default async function ShortsProfilePage(
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-2 pb-24 pt-16 text-white">
+    <div className="mx-auto max-w-5xl px-2 pb-24 pt-6 text-white">
       <div className="mb-4 flex items-center gap-2 px-1">
         <Link
           href="/shorts/profiles"

@@ -19,7 +19,7 @@ export default async function Explore18Page(
   if (category) query.category = category;
 
   return (
-    <div className="mx-auto max-w-5xl px-2 pb-24 pt-16">
+    <div className="mx-auto max-w-5xl px-2 pb-24 pt-6">
       <div className="mb-3 px-1">
         <ShortsCategoryChips />
       </div>

@@ -12,7 +12,7 @@ export default async function Shorts18TagPage(props: {
   const session = await getSession();
   const tag = decodeURIComponent(raw).replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "");
   return (
-    <div className="mx-auto max-w-5xl px-2 pb-24 pt-16">
+    <div className="mx-auto max-w-5xl px-2 pb-24 pt-6">
       <h1 className="mb-3 px-1 text-lg font-semibold text-white">#{tag}</h1>
       <ShortsGrid
         query={{ channel: "18plus", tag }}

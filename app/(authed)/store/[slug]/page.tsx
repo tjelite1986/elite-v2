@@ -35,7 +35,7 @@ export default async function StoreAppDetailPage(
   // Adult app, locked: show the PIN prompt instead of the detail.
   if (row.requires_pin && !adult) {
     return (
-      <div className="mx-auto max-w-3xl px-3 pb-24 pt-28 text-white">
+      <div className="mx-auto max-w-3xl px-3 pb-24 pt-6 text-white">
         <StoreAdultUnlock />
       </div>
     );
@@ -52,7 +52,7 @@ export default async function StoreAppDetailPage(
   const isXapk = !!primaryVersion?.fileName?.toLowerCase().endsWith(".xapk");
 
   return (
-    <div className="mx-auto max-w-3xl px-3 pb-24 pt-28 text-white">
+    <div className="mx-auto max-w-3xl px-3 pb-24 pt-6 text-white">
       {/* Header */}
       <div className="relative mb-6 overflow-hidden rounded-3xl ring-1 ring-white/10">
         {app.bannerUrl && (

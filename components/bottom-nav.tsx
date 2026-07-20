@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { useWs } from "@/components/ws-provider";
 import {
   activeNavHref,
+  getBottomNavExtras,
   getBottomNavItems,
 } from "@/components/bottom-nav-config";
 import NavMenuSheet from "@/components/nav-menu-sheet";
@@ -21,11 +22,13 @@ export default function BottomNav({
   username,
   email,
   canActAs,
+  isAdmin = false,
   children,
 }: {
   username: string;
   email: string;
   canActAs: boolean;
+  isAdmin?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -73,6 +76,7 @@ export default function BottomNav({
 
   const items = getBottomNavItems(pathname, { username });
   const activeHref = activeNavHref(pathname, items);
+  const extras = getBottomNavExtras(pathname, { isAdmin });
 
   return (
     <>
@@ -141,6 +145,7 @@ export default function BottomNav({
             username={username}
             email={email}
             canActAs={canActAs}
+            extras={extras}
           />
         </>
       )}

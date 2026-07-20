@@ -1,17 +1,10 @@
-import { getSession } from "@/lib/auth";
-import StoreTabs from "@/components/store-tabs";
-
-// Shared chrome for the App Store section: the floating tab bar over each page.
+// The App Store section has no chrome of its own anymore: the global bottom
+// nav carries the section tabs (Discover/Search/Installed/Saved) and the Menu
+// sheet the admin overflow (Manage) — the old floating top tab bar is gone.
 export default async function StoreLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getSession();
-  return (
-    <>
-      <StoreTabs isAdmin={session?.role === "admin"} />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }

@@ -1,17 +1,10 @@
-import ShortsTabs from "@/components/shorts-tabs";
-
-// Shared chrome for the Shorts section: the floating Videos/Explore/Profiles/
-// Playlists tab bar over each page. The immersive feed pages render full-bleed
-// under it; the grid pages add their own top padding to clear it.
+// The Shorts section has no chrome of its own anymore: the global bottom nav
+// carries the section tabs (Videos/Explore/Profiles/Mine) and the Menu sheet
+// the overflow (Playlists/Grab) — the old floating top tab bar is gone.
 export default async function ShortsLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <>
-      <ShortsTabs />
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }
