@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Heart,
   MessageCircle,
@@ -180,6 +181,8 @@ export default function ShortCard({
   // deleted) so the parent can drop the card and snap to the next clip.
   onRemoved?: (id: number) => void;
 }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -289,6 +292,14 @@ export default function ShortCard({
       setCoverMsg("Failed");
     }
     setTimeout(() => setCoverMsg(null), 2500);
+  };
+
+  // 18+ viewer preference (3-dot menu): which genre the FEED shows — the same
+  // `cat` filter the chips drive, so both stay in sync via the URL.
+  const activeFeedGenre = searchParams.get("cat") || "all";
+  const showOnlyGenre = (cat: string) => {
+    setShowMore(false);
+    router.push(cat === "all" ? "/shorts18" : `/shorts18?cat=${cat}`);
   };
 
   // 18+ admin: set the clip's genre from the side dropdown (optimistic).
@@ -561,14 +572,15 @@ export default function ShortCard({
         </button>
       )}
 
-      {/* Genre picker (18+ admin): a pill on the left side with a dropdown —
-          quick sorting without opening any menus. "Genre", not "category":
-          categories are reserved for tag-like things. */}
+      {/* Genre picker (18+ admin): a pill next to the Thumbnail button with a
+          dropdown — sorts the clip into its sexuality-preference bucket in one
+          tap. "Genre", not "category": categories are reserved for tag-like
+          things. */}
       {!chromeHidden && categoryEditable && (
-        <div className="absolute left-2 top-1/2 z-10 -translate-y-1/2">
+        <div className="absolute right-[5.5rem] top-2 z-10">
           <button
             onClick={() => setShowGenre((v) => !v)}
-            className="flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70"
+            className="flex h-[34px] items-center gap-1.5 rounded-full bg-black/50 px-3 text-xs font-medium text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70"
           >
             <Tag size={13} />
             {CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? "Genre"}
@@ -578,7 +590,7 @@ export default function ShortCard({
             />
           </button>
           {showGenre && (
-            <div className="absolute left-0 top-full mt-1.5 max-h-72 w-44 overflow-y-auto rounded-xl bg-neutral-900/95 py-1 ring-1 ring-white/15 backdrop-blur">
+            <div className="absolute right-0 top-full mt-1.5 max-h-72 w-44 overflow-y-auto rounded-xl bg-neutral-900/95 py-1 ring-1 ring-white/15 backdrop-blur">
               {SHORT_CATEGORIES.map((c) => (
                 <button
                   key={c}
@@ -812,6 +824,40 @@ export default function ShortCard({
                   onToggleFullscreen();
                 }}
               />
+            )}
+            {short.channel === "18plus" && (
+              <>
+                <div className="my-1 border-t border-white/10" />
+                <p className="px-5 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">
+                  Show in feed
+                </p>
+                {[
+                  { value: "all", label: "All" },
+                  ...SHORT_CATEGORIES.map((c) => ({
+                    value: c as string,
+                    label: CATEGORY_LABELS[c],
+                  })),
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => showOnlyGenre(opt.value)}
+                    className="flex w-full items-center justify-between px-5 py-2 text-left text-sm transition hover:bg-white/5"
+                  >
+                    <span
+                      className={cn(
+                        activeFeedGenre === opt.value
+                          ? "font-semibold text-white"
+                          : "text-white/70"
+                      )}
+                    >
+                      {opt.label}
+                    </span>
+                    {activeFeedGenre === opt.value && (
+                      <Check size={16} className="text-rose-500" />
+                    )}
+                  </button>
+                ))}
+              </>
             )}
             {(isOwner || isAdmin) && (
               <>
