@@ -33,7 +33,11 @@ export default function PostsTabs() {
   const tabs = TABS;
 
   return (
-    <div className="fixed left-1/2 top-3 z-40 max-w-[96vw] -translate-x-1/2 overflow-x-auto">
+    <div
+      // Hidden while the Videos feed is in fullscreen (body.shorts-immersive).
+      data-immersive-hide
+      className="fixed left-1/2 top-3 z-40 max-w-[96vw] -translate-x-1/2 overflow-x-auto"
+    >
       <div className="flex items-center gap-0.5 rounded-full bg-black/50 p-1 text-[13px] backdrop-blur ring-1 ring-white/10">
         {tabs.map((t) => (
           <Link
