@@ -76,7 +76,8 @@ export async function GET(request: Request) {
     viewerId,
     cursor ? Number(cursor) : null,
     limit,
-    includeAdult
+    includeAdult,
+    url.searchParams.get("videos") === "1"
   );
 
   return NextResponse.json({ items, nextCursor });

@@ -128,18 +128,32 @@ export default function PostCard({
           className="flex snap-x snap-mandatory overflow-x-auto"
           style={{ scrollbarWidth: "none" }}
         >
-          {post.media.map((m, i) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={m.id}
-              src={`/api/posts/media/${m.id}`}
-              alt=""
-              loading="lazy"
-              onClick={() => handleImageClick(i)}
-              onDoubleClick={handleImageDoubleClick}
-              className="aspect-square w-full shrink-0 snap-center object-cover"
-            />
-          ))}
+          {post.media.map((m, i) =>
+            m.is_video ? (
+              // Videos play inline (native controls), so they get no tap/like
+              // handlers — the controls own the clicks.
+              <video
+                key={m.id}
+                src={`/api/posts/media/${m.id}`}
+                poster={`/api/posts/media/${m.id}?size=thumb`}
+                controls
+                playsInline
+                preload="none"
+                className="aspect-square w-full shrink-0 snap-center bg-black object-contain"
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={m.id}
+                src={`/api/posts/media/${m.id}`}
+                alt=""
+                loading="lazy"
+                onClick={() => handleImageClick(i)}
+                onDoubleClick={handleImageDoubleClick}
+                className="aspect-square w-full shrink-0 snap-center object-cover"
+              />
+            )
+          )}
         </div>
         {post.media.length > 1 && (
           <div className="pointer-events-none absolute bottom-2 left-1/2 flex -translate-x-1/2 gap-1">

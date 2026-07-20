@@ -203,7 +203,8 @@ try {
       `SELECT pm.id AS media_id, pm.post_id, pm.storage_key, pm.width, pm.height,
               pm.content_hash, p.author_user_id, p.author_creator_id
          FROM post_media pm
-         JOIN posts p ON p.id = pm.post_id AND p.is_deleted = 0`
+         JOIN posts p ON p.id = pm.post_id AND p.is_deleted = 0
+        WHERE pm.mime_type NOT LIKE 'video/%'`
     )
     .all();
 

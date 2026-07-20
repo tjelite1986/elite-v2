@@ -3,7 +3,13 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { parseHashtags } from "@/lib/posts";
-import { storePostImage, authorSlug, renamePostImageFiles } from "@/lib/posts-storage";
+import {
+  storePostImage,
+  storePostVideo,
+  isSupportedPostVideo,
+  authorSlug,
+  renamePostImageFiles,
+} from "@/lib/posts-storage";
 import { userHomeDir } from "@/lib/shorts-storage";
 import { uploadStem } from "@/lib/import-naming";
 
@@ -11,8 +17,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 const MAX_FILES = 10;
+// Videos are buffered in memory before storing — cap them so one huge upload
+// can't exhaust the Pi's RAM.
+const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
 
-// Create a post authored by the current user from one or more uploaded images.
+// Create a post authored by the current user from uploaded images and/or videos.
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
@@ -31,11 +40,14 @@ export async function POST(request: Request) {
   const files = form.getAll("files").filter((f): f is File => f instanceof File);
 
   if (files.length === 0) {
-    return NextResponse.json({ error: "At least one image is required." }, { status: 400 });
+    return NextResponse.json(
+      { error: "At least one image or video is required." },
+      { status: 400 }
+    );
   }
   if (files.length > MAX_FILES) {
     return NextResponse.json(
-      { error: `At most ${MAX_FILES} images per post.` },
+      { error: `At most ${MAX_FILES} files per post.` },
       { status: 400 }
     );
   }
@@ -44,12 +56,20 @@ export async function POST(request: Request) {
   const userHome = userHomeDir(userId, profile.username);
   const stored: { storageKey: string; mimeType: string; width: number | null; height: number | null }[] = [];
   for (const file of files) {
-    const buffer = Buffer.from(await file.arrayBuffer());
     try {
-      stored.push(await storePostImage(slug, file.name, file.type, buffer, userHome));
+      if (isSupportedPostVideo(file.name, file.type)) {
+        if (file.size > MAX_VIDEO_BYTES) {
+          throw new Error("Video is too large (max 300 MB).");
+        }
+        const buffer = Buffer.from(await file.arrayBuffer());
+        stored.push(await storePostVideo(slug, file.name, buffer, userHome));
+      } else {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        stored.push(await storePostImage(slug, file.name, file.type, buffer, userHome));
+      }
     } catch (err) {
       return NextResponse.json(
-        { error: err instanceof Error ? err.message : "Could not process an image." },
+        { error: err instanceof Error ? err.message : "Could not process a file." },
         { status: 400 }
       );
     }

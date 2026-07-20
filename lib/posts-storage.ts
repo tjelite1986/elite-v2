@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import {
@@ -67,9 +68,15 @@ export function mediaPathFor(storageKey: string): string {
     : path.join(POSTS_ROOT, storageKey);
 }
 
-// The grid thumbnail lives next to the display image as <uuid>_t.jpg.
+// The grid thumbnail lives next to the display file as <stem>_t.jpg. Videos get
+// the same convention: their _t.jpg is a poster frame extracted at store time.
 export function thumbKeyFor(storageKey: string): string {
-  return storageKey.replace(/\.jpg$/i, "_t.jpg");
+  return storageKey.replace(/\.[^./]+$/, "") + "_t.jpg";
+}
+
+// True for a post media key that points at a video file.
+export function isVideoKey(storageKey: string): boolean {
+  return /\.(mp4|m4v|webm)$/i.test(storageKey);
 }
 
 export function avatarPathFor(avatarKey: string): string {
@@ -132,6 +139,115 @@ export async function storePostImage(
   };
 }
 
+// Video extensions accepted into a post. MOV is remuxed into MP4 (same codecs,
+// browser-playable container); everything else keeps its container.
+const POST_VIDEO_EXTS = new Set(["mp4", "m4v", "mov", "webm"]);
+
+export function isSupportedPostVideo(filename: string, mime: string): boolean {
+  return POST_VIDEO_EXTS.has(getExt(filename)) || mime.startsWith("video/");
+}
+
+// Extract a square poster frame for grids/players as <stem>_t.jpg (the same
+// slot the image thumbnail uses, so ?size=thumb works for both media kinds).
+// Deep seeks can yield no frame on sparse-keyframe files — fall back earlier.
+function makeVideoPoster(videoPath: string, posterPath: string): void {
+  for (const seek of ["1", "0"]) {
+    try {
+      execFileSync(
+        "ffmpeg",
+        ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+         "-ss", seek, "-i", videoPath, "-vframes", "1",
+         "-vf", `scale=${THUMB_SIZE}:${THUMB_SIZE}:force_original_aspect_ratio=increase,crop=${THUMB_SIZE}:${THUMB_SIZE}`,
+         "-q:v", "5", posterPath],
+        { stdio: "ignore" }
+      );
+    } catch {
+      /* try the next seek */
+    }
+    if (fs.existsSync(posterPath) && fs.statSync(posterPath).size > 0) return;
+  }
+  throw new Error("Could not read a frame from the video.");
+}
+
+function videoDimensions(filePath: string): { width: number | null; height: number | null } {
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-select_streams", "v:0",
+       "-show_entries", "stream=width,height", "-of", "csv=p=0", filePath],
+      { encoding: "utf8" }
+    );
+    const [w, h] = out.trim().split(",").map((n) => parseInt(n, 10));
+    return { width: Number.isFinite(w) ? w : null, height: Number.isFinite(h) ? h : null };
+  } catch {
+    return { width: null, height: null };
+  }
+}
+
+// Persist one post video: MP4-family sources are remuxed (stream copy, no
+// quality loss) to a faststart MP4 so playback starts before the full download;
+// WebM is stored as-is. A square poster frame is written as the _t.jpg thumb.
+// Throws when the file has no readable video stream (e.g. an audio-only file).
+export async function storePostVideo(
+  slug: string,
+  filename: string,
+  buffer: Buffer,
+  userHome?: string | null
+): Promise<StoredPostImage> {
+  const ext = getExt(filename);
+  if (!POST_VIDEO_EXTS.has(ext)) {
+    throw new Error("Unsupported video type — use MP4, MOV or WebM.");
+  }
+
+  const rel = userHome ? `${userHome}/posts` : slug;
+  const dir = path.join(userHome ? PROFILE_ROOT : POSTS_ROOT, rel);
+  ensureDir(dir);
+
+  const uuid = randomUUID();
+  const srcPath = path.join(dir, `${uuid}.src.${ext}`);
+  fs.writeFileSync(srcPath, buffer);
+
+  const finalExt = ext === "webm" ? "webm" : "mp4";
+  const finalPath = path.join(dir, `${uuid}.${finalExt}`);
+  const storageKey = `${rel}/${uuid}.${finalExt}`;
+  try {
+    if (ext === "webm") {
+      fs.renameSync(srcPath, finalPath);
+    } else {
+      try {
+        execFileSync(
+          "ffmpeg",
+          ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+           "-i", srcPath, "-c", "copy", "-movflags", "+faststart", finalPath],
+          { stdio: "ignore" }
+        );
+        fs.rmSync(srcPath, { force: true });
+      } catch {
+        // Remux failed (odd container/codec combo). An mp4/m4v source is
+        // already playable — keep the original bytes; a mov that won't remux
+        // wouldn't play in browsers anyway.
+        fs.rmSync(finalPath, { force: true });
+        if (ext === "mov") throw new Error("Could not convert this video.");
+        fs.renameSync(srcPath, finalPath);
+      }
+    }
+
+    makeVideoPoster(finalPath, path.join(dir, `${uuid}_t.jpg`));
+    const { width, height } = videoDimensions(finalPath);
+    return {
+      storageKey,
+      mimeType: finalExt === "webm" ? "video/webm" : "video/mp4",
+      width,
+      height,
+    };
+  } catch (err) {
+    fs.rmSync(srcPath, { force: true });
+    fs.rmSync(finalPath, { force: true });
+    fs.rmSync(path.join(dir, `${uuid}_t.jpg`), { force: true });
+    throw err;
+  }
+}
+
 // Persist an avatar (square crop). Returns the avatar_key.
 export async function storeAvatar(
   filename: string,
@@ -180,15 +296,16 @@ export function movePostImageToAuthor(
   const destDir = path.join(POSTS_ROOT, slug);
   ensureDir(destDir);
 
-  let base = path.basename(storageKey); // "<uuid>.jpg"
+  let base = path.basename(storageKey); // "<uuid>.jpg" / "<uuid>.mp4"
+  const ext = path.extname(base);
   const srcDisplay = mediaPathFor(storageKey);
   let destDisplay = path.join(destDir, base);
   if (
     fs.existsSync(destDisplay) &&
     path.resolve(srcDisplay) !== path.resolve(destDisplay)
   ) {
-    const stem = base.slice(0, -".jpg".length);
-    base = `${stem}_${randomUUID().slice(0, 8)}.jpg`;
+    const stem = base.slice(0, -ext.length);
+    base = `${stem}_${randomUUID().slice(0, 8)}${ext}`;
     destDisplay = path.join(destDir, base);
   }
 
@@ -229,16 +346,17 @@ export async function storeBanner(
   return key;
 }
 
-// Rename a freshly stored post image (display + thumbnail) to a canonical,
-// self-describing basename "<stem>.jpg" within the same folder, so the file
-// round-trips through the importer. `newStem` is assembled by the caller; here we
-// only strip path-breaking characters. Returns the new storage_key; the caller
-// persists it. A real collision gets a short suffix.
+// Rename a freshly stored post media file (display + thumbnail) to a canonical,
+// self-describing basename "<stem>.<ext>" within the same folder (the original
+// extension is kept), so the file round-trips through the importer. `newStem` is
+// assembled by the caller; here we only strip path-breaking characters. Returns
+// the new storage_key; the caller persists it. A real collision gets a suffix.
 export function renamePostImageFiles(storageKey: string, newStem: string): string {
   const dir = path.dirname(storageKey);
+  const ext = path.extname(storageKey) || ".jpg";
   const safe =
     newStem.replace(/[/:*?"<>| ]+/g, " ").replace(/\s+/g, " ").trim() || "post";
-  const keyFor = (stem: string) => (dir === "." ? `${stem}.jpg` : `${dir}/${stem}.jpg`);
+  const keyFor = (stem: string) => (dir === "." ? `${stem}${ext}` : `${dir}/${stem}${ext}`);
 
   const src = mediaPathFor(storageKey);
   let finalStem = safe;
@@ -284,4 +402,15 @@ const IMAGE_MIME: Record<string, string> = {
 
 export function imageMimeFor(filename: string): string {
   return IMAGE_MIME[getExt(filename)] || "image/jpeg";
+}
+
+// Post media can also be video since the Videos tab; same never-echo rule.
+const VIDEO_MIME: Record<string, string> = {
+  mp4: "video/mp4",
+  m4v: "video/mp4",
+  webm: "video/webm",
+};
+
+export function mediaMimeFor(filename: string): string {
+  return VIDEO_MIME[getExt(filename)] || imageMimeFor(filename);
 }

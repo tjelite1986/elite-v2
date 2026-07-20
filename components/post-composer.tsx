@@ -77,14 +77,18 @@ export default function PostComposer({ canFlagAdult }: { canFlagAdult: boolean }
           className="flex aspect-square w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-white/15 text-white/50 transition hover:border-white/30 hover:text-white/70"
         >
           <ImagePlus size={40} />
-          <span className="text-sm font-medium">Select photos</span>
+          <span className="text-sm font-medium">Select photos & videos</span>
         </button>
       ) : (
         <div className="grid grid-cols-3 gap-1.5">
           {picked.map((p, i) => (
             <div key={p.url} className="relative aspect-square overflow-hidden rounded-lg bg-white/5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={p.url} alt="" className="h-full w-full object-cover" />
+              {p.file.type.startsWith("video/") || /\.(mp4|m4v|mov|webm)$/i.test(p.file.name) ? (
+                <video src={p.url} muted playsInline className="h-full w-full object-cover" />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={p.url} alt="" className="h-full w-full object-cover" />
+              )}
               <button
                 onClick={() => removeAt(i)}
                 className="absolute right-1 top-1 rounded-full bg-black/70 p-1 text-white"

@@ -5,11 +5,13 @@ import { PostMediaRow, PostRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { has18Access } from "@/lib/shorts-gate";
-import { mediaPathFor, thumbKeyFor, imageMimeFor } from "@/lib/posts-storage";
+import { mediaPathFor, thumbKeyFor, mediaMimeFor, isVideoKey } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
 
-// Serve a post image (display or ?size=thumb). Re-checks the 18+ gate here —
+// Serve a post's media file (display or ?size=thumb; a video's thumb is its
+// poster frame). Videos are streamed with HTTP Range support so <video> can
+// seek and start before the full file arrives. Re-checks the 18+ gate here —
 // the media route is exactly where access must not be assumed from the page or
 // feed API. Content-Type is derived from the on-disk extension, never echoed.
 export async function GET(request: Request, props: { params: Promise<{ mediaId: string }> }) {
@@ -36,16 +38,55 @@ export async function GET(request: Request, props: { params: Promise<{ mediaId: 
   const filePath = mediaPathFor(key);
   if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
 
-  // Stream from disk instead of buffering the whole image into memory (matches
+  const size = fs.statSync(filePath).size;
+  const headers: Record<string, string> = {
+    "Content-Type": mediaMimeFor(key),
+    "X-Content-Type-Options": "nosniff",
+    "Content-Disposition": "inline",
+    "Cache-Control": "private, max-age=86400",
+  };
+
+  // Range support for video playback (Safari refuses to play without it).
+  if (!wantThumb && isVideoKey(media.storage_key)) {
+    headers["Accept-Ranges"] = "bytes";
+    const range = request.headers.get("range");
+    if (range) {
+      const m = /bytes=(\d*)-(\d*)/.exec(range);
+      let start: number;
+      let end: number;
+      if (m && !m[1] && m[2]) {
+        // Suffix form (bytes=-N, RFC 7233 §2.1): the LAST N bytes.
+        start = Math.max(0, size - parseInt(m[2], 10));
+        end = size - 1;
+      } else {
+        start = m && m[1] ? parseInt(m[1], 10) : 0;
+        end = m && m[2] ? parseInt(m[2], 10) : size - 1;
+      }
+      if (isNaN(start) || start < 0) start = 0;
+      if (isNaN(end) || end >= size) end = size - 1;
+      if (start > end) {
+        return new NextResponse("Range Not Satisfiable", {
+          status: 416,
+          headers: { "Content-Range": `bytes */${size}` },
+        });
+      }
+      const stream = fs.createReadStream(filePath, { start, end });
+      return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+        status: 206,
+        headers: {
+          ...headers,
+          "Content-Range": `bytes ${start}-${end}/${size}`,
+          "Content-Length": String(end - start + 1),
+        },
+      });
+    }
+  }
+
+  // Stream from disk instead of buffering the whole file into memory (matches
   // the gallery media route); avoids RAM spikes on large uploads.
   const stream = fs.createReadStream(filePath);
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
-    headers: {
-      "Content-Type": imageMimeFor(media.storage_key),
-      "Content-Length": String(fs.statSync(filePath).size),
-      "X-Content-Type-Options": "nosniff",
-      "Content-Disposition": "inline",
-      "Cache-Control": "private, max-age=86400",
-    },
+    status: 200,
+    headers: { ...headers, "Content-Length": String(size) },
   });
 }

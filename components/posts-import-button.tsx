@@ -22,7 +22,7 @@ export default function PostsImportButton() {
           `${d.imported ?? 0} image(s)`,
           `${d.creatorsNew ?? 0} new creator(s)`,
         ];
-        if (d.videosRouted) parts.push(`${d.videosRouted} video(s) → Shorts`);
+        if (d.videosImported) parts.push(`${d.videosImported} video(s)`);
         if (d.deduped) parts.push(`${d.deduped} already imported`);
         if (d.skipped) parts.push(`${d.skipped} skipped`);
         setMsg(`Imported ${parts.join(", ")}.`);

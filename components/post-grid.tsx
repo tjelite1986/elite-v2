@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Heart, MessageCircle, Copy, Check } from "lucide-react";
+import { Heart, MessageCircle, Copy, Check, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import PostLightbox, { LightboxViewer } from "@/components/post-lightbox";
 import type { FeedPost } from "@/lib/posts";
@@ -130,9 +130,11 @@ export default function PostGrid({
                   className="h-full w-full object-cover transition group-hover:opacity-80"
                 />
               )}
-              {p.media.length > 1 && (
+              {p.media.length > 1 ? (
                 <Copy size={15} className="absolute right-1.5 top-1.5 text-white drop-shadow" />
-              )}
+              ) : p.media[0]?.is_video ? (
+                <Play size={15} className="absolute right-1.5 top-1.5 fill-white text-white drop-shadow" />
+              ) : null}
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 bg-black/40 text-sm font-semibold text-white opacity-0 transition group-hover:opacity-100">
                 <span className="flex items-center gap-1">
                   <Heart size={16} className="fill-white" /> {p.like_count}

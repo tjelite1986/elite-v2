@@ -9,10 +9,12 @@
 //        <creator>_<instagram-media-id>.jpg
 //   2. A subfolder named after the creator — e.g. _import/emarusova/ — whose
 //      images go to that creator regardless of their filenames (one level deep).
-// For each image the script resolves the creator, finds-or-creates a
-// post_creators row, transcodes a display JPG + square thumbnail under
-// <creator-slug>/, and deletes the original drop. Each creator's images are then
-// grouped by date in the filename into carousel posts (undated => one per post).
+// For each file the script resolves the creator, finds-or-creates a
+// post_creators row, transcodes a display JPG + square thumbnail (videos: a
+// faststart MP4 remux + poster frame) under <creator-slug>/, and deletes the
+// original drop. Each creator's media is then grouped by IG shortcode / date in
+// the filename into carousel posts (undated => one per post); the Videos tab
+// lists every post that carries video media.
 //
 // Output: human log lines + a final `RESULT {json}` line the API route parses.
 
@@ -29,15 +31,6 @@ const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const DB_PATH = path.join(DATA_DIR, "elitev2.db");
 const POSTS_ROOT = process.env.POSTS_ROOT || "/posts-store";
 const IMPORT_DIR = process.env.POSTS_IMPORT_DIR || path.join(POSTS_ROOT, "_import");
-// Videos in a drop don't belong in the photo feed — route them to the shorts
-// import folder (named for the creator) so the shorts importer makes a clip
-// under the same handle. The unified /people profile merges the two. The CHANNEL
-// follows the creator's is_adult flag (an adult creator's videos go to 18+, not
-// the SFW main feed).
-const SHORTS_ROOT = process.env.SHORTS_ROOT || "/shorts-store";
-const shortsVideoDrop = (channel) =>
-  path.join(SHORTS_ROOT, channel === "18plus" ? "18plus" : "main", "_import");
-
 const IMG_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"]);
 const VIDEO_EXTS = new Set([".mp4", ".mov", ".webm", ".m4v"]);
 const DISPLAY_MAX = 1440;
@@ -61,7 +54,7 @@ try {
       const pid = Number(fs.readFileSync(LOCK, "utf8").trim());
       process.kill(pid, 0);
       log("another import is running; exiting");
-      result({ imported: 0, creatorsNew: 0, videosRouted: 0, deduped: 0, skipped: 0, alreadyRunning: true });
+      result({ imported: 0, creatorsNew: 0, videosImported: 0, deduped: 0, skipped: 0, alreadyRunning: true });
       process.exit(0);
     } catch {
       fs.rmSync(LOCK, { force: true });
@@ -190,16 +183,6 @@ db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
 
 const findCreator = db.prepare("SELECT id FROM post_creators WHERE username = ?");
-const findCreatorAdult = db.prepare(
-  "SELECT is_adult FROM post_creators WHERE username = ?"
-);
-// A creator's videos go to the 18+ shorts channel when the creator is flagged
-// adult; otherwise the SFW main channel. Unknown creator (video-only drop, no
-// post_creator row yet) defaults to main — no regression on the old behaviour.
-function creatorChannel(username) {
-  const row = findCreatorAdult.get(username);
-  return row && row.is_adult ? "18plus" : "main";
-}
 const insertCreator = db.prepare(
   "INSERT INTO post_creators (username, display_name, source) VALUES (?, ?, 'import')"
 );
@@ -309,32 +292,122 @@ function consume(srcPath) {
 }
 
 let deduped = 0;
-let videosRouted = 0;
+let videosImported = 0;
 
-// Move a video out of the photo drop into the main shorts import folder, named
-// for the creator, so the shorts importer makes a clip under the same handle.
-function routeVideo(username, srcPath, originalName) {
-  const dropDir = shortsVideoDrop(creatorChannel(username));
-  fs.mkdirSync(dropDir, { recursive: true });
-  const dest = path.join(dropDir, `${username}_-_${path.basename(originalName)}`);
+// Extract a square poster frame as <stem>_t.jpg (the same slot the image
+// thumbnail uses, so ?size=thumb serves it). Mirrors lib/posts-storage.ts.
+function makeVideoPoster(videoPath, posterPath) {
+  for (const seek of ["1", "0"]) {
+    try {
+      execFileSync(
+        "ffmpeg",
+        ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+         "-ss", seek, "-i", videoPath, "-vframes", "1",
+         "-vf", `scale=${THUMB_SIZE}:${THUMB_SIZE}:force_original_aspect_ratio=increase,crop=${THUMB_SIZE}:${THUMB_SIZE}`,
+         "-q:v", "5", posterPath],
+        { stdio: "ignore" }
+      );
+    } catch {
+      /* try the next seek */
+    }
+    if (fs.existsSync(posterPath) && fs.statSync(posterPath).size > 0) return;
+  }
+  throw new Error("no readable video frame");
+}
+
+function videoDimensions(filePath) {
+  try {
+    const out = execFileSync(
+      "ffprobe",
+      ["-v", "error", "-select_streams", "v:0",
+       "-show_entries", "stream=width,height", "-of", "csv=p=0", filePath],
+      { encoding: "utf8" }
+    );
+    const [w, h] = out.trim().split(",").map((n) => parseInt(n, 10));
+    return { width: Number.isFinite(w) ? w : null, height: Number.isFinite(h) ? h : null };
+  } catch {
+    return { width: null, height: null };
+  }
+}
+
+// Store a video as post media in the creator's folder (Videos tab), remuxed to
+// a faststart MP4 (stream copy, no quality loss; WebM kept as-is) with a poster
+// thumbnail. Queued for grouping like an image, so an Instagram carousel that
+// mixes photos and videos becomes ONE post.
+function processVideo(username, srcPath, originalName) {
+  const ext = path.extname(originalName).toLowerCase();
+  const creatorId = resolveCreatorId(username);
+
+  const folder = slug(username);
+  const destDir = path.join(POSTS_ROOT, folder);
+  fs.mkdirSync(destDir, { recursive: true });
+  const uuid = randomUUID();
+  const finalExt = ext === ".webm" ? "webm" : "mp4";
+  const storageKey = `${folder}/${uuid}.${finalExt}`;
+  const finalPath = path.join(destDir, `${uuid}.${finalExt}`);
+  const thumbPath = path.join(destDir, `${uuid}_t.jpg`);
   const sidecar = readSidecar(srcPath);
   try {
-    fs.copyFileSync(srcPath, dest);
+    // Dedup on the SOURCE bytes (the remux output isn't byte-stable), so
+    // re-dropping an already-imported video is skipped.
+    const contentHash = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(srcPath))
+      .digest("hex");
+    if (hashSeen.get(creatorId, contentHash)) {
+      if (consume(srcPath)) { consumeSidecar(srcPath); deduped++; }
+      return;
+    }
+
+    if (finalExt === "webm") {
+      fs.copyFileSync(srcPath, finalPath);
+    } else {
+      try {
+        execFileSync(
+          "ffmpeg",
+          ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+           "-i", srcPath, "-c", "copy", "-movflags", "+faststart", finalPath],
+          { stdio: "ignore" }
+        );
+      } catch {
+        // Remux failed — keep the original bytes if they're already MP4;
+        // a MOV that won't remux wouldn't play in browsers anyway.
+        fs.rmSync(finalPath, { force: true });
+        if (ext === ".mov") throw new Error("could not convert");
+        fs.copyFileSync(srcPath, finalPath);
+      }
+    }
+    makeVideoPoster(finalPath, thumbPath);
+    const { width, height } = videoDimensions(finalPath);
+
     if (!consume(srcPath)) {
-      try { fs.unlinkSync(dest); } catch {}
+      try { fs.unlinkSync(finalPath); } catch {}
+      try { fs.unlinkSync(thumbPath); } catch {}
       log(`skip video ${originalName}: can't consume source`);
       skipped++;
       return;
     }
+
     consumeSidecar(srcPath);
-    // Carry the Instagram caption to the shorts importer via a .md sidecar named
-    // for the routed video's stem (import-shorts reads it as the clip caption).
-    if (sidecar?.caption) {
-      const destStem = dest.slice(0, dest.length - path.extname(dest).length);
-      try { fs.writeFileSync(`${destStem}.md`, sidecar.caption); } catch { /* best effort */ }
-    }
-    videosRouted++;
+    if (!byCreator.has(creatorId)) byCreator.set(creatorId, []);
+    byCreator.get(creatorId).push({
+      file: originalName,
+      storageKey,
+      mime: finalExt === "webm" ? "video/webm" : "video/mp4",
+      width,
+      height,
+      contentHash,
+      caption:
+        sidecar?.caption ??
+        captionFromStem(
+          originalName.slice(0, originalName.length - ext.length)
+        ),
+      shortcode: sidecar?.shortcode ?? null,
+    });
+    videosImported++;
   } catch (err) {
+    try { fs.unlinkSync(finalPath); } catch {}
+    try { fs.unlinkSync(thumbPath); } catch {}
     log(`skip video ${originalName}: ${err.message}`);
     skipped++;
   }
@@ -420,12 +493,12 @@ async function processImage(username, srcPath, originalName) {
   }
 }
 
-// Dispatch a single file: images become posts, videos get routed to shorts,
-// anything else is ignored.
+// Dispatch a single file: images and videos both become post media (videos
+// surface under the posts Videos tab), anything else is ignored.
 async function handleFile(username, srcPath, originalName) {
   const ext = path.extname(originalName).toLowerCase();
   if (IMG_EXTS.has(ext)) await processImage(username, srcPath, originalName);
-  else if (VIDEO_EXTS.has(ext)) routeVideo(username, srcPath, originalName);
+  else if (VIDEO_EXTS.has(ext)) processVideo(username, srcPath, originalName);
 }
 
 const entries = fs.readdirSync(IMPORT_DIR, { withFileTypes: true });
@@ -438,7 +511,7 @@ for (const entry of entries) {
     await handleFile(creatorUsername(parseCreator(stem)), path.join(IMPORT_DIR, entry.name), entry.name);
   } else if (entry.isDirectory()) {
     // Subfolder: the FOLDER NAME is the creator; every image inside goes to it
-    // and videos route to shorts (filenames don't matter). One level deep. A bad
+    // and videos become video posts (filenames don't matter). One level deep. A bad
     // folder must not abort the whole run.
     const username = creatorUsername(entry.name);
     const dir = path.join(IMPORT_DIR, entry.name);
@@ -470,7 +543,7 @@ for (const [creatorId, items] of byCreator) {
     const cap = caption ? caption.slice(0, 2200) : null;
     const postId = Number(insertPost.run(creatorId, cap).lastInsertRowid);
     group.forEach((m, i) =>
-      insertMedia.run(postId, m.storageKey, "image/jpeg", m.width, m.height, i, m.contentHash)
+      insertMedia.run(postId, m.storageKey, m.mime || "image/jpeg", m.width, m.height, i, m.contentHash)
     );
     if (cap) for (const tag of parseHashtags(cap)) insertHashtag.run(postId, tag);
   }
@@ -478,7 +551,7 @@ for (const [creatorId, items] of byCreator) {
 
 log(
   `done: ${imported} imported, ${creatorsNew} new creators, ` +
-    `${videosRouted} videos→shorts, ${deduped} dup-skipped, ${skipped} skipped`
+    `${videosImported} videos, ${deduped} dup-skipped, ${skipped} skipped`
 );
-result({ imported, creatorsNew, videosRouted, deduped, skipped });
+result({ imported, creatorsNew, videosImported, deduped, skipped });
 db.close();

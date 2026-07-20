@@ -218,16 +218,28 @@ export default function PostLightbox({
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
-        {post.media[photoIndex] && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={`/api/posts/media/${post.media[photoIndex].id}`}
-            alt=""
-            onClick={(e) => e.stopPropagation()}
-            onDoubleClick={() => !post.viewer_liked && toggleLike(post)}
-            className="max-h-full max-w-full object-contain"
-          />
-        )}
+        {post.media[photoIndex] &&
+          (post.media[photoIndex].is_video ? (
+            <video
+              key={post.media[photoIndex].id}
+              src={`/api/posts/media/${post.media[photoIndex].id}`}
+              poster={`/api/posts/media/${post.media[photoIndex].id}?size=thumb`}
+              controls
+              autoPlay
+              playsInline
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-full max-w-full object-contain"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={`/api/posts/media/${post.media[photoIndex].id}`}
+              alt=""
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={() => !post.viewer_liked && toggleLike(post)}
+              className="max-h-full max-w-full object-contain"
+            />
+          ))}
         <button
           onClick={closeAll}
           aria-label="Close"

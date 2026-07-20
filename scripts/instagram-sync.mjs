@@ -8,8 +8,8 @@
 // account's new media into the posts import folder under the LOCAL handle:
 //     <POSTS_ROOT>/_import/<localHandle>/
 // then runs the importers so the media attaches to THAT profile:
-//     import-posts.mjs   (photos -> posts, videos -> shorts/main/_import)
-//     import-shorts.mjs  (the routed videos -> main shorts clips)
+//     import-posts.mjs   (photos -> posts, videos -> video posts / Videos tab)
+//     import-shorts.mjs  (any clips dropped in the shorts _import folders)
 //
 // Download via gallery-dl (handles IG photos, carousels, and videos with a
 // session cookie). Per-profile archive dedups across runs; a lockfile guards
@@ -454,8 +454,8 @@ if (totalAdded > 0) {
   } catch (err) {
     log(`import-posts failed: ${String(err.message || err).slice(0, 200)}`);
   }
-  // import-posts routes each creator's videos into main/ or 18plus/ _import per
-  // the creator's is_adult flag, so run the shorts importer for BOTH channels.
+  // IG videos become video posts nowadays, but clips may still be dropped into
+  // the shorts _import folders by hand — sweep BOTH channels while we're here.
   for (const channel of ["main", "18plus"]) {
     try {
       log(`running import-shorts.mjs (${channel})`);

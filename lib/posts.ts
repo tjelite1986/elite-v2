@@ -20,6 +20,7 @@ export interface FeedPostMedia {
   id: number;
   width: number | null;
   height: number | null;
+  is_video: boolean;
 }
 
 export interface FeedPost {
@@ -92,10 +93,11 @@ function attachMedia(rows: PostQueryRow[]): FeedPost[] {
     post_id: number;
     width: number | null;
     height: number | null;
+    mime_type: string;
   }>(
     qb
       .selectFrom("post_media")
-      .select(["id", "post_id", "width", "height"])
+      .select(["id", "post_id", "width", "height", "mime_type"])
       .where("post_id", "in", ids)
       .orderBy("post_id")
       .orderBy("position")
@@ -104,7 +106,12 @@ function attachMedia(rows: PostQueryRow[]): FeedPost[] {
   const byPost = new Map<number, FeedPostMedia[]>();
   for (const m of media) {
     if (!byPost.has(m.post_id)) byPost.set(m.post_id, []);
-    byPost.get(m.post_id)!.push({ id: m.id, width: m.width, height: m.height });
+    byPost.get(m.post_id)!.push({
+      id: m.id,
+      width: m.width,
+      height: m.height,
+      is_video: m.mime_type.startsWith("video/"),
+    });
   }
   return rows.map((r) => ({
     id: r.id,
@@ -134,18 +141,30 @@ export type FeedScope =
   | { kind: "tag"; tag: string };
 
 // Cursor-paginated feed (newest first; cursor = last post id seen). Adult posts
-// are excluded unless includeAdult (the caller gates the 18+ PIN).
+// are excluded unless includeAdult (the caller gates the 18+ PIN). videosOnly
+// narrows to posts that carry at least one video (the Videos tab).
 export function getFeed(
   scope: FeedScope,
   viewerId: number,
   cursor: number | null,
   limit = 12,
-  includeAdult = false
+  includeAdult = false,
+  videosOnly = false
 ): { items: FeedPost[]; nextCursor: number | null } {
   let q = postBase(viewerId).where("p.is_deleted", "=", 0);
 
   if (!includeAdult) q = q.where("p.is_adult", "=", 0);
   if (cursor) q = q.where("p.id", "<", cursor);
+  if (videosOnly) {
+    q = q.where(
+      "p.id",
+      "in",
+      qb
+        .selectFrom("post_media")
+        .select("post_id")
+        .where("mime_type", "like", "video/%")
+    );
+  }
 
   switch (scope.kind) {
     case "home":
