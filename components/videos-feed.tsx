@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Eye, EyeOff, Maximize, Minimize } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  Maximize,
+  Minimize,
+  ChevronsDown,
+  ChevronsUp,
+} from "lucide-react";
 import VideoPostCard from "@/components/video-post-card";
 import type { FeedPost } from "@/lib/posts";
 
@@ -41,6 +48,8 @@ export default function VideosFeed({
   const [chromeHidden, setChromeHidden] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [hint, setHint] = useState(false);
+  // The view-control cluster is collapsed to a single chevron by default.
+  const [controlsOpen, setControlsOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -200,6 +209,7 @@ export default function VideosFeed({
               viewer={viewer}
               chromeHidden={chromeHidden}
               onToggleChrome={toggleChrome}
+              onToggleFullscreen={toggleFullscreen}
               onRemoved={removePost}
               onMediaRemoved={removeMedia}
               onPatch={patchPost}
@@ -222,22 +232,33 @@ export default function VideosFeed({
         )}
       </div>
 
-      {/* Control cluster: overlay show/hide + fullscreen, same as shorts. */}
-      <div className="absolute right-2 top-2 z-40 flex flex-col gap-1.5">
+      {/* Collapsible view-control cluster ("^^"), same as the shorts feed. */}
+      <div className="absolute right-2 top-2 z-40 flex flex-col items-end gap-1.5">
         <button
-          onClick={toggleChrome}
-          aria-label={chromeHidden ? "Show overlay" : "Hide overlay"}
+          onClick={() => setControlsOpen((v) => !v)}
+          aria-label={controlsOpen ? "Collapse controls" : "Expand controls"}
           className={controlBtn}
         >
-          {chromeHidden ? <EyeOff size={18} /> : <Eye size={18} />}
+          {controlsOpen ? <ChevronsUp size={18} /> : <ChevronsDown size={18} />}
         </button>
-        <button
-          onClick={toggleFullscreen}
-          aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-          className={controlBtn}
-        >
-          {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-        </button>
+        {controlsOpen && (
+          <>
+            <button
+              onClick={toggleFullscreen}
+              aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+              className={controlBtn}
+            >
+              {fullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
+            <button
+              onClick={toggleChrome}
+              aria-label={chromeHidden ? "Show overlay" : "Hide overlay"}
+              className={controlBtn}
+            >
+              {chromeHidden ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </>
+        )}
       </div>
 
       {hint && (

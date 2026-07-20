@@ -38,10 +38,23 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   // (file.type) and could otherwise be set to text/html for a stored XSS.
   // nosniff + inline disposition stop the browser from re-interpreting it.
   const contentType = videoMimeFor(short.storage_key);
+  // ?download=1 (the rail's Download button): serve as an attachment named from
+  // the caption (ASCII-sanitized) so the browser saves instead of playing.
+  const wantDownload =
+    new URL(request.url).searchParams.get("download") === "1";
+  const stem =
+    (short.caption || "")
+      .replace(/[^\x20-\x7E]/g, "")
+      .replace(/[/\\:*?"<>|#]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80) || `clip-${short.id}`;
   const headers: Record<string, string> = {
     "Content-Type": contentType,
     "X-Content-Type-Options": "nosniff",
-    "Content-Disposition": "inline",
+    "Content-Disposition": wantDownload
+      ? `attachment; filename="${stem}.mp4"`
+      : "inline",
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=86400",
   };

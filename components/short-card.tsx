@@ -25,6 +25,13 @@ import {
   ArrowRightLeft,
   Clapperboard,
   Trash2,
+  MoreVertical,
+  ListVideo,
+  Download,
+  Pencil,
+  Hash,
+  Maximize,
+  Link2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -144,6 +151,7 @@ export default function ShortCard({
   isAdmin = false,
   chromeHidden = false,
   onToggleChrome,
+  onToggleFullscreen,
   autoAdvance = false,
   onEnded,
   onRemoved,
@@ -161,6 +169,8 @@ export default function ShortCard({
   // Clean view: hide all overlay UI. Long-press the clip to toggle it back.
   chromeHidden?: boolean;
   onToggleChrome?: () => void;
+  // Feed-level fullscreen toggle, exposed in the 3-dot menu too.
+  onToggleFullscreen?: () => void;
   // Auto-scroll: don't loop; fire onEnded when the clip finishes so the feed
   // can advance to the next one.
   autoAdvance?: boolean;
@@ -190,6 +200,8 @@ export default function ShortCard({
   const [commentCount, setCommentCount] = useState(short.comment_count);
   const [showCategory, setShowCategory] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [busyAction, setBusyAction] = useState(false);
   // Device Back closes an open bottom sheet instead of leaving the feed.
   useBackDismiss(showComments, () => setShowComments(false));
@@ -197,6 +209,8 @@ export default function ShortCard({
   useBackDismiss(showSave, () => setShowSave(false));
   useBackDismiss(showCategory, () => setShowCategory(false));
   useBackDismiss(showDelete, () => setShowDelete(false));
+  useBackDismiss(showMore, () => setShowMore(false));
+  useBackDismiss(showEdit, () => setShowEdit(false));
   const [category, setCategory] = useState(short.category);
   const [coverMsg, setCoverMsg] = useState<string | null>(null);
   const [caption, setCaption] = useState(short.caption);
@@ -618,12 +632,12 @@ export default function ShortCard({
         />
         <RailButton
           icon={
-            <Bookmark
+            <ListVideo
               size={22}
-              className={cn(saved && "fill-yellow-400 text-yellow-400")}
+              className={cn(saved && "text-yellow-400")}
             />
           }
-          label="Save"
+          label="Playlists"
           onClick={() => setShowSave(true)}
         />
         <RailButton
@@ -631,73 +645,21 @@ export default function ShortCard({
           label="Share"
           onClick={() => setShowShare(true)}
         />
-        {(isOwner || isAdmin) && (
-          <RailButton
-            icon={
-              isPrivate ? (
-                <Lock size={22} className="text-amber-400" />
-              ) : (
-                <Globe size={22} />
-              )
-            }
-            label={isPrivate ? "Private" : "Public"}
-            onClick={toggleVisibility}
-          />
-        )}
-        {(isOwner || isAdmin) && (
-          <RailButton
-            icon={<ArrowRightLeft size={22} className={cn(busyAction && "opacity-50")} />}
-            label={otherChannel === "18plus" ? "To 18+" : "To Shorts"}
-            onClick={moveChannel}
-          />
-        )}
-        {(isOwner || isAdmin) && (
-          <RailButton
-            icon={<Clapperboard size={22} className={cn(busyAction && "opacity-50")} />}
-            label="To Videos"
-            onClick={moveToVideos}
-          />
-        )}
-        {(isOwner || isAdmin) && (
-          <RailButton
-            icon={<Trash2 size={22} className="text-red-400" />}
-            label="Delete"
-            onClick={() => setShowDelete(true)}
-          />
-        )}
-        {categoryEditable && (
-          <RailButton
-            icon={<Tag size={22} />}
-            label={CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ?? "Category"}
-            onClick={() => setShowCategory(true)}
-          />
-        )}
-        {isAdmin && (
-          <RailButton
-            icon={<ImageIcon size={22} />}
-            label="Cover"
-            onClick={setCover}
-          />
-        )}
-        {isAdmin && (
-          <RailButton
-            icon={<Type size={22} />}
-            label="Title"
-            onClick={fetchTitle}
-          />
-        )}
+        <RailLink
+          icon={<Download size={22} />}
+          label="Download"
+          href={`/api/shorts/${short.id}/video?download=1`}
+        />
         <RailButton
           icon={muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
           label={muted ? "Muted" : "Sound"}
           onClick={onToggleMuted}
         />
-        {onToggleChrome && (
-          <RailButton
-            icon={<Minimize2 size={22} />}
-            label="Hide UI"
-            onClick={onToggleChrome}
-          />
-        )}
+        <RailButton
+          icon={<MoreVertical size={22} />}
+          label="More"
+          onClick={() => setShowMore(true)}
+        />
       </div>
       )}
 
@@ -755,6 +717,144 @@ export default function ShortCard({
           </div>
         </div>
       )}
+      {/* 3-dot menu: view controls for everyone, management for owner/admin. */}
+      {showMore && (
+        <div
+          className="absolute inset-0 z-20 flex items-end justify-center bg-black/60"
+          onClick={() => setShowMore(false)}
+        >
+          <div
+            className="max-h-[75%] w-full max-w-md overflow-y-auto rounded-t-2xl bg-neutral-900 py-2 text-white"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreRow
+              icon={<Minimize2 size={18} />}
+              label={chromeHidden ? "Show overlay" : "Hide overlay"}
+              onClick={() => {
+                setShowMore(false);
+                onToggleChrome?.();
+              }}
+            />
+            {onToggleFullscreen && (
+              <MoreRow
+                icon={<Maximize size={18} />}
+                label="Fullscreen"
+                onClick={() => {
+                  setShowMore(false);
+                  onToggleFullscreen();
+                }}
+              />
+            )}
+            {(isOwner || isAdmin) && (
+              <>
+                <div className="my-1 border-t border-white/10" />
+                <MoreRow
+                  icon={
+                    isPrivate ? (
+                      <Lock size={18} className="text-amber-400" />
+                    ) : (
+                      <Globe size={18} />
+                    )
+                  }
+                  label={isPrivate ? "Private — make public" : "Public — make private"}
+                  onClick={() => {
+                    setShowMore(false);
+                    toggleVisibility();
+                  }}
+                />
+                {isAdmin && (
+                  <MoreRow
+                    icon={<ImageIcon size={18} />}
+                    label="Thumbnail — use current frame"
+                    onClick={() => {
+                      setShowMore(false);
+                      setCover();
+                    }}
+                  />
+                )}
+                <MoreRow
+                  icon={<Pencil size={18} />}
+                  label="Edit title"
+                  onClick={() => {
+                    setShowMore(false);
+                    setShowEdit(true);
+                  }}
+                />
+                <MoreRow
+                  icon={<Hash size={18} />}
+                  label="Tags"
+                  onClick={() => {
+                    setShowMore(false);
+                    setShowEdit(true);
+                  }}
+                />
+                {categoryEditable && (
+                  <MoreRow
+                    icon={<Tag size={18} />}
+                    label={`Category — ${
+                      CATEGORY_LABELS[category as keyof typeof CATEGORY_LABELS] ??
+                      "uncategorized"
+                    }`}
+                    onClick={() => {
+                      setShowMore(false);
+                      setShowCategory(true);
+                    }}
+                  />
+                )}
+                {isAdmin && (
+                  <MoreRow
+                    icon={<Type size={18} />}
+                    label="Fetch title from source"
+                    onClick={() => {
+                      setShowMore(false);
+                      fetchTitle();
+                    }}
+                  />
+                )}
+                <div className="my-1 border-t border-white/10" />
+                <MoreRow
+                  icon={<ArrowRightLeft size={18} />}
+                  label={otherChannel === "18plus" ? "Move to 18+" : "Move to Shorts"}
+                  onClick={() => {
+                    setShowMore(false);
+                    moveChannel();
+                  }}
+                />
+                <MoreRow
+                  icon={<Clapperboard size={18} />}
+                  label="Move to Videos (posts)"
+                  onClick={() => {
+                    setShowMore(false);
+                    moveToVideos();
+                  }}
+                />
+                <MoreRow
+                  icon={<Trash2 size={18} className="text-red-400" />}
+                  label="Delete"
+                  danger
+                  onClick={() => {
+                    setShowMore(false);
+                    setShowDelete(true);
+                  }}
+                />
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showEdit && (
+        <EditSheet
+          shortId={short.id}
+          caption={caption}
+          onClose={() => setShowEdit(false)}
+          onSaved={(c) => {
+            setCaption(c);
+            setShowEdit(false);
+          }}
+        />
+      )}
+
       {showComments && (
         <CommentsSheet
           shortId={short.id}
@@ -763,7 +863,11 @@ export default function ShortCard({
         />
       )}
       {showShare && (
-        <ShareSheet shortId={short.id} onClose={() => setShowShare(false)} />
+        <ShareSheet
+          shortId={short.id}
+          channel={short.channel}
+          onClose={() => setShowShare(false)}
+        />
       )}
       {showSave && (
         <SaveSheet
@@ -868,6 +972,153 @@ function RailButton({
   );
 }
 
+// Rail entry that navigates (the Download button) — same look as RailButton.
+function RailLink({
+  icon,
+  label,
+  href,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  href: string;
+}) {
+  return (
+    <a
+      href={href}
+      className="flex flex-col items-center gap-0.5 transition active:scale-90"
+    >
+      <span className="drop-shadow-lg">{icon}</span>
+      <span className="text-[10px] font-medium leading-tight drop-shadow">
+        {label}
+      </span>
+    </a>
+  );
+}
+
+// One row in the 3-dot menu sheet.
+function MoreRow({
+  icon,
+  label,
+  onClick,
+  danger = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-3 px-5 py-3 text-left text-sm transition hover:bg-white/5",
+        danger ? "text-red-400" : "text-white"
+      )}
+    >
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">
+        {icon}
+      </span>
+      {label}
+    </button>
+  );
+}
+
+// Edit the clip's title and #tags (both live in the caption: "title #tag1 …").
+function EditSheet({
+  shortId,
+  caption,
+  onClose,
+  onSaved,
+}: {
+  shortId: number;
+  caption: string | null;
+  onClose: () => void;
+  onSaved: (caption: string | null) => void;
+}) {
+  const initialTags = (caption?.match(HASHTAG_RE) ?? []).join(" ");
+  const initialTitle = (caption ?? "")
+    .replace(HASHTAG_RE, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const [title, setTitle] = useState(initialTitle);
+  const [tags, setTags] = useState(initialTags);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    // Normalize the tags field: every word becomes a #tag.
+    const tagPart = tags
+      .split(/[\s,]+/)
+      .map((t) => t.replace(/^#+/, "").trim())
+      .filter(Boolean)
+      .map((t) => `#${t}`)
+      .join(" ");
+    const next = [title.trim(), tagPart].filter(Boolean).join(" ");
+    try {
+      const res = await fetch(`/api/shorts/${shortId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caption: next }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.ok) onSaved(d.caption ?? null);
+      else setError(d.error || "Could not save.");
+    } catch {
+      setError("Could not save.");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div
+      className="absolute inset-0 z-20 flex items-end justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-t-2xl bg-neutral-900 p-5 pb-8 text-white"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="mb-3 text-base font-semibold">Edit title & tags</p>
+        <label className="mb-1 block text-xs text-white/50">Title</label>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Clip title…"
+          className="mb-3 w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+        />
+        <label className="mb-1 block text-xs text-white/50">
+          Tags (space-separated, # optional)
+        </label>
+        <input
+          value={tags}
+          onChange={(e) => setTags(e.target.value)}
+          placeholder="#dance #funny"
+          className="mb-4 w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+        />
+        {error && <p className="mb-2 text-sm text-rose-400">{error}</p>}
+        <div className="flex gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="flex-1 rounded-full bg-rose-500 py-2.5 text-sm font-semibold transition active:scale-95 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-full bg-white/10 py-2.5 text-sm font-semibold transition active:scale-95"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function CommentsSheet({
   shortId,
   onClose,
@@ -963,14 +1214,40 @@ function CommentsSheet({
 
 function ShareSheet({
   shortId,
+  channel,
   onClose,
 }: {
   shortId: number;
+  channel: string;
   onClose: () => void;
 }) {
   const [users, setUsers] = useState<ChatUser[]>([]);
   const [sentTo, setSentTo] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  // Share outside the app: the system share sheet where available (mobile),
+  // otherwise copy the deep link to the clipboard.
+  const shareExternal = async () => {
+    const url = `${window.location.origin}${
+      channel === "18plus" ? "/shorts18" : "/shorts"
+    }?focus=${shortId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ url });
+        return;
+      } catch {
+        /* dismissed — fall through to copy */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
 
   useEffect(() => {
     fetch("/api/messages/users")
@@ -1000,11 +1277,21 @@ function ShareSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-          <span className="font-semibold">Share to chat</span>
+          <span className="font-semibold">Share</span>
           <button onClick={onClose}>
             <X size={20} />
           </button>
         </div>
+        <button
+          onClick={shareExternal}
+          className="mx-2 mt-2 flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition hover:bg-white/5"
+        >
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">
+            <Link2 size={17} />
+          </span>
+          {copied ? "Link copied!" : "Share outside the app / copy link"}
+        </button>
+        <div className="mx-4 my-2 border-t border-white/10" />
         <div className="flex-1 overflow-y-auto px-2 py-2">
           {loading && <p className="px-2 text-sm text-white/50">Loading…</p>}
           {!loading && users.length === 0 && (

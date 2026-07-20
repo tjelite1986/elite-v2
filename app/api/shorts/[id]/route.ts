@@ -6,24 +6,22 @@ import { deleteShortFiles } from "@/lib/shorts-storage";
 
 export const dynamic = "force-dynamic";
 
-async function requireAdmin() {
-  const session = await getSession();
-  if (!session) return { error: "Unauthorized", status: 401 as const };
-  if (session.role !== "admin") return { error: "Forbidden", status: 403 as const };
-  return { session };
-}
-
-// Rename a clip's title/caption (admin only).
+// Rename a clip's title/caption (the uploader of their own clip, or an admin —
+// same guard as delete, so the in-player "Edit title" works for own uploads).
 export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const auth = await requireAdmin();
-  if ("error" in auth) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const short = getShort(Number(params.id));
   if (!short) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const isOwner = short.uploader_id === Number(session.sub);
+  if (session.role !== "admin" && !isOwner) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await request.json().catch(() => ({}));

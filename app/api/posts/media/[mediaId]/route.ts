@@ -33,16 +33,28 @@ export async function GET(request: Request, props: { params: Promise<{ mediaId: 
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const wantThumb = new URL(request.url).searchParams.get("size") === "thumb";
+  const url = new URL(request.url);
+  const wantThumb = url.searchParams.get("size") === "thumb";
   const key = wantThumb ? thumbKeyFor(media.storage_key) : media.storage_key;
   const filePath = mediaPathFor(key);
   if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
+
+  // ?download=1: serve as an attachment named from the on-disk file (its stem
+  // is already self-describing) so the browser saves instead of rendering.
+  const wantDownload = !wantThumb && url.searchParams.get("download") === "1";
+  const dlName = key
+    .split("/")
+    .pop()!
+    .replace(/[^\x20-\x7E]/g, "")
+    .replace(/"/g, "");
 
   const size = fs.statSync(filePath).size;
   const headers: Record<string, string> = {
     "Content-Type": mediaMimeFor(key),
     "X-Content-Type-Options": "nosniff",
-    "Content-Disposition": "inline",
+    "Content-Disposition": wantDownload
+      ? `attachment; filename="${dlName || `media-${media.id}`}"`
+      : "inline",
     "Cache-Control": "private, max-age=86400",
   };
 

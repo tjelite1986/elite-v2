@@ -13,6 +13,9 @@ import {
   Minimize2,
   Trash2,
   Clapperboard,
+  MoreVertical,
+  Download,
+  Maximize,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -76,6 +79,7 @@ export default function VideoPostCard({
   viewer,
   chromeHidden = false,
   onToggleChrome,
+  onToggleFullscreen,
   onRemoved,
   onMediaRemoved,
   onPatch,
@@ -88,6 +92,8 @@ export default function VideoPostCard({
   viewer: { userId: number; isAdmin: boolean };
   chromeHidden?: boolean;
   onToggleChrome?: () => void;
+  // Feed-level fullscreen toggle, exposed in the 3-dot menu too.
+  onToggleFullscreen?: () => void;
   // The whole post left the feed (deleted / emptied by a move).
   onRemoved?: (postId: number) => void;
   // Only this video left the post (moved to shorts, siblings remain).
@@ -110,10 +116,12 @@ export default function VideoPostCard({
   const [burst, setBurst] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [busyAction, setBusyAction] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   useBackDismiss(showComments, () => setShowComments(false));
   useBackDismiss(showDelete, () => setShowDelete(false));
+  useBackDismiss(showMore, () => setShowMore(false));
 
   // Follow list-level updates (a like made on a sibling card, for instance).
   useEffect(() => {
@@ -420,32 +428,81 @@ export default function VideoPostCard({
             label={String(commentCount)}
             onClick={() => setShowComments(true)}
           />
-          {canManage && (
-            <RailButton
-              icon={<Clapperboard size={22} className={cn(busyAction && "opacity-50")} />}
-              label="To Shorts"
-              onClick={moveToShorts}
-            />
-          )}
-          {canManage && (
-            <RailButton
-              icon={<Trash2 size={22} className="text-red-400" />}
-              label="Delete"
-              onClick={() => setShowDelete(true)}
-            />
-          )}
+          <a
+            href={`/api/posts/media/${media.id}?download=1`}
+            className="flex flex-col items-center gap-0.5 transition active:scale-90"
+          >
+            <span className="drop-shadow-lg">
+              <Download size={22} />
+            </span>
+            <span className="text-[10px] font-medium leading-tight drop-shadow">
+              Download
+            </span>
+          </a>
           <RailButton
             icon={muted ? <VolumeX size={22} /> : <Volume2 size={22} />}
             label={muted ? "Muted" : "Sound"}
             onClick={onToggleMuted}
           />
-          {onToggleChrome && (
-            <RailButton
-              icon={<Minimize2 size={22} />}
-              label="Hide UI"
-              onClick={onToggleChrome}
+          <RailButton
+            icon={<MoreVertical size={22} />}
+            label="More"
+            onClick={() => setShowMore(true)}
+          />
+        </div>
+      )}
+
+      {/* 3-dot menu: view controls for everyone, management for owner/admin. */}
+      {showMore && (
+        <div
+          className="absolute inset-0 z-20 flex items-end justify-center bg-black/60"
+          onClick={() => setShowMore(false)}
+        >
+          <div
+            className="max-h-[75%] w-full max-w-md overflow-y-auto rounded-t-2xl bg-neutral-900 py-2 text-white"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreRow
+              icon={<Minimize2 size={18} />}
+              label={chromeHidden ? "Show overlay" : "Hide overlay"}
+              onClick={() => {
+                setShowMore(false);
+                onToggleChrome?.();
+              }}
             />
-          )}
+            {onToggleFullscreen && (
+              <MoreRow
+                icon={<Maximize size={18} />}
+                label="Fullscreen"
+                onClick={() => {
+                  setShowMore(false);
+                  onToggleFullscreen();
+                }}
+              />
+            )}
+            {canManage && (
+              <>
+                <div className="my-1 border-t border-white/10" />
+                <MoreRow
+                  icon={<Clapperboard size={18} className={cn(busyAction && "opacity-50")} />}
+                  label="Move to Shorts"
+                  onClick={() => {
+                    setShowMore(false);
+                    moveToShorts();
+                  }}
+                />
+                <MoreRow
+                  icon={<Trash2 size={18} className="text-red-400" />}
+                  label="Delete post"
+                  danger
+                  onClick={() => {
+                    setShowMore(false);
+                    setShowDelete(true);
+                  }}
+                />
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -527,6 +584,34 @@ function RailButton({
     >
       <span className="drop-shadow-lg">{icon}</span>
       <span className="text-[10px] font-medium leading-tight drop-shadow">{label}</span>
+    </button>
+  );
+}
+
+// One row in the 3-dot menu sheet (matches short-card's MoreRow).
+function MoreRow({
+  icon,
+  label,
+  onClick,
+  danger = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-3 px-5 py-3 text-left text-sm transition hover:bg-white/5",
+        danger ? "text-red-400" : "text-white"
+      )}
+    >
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">
+        {icon}
+      </span>
+      {label}
     </button>
   );
 }
