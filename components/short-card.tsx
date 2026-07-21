@@ -38,6 +38,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
+import { splitCaption, buildCaption } from "@/lib/shorts-caption";
 import PostAvatar from "@/components/post-avatar";
 
 // Player interaction tuning.
@@ -98,18 +99,14 @@ function displayName(email: string | null): string {
   return email.split("@")[0];
 }
 
-// The caption carries both the title and the #tags; the overlay renders them
-// separately (title text + tag chips). Unicode word chars keep åäö tags working.
-const HASHTAG_RE = /#([\p{L}\p{N}_]+)/gu;
-const TITLE_CLAMP = 80; // chars before the title gets a "more" expander
+const TITLE_CLAMP = 40; // chars before the title gets a "more" expander
 
-function splitCaption(caption: string | null): { title: string; tags: string[] } {
-  const tags = caption?.match(HASHTAG_RE) ?? [];
-  const title = (caption ?? "")
-    .replace(HASHTAG_RE, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return { title, tags: Array.from(new Set(tags)) };
+function linkFor(url: string): { url: string; label: string } | null {
+  try {
+    return { url, label: new URL(url).hostname.replace(/^www\./, "") };
+  } catch {
+    return null;
+  }
 }
 
 // Best-effort link back to the clip's original source. A full URL is used
@@ -119,11 +116,7 @@ function sourceLink(short: FeedShort): { url: string; label: string } | null {
   const sid = short.source_id;
   if (!sid) return null;
   if (/^https?:\/\//i.test(sid)) {
-    try {
-      return { url: sid, label: new URL(sid).hostname.replace(/^www\./, "") };
-    } catch {
-      return null;
-    }
+    return linkFor(sid);
   }
   if (/^\d{15,}$/.test(sid) && short.profile_name) {
     return {
@@ -235,9 +228,9 @@ export default function ShortCard({
   // Overlay expansion for a long title / many tag chips.
   const [titleExpanded, setTitleExpanded] = useState(false);
   const [tagsExpanded, setTagsExpanded] = useState(false);
-  const { title, tags } = splitCaption(caption);
+  const { title, tags, source } = splitCaption(caption);
   const titleLong = title.length > TITLE_CLAMP;
-  const srcLink = sourceLink(short);
+  const srcLink = (source && linkFor(source)) || sourceLink(short);
   // The uploader of a clip (and admins) can flip its public/private visibility.
   const isOwner = short.uploader_id != null && short.uploader_id === viewerId;
 
@@ -803,7 +796,7 @@ export default function ShortCard({
                 "mt-1.5 text-sm drop-shadow",
                 titleExpanded
                   ? "max-h-[35vh] overflow-y-auto whitespace-pre-wrap"
-                  : "line-clamp-2",
+                  : "line-clamp-1",
                 titleLong && "cursor-pointer"
               )}
             >
@@ -1129,7 +1122,8 @@ function MoreRow({
   );
 }
 
-// Edit the clip's title and #tags (both live in the caption: "title #tag1 …").
+// Edit the clip's title, #tags and source link (all three live in the
+// caption: "title\n\n#tag1 …\n\nSource: <url>", the format grabbit imports use).
 function EditSheet({
   shortId,
   caption,
@@ -1141,13 +1135,10 @@ function EditSheet({
   onClose: () => void;
   onSaved: (caption: string | null) => void;
 }) {
-  const initialTags = (caption?.match(HASHTAG_RE) ?? []).join(" ");
-  const initialTitle = (caption ?? "")
-    .replace(HASHTAG_RE, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const [title, setTitle] = useState(initialTitle);
-  const [tags, setTags] = useState(initialTags);
+  const initial = splitCaption(caption);
+  const [title, setTitle] = useState(initial.title);
+  const [tags, setTags] = useState(initial.tags.join(" "));
+  const [source, setSource] = useState(initial.source ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1156,13 +1147,18 @@ function EditSheet({
     setSaving(true);
     setError(null);
     // Normalize the tags field: every word becomes a #tag.
-    const tagPart = tags
+    const tagList = tags
       .split(/[\s,]+/)
       .map((t) => t.replace(/^#+/, "").trim())
       .filter(Boolean)
-      .map((t) => `#${t}`)
-      .join(" ");
-    const next = [title.trim(), tagPart].filter(Boolean).join(" ");
+      .map((t) => `#${t}`);
+    const src = source.trim();
+    if (src && !/^https?:\/\/\S+$/i.test(src)) {
+      setError("Source must be a full http(s) URL.");
+      setSaving(false);
+      return;
+    }
+    const next = buildCaption({ title, tags: tagList, source: src || null });
     try {
       const res = await fetch(`/api/shorts/${shortId}`, {
         method: "PATCH",
@@ -1187,12 +1183,20 @@ function EditSheet({
         className="w-full max-w-md rounded-t-2xl bg-neutral-900 p-5 pb-8 text-white"
         onClick={(e) => e.stopPropagation()}
       >
-        <p className="mb-3 text-base font-semibold">Edit title & tags</p>
+        <p className="mb-3 text-base font-semibold">Edit title, source & tags</p>
         <label className="mb-1 block text-xs text-white/50">Title</label>
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Clip title…"
+          className="mb-3 w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+        />
+        <label className="mb-1 block text-xs text-white/50">Source URL</label>
+        <input
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          placeholder="https://…"
+          inputMode="url"
           className="mb-3 w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
         />
         <label className="mb-1 block text-xs text-white/50">

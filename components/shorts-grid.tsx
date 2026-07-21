@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Play, Heart, Pencil, Trash2, FolderInput, X, Plus, Check, Lock } from "lucide-react";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
+import { splitCaption, buildCaption } from "@/lib/shorts-caption";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -117,13 +118,16 @@ export default function ShortsGrid({
     if (!res.ok) setItems(prev);
   };
 
+  // Rename only swaps the title part of the caption; #tags and the
+  // "Source: <url>" line survive the edit.
   const renameClip = async (id: number, current: string | null) => {
-    const title = window.prompt("Title", current ?? "");
+    const parts = splitCaption(current);
+    const title = window.prompt("Title", parts.title);
     if (title === null) return; // cancelled
     const res = await fetch(`/api/shorts/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caption: title }),
+      body: JSON.stringify({ caption: buildCaption({ ...parts, title }) }),
     });
     if (res.ok) {
       const d = await res.json().catch(() => ({}));
