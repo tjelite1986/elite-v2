@@ -273,7 +273,9 @@ export async function regenerateDerivatives(
   // composes cleanly on top of it.
   let upright = processBuffer;
   if (autoOrient) {
-    upright = await sharp(processBuffer).rotate().toBuffer();
+    // failOn: "none" — don't abort on recoverable JPEG warnings (common in
+    // scraped/imported images); see storePostImage for the same reasoning.
+    upright = await sharp(processBuffer, { failOn: "none" }).rotate().toBuffer();
   }
   const finalBuf =
     rotation % 360 !== 0

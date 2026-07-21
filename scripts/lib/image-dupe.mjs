@@ -63,6 +63,47 @@ export async function imageFingerprint(filePath) {
   return { hash: bits, gray: satSum / 72 < GRAY_SAT ? 1 : 0 };
 }
 
+// A TRUE grayscale render has essentially zero channel spread (~0.0; JPEG
+// chroma noise keeps it well under 1), while even a muted colour photo sits
+// clearly above it. GRAY_SAT above is a coarse bucket for candidate pruning and
+// is far too permissive for this: a low-saturation colour edit (mean spread
+// ~5-11) buckets as "gray" and its black & white sibling then looks like the
+// same image to both dHash (luminance) and SSIM (grayscale renders).
+export const MONO_SAT = 2;
+
+// Mean per-pixel channel spread (max-min) of a 9x8 sRGB thumbnail. Returns null
+// on decode failure.
+export async function meanSaturation(filePath) {
+  let buf;
+  try {
+    buf = await sharp(filePath)
+      .resize(9, 8, { fit: "fill" })
+      .toColourspace("srgb")
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+  } catch {
+    return null;
+  }
+  if (!buf || buf.length < 9 * 8 * 3) return null;
+  let sum = 0;
+  for (let p = 0; p < 72; p++) {
+    const r = buf[p * 3], g = buf[p * 3 + 1], b = buf[p * 3 + 2];
+    sum += Math.max(r, g, b) - Math.min(r, g, b);
+  }
+  return sum / 72;
+}
+
+// Do two saturation readings describe the same COLOUR MODE? A black & white
+// edit and its colour original are a different image the user wants both of,
+// but neither dHash nor SSIM can see the difference — this is the only signal
+// that separates them. Unknown (undecodable) readings answer true so a decode
+// failure never suppresses a real duplicate.
+export function sameColourMode(satA, satB) {
+  if (satA == null || satB == null) return true;
+  return satA < MONO_SAT === satB < MONO_SAT;
+}
+
 export function popcount(x) {
   let count = 0n;
   while (x > 0n) {

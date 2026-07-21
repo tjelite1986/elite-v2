@@ -118,7 +118,10 @@ export async function storePostImage(
   const thumbPath = path.join(dir, `${uuid}_t.jpg`);
 
   // Auto-orient (strip EXIF rotation) and cap the long edge for the feed.
-  const upright = await sharp(source).rotate().toBuffer();
+  // failOn: "none" — sharp aborts by default on recoverable JPEG warnings
+  // ("Corrupt JPEG data: N extraneous bytes"), which are common in scraped
+  // images and would otherwise block an otherwise-fine import.
+  const upright = await sharp(source, { failOn: "none" }).rotate().toBuffer();
   const meta = await sharp(upright).metadata();
 
   await sharp(upright)

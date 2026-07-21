@@ -35,6 +35,8 @@ import {
   structuralSignature,
   ssim,
   SSIM_CONFIRM,
+  meanSaturation,
+  sameColourMode,
 } from "./lib/image-dupe.mjs";
 
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -376,9 +378,15 @@ try {
     for (const [a, b] of candPairs) { involved.add(a); involved.add(b); }
     for (const c of involved) {
       if (c.sig === undefined) c.sig = await structuralSignature(c.file);
+      // Colour mode is read from the ACTUAL pixels, not the coarse GRAY_SAT
+      // bucket in the cached fingerprint: a muted colour edit (mean spread ~5)
+      // buckets as "gray" too, so the flag never separates it from its black &
+      // white sibling. Only candidates pay for this extra 9x8 decode.
+      if (c.sat === undefined) c.sat = await meanSaturation(c.file);
     }
     for (const [a, b] of candPairs) {
       if (uf.find(a.id) === uf.find(b.id)) continue;
+      if (!sameColourMode(a.sat, b.sat)) continue;
       if (ssim(a.sig, b.sig) >= SSIM_CONFIRM) uf.union(a.id, b.id);
     }
 

@@ -37,7 +37,14 @@ import {
   canonicalStem,
   type ParsedImportName,
 } from "./import-naming";
-import { ssim, hamming, HASH_TOL, SSIM_CONFIRM } from "@/scripts/lib/image-dupe.mjs";
+import {
+  ssim,
+  hamming,
+  HASH_TOL,
+  SSIM_CONFIRM,
+  meanSaturation,
+  sameColourMode,
+} from "@/scripts/lib/image-dupe.mjs";
 import {
   fingerprintOffThread,
   signatureOffThread,
@@ -217,22 +224,38 @@ async function findNearDuplicate(
       .where("f.sig", "is not", null)
   );
   let newSig: Uint8Array | null | undefined;
+  let newSat: number | null | undefined;
   for (const row of rows) {
     let candidate: bigint;
+    let candidateGray: number | undefined;
     try {
-      const parsed = JSON.parse(row.sig) as { d?: string };
+      const parsed = JSON.parse(row.sig) as { d?: string; g?: number };
       if (!parsed?.d) continue;
       candidate = BigInt(`0x${parsed.d}`);
+      if (parsed.g !== undefined) candidateGray = parsed.g ? 1 : 0;
     } catch {
       continue;
     }
+    // A black & white edit of a colour photo is a DIFFERENT image the user
+    // wants both of — but neither stage can see that: the dHash is built from
+    // luminance and SSIM compares grayscale renders, so the pair scores ~1.0.
+    // The colour/grayscale flag is the only signal that separates them, and the
+    // batch scanners already skip mismatched pairs; do the same here.
+    if (candidateGray !== undefined && candidateGray !== fp.gray) continue;
     if (hamming(fp.hash, candidate) > HASH_TOL) continue;
     // Candidate — confirm on actual pixels (the whole point: dHash alone
     // would also park similar-but-different shots from the same shoot).
     if (newSig === undefined) newSig = await signatureOffThread(newFileAbs);
     if (!newSig) return null; // undecodable new file — let it import
-    const oldSig = await signatureOffThread(mediaPathFor(row.storage_key));
+    const oldAbs = mediaPathFor(row.storage_key);
+    const oldSig = await signatureOffThread(oldAbs);
     if (oldSig && ssim(newSig, oldSig) >= SSIM_CONFIRM) {
+      // Final colour-mode check on the ACTUAL pixels. The cached g flag above
+      // is a coarse bucket (GRAY_SAT): a muted colour edit lands in the same
+      // bucket as a true black & white one, so only the raw saturation tells
+      // the two apart — and they are images the user wants BOTH of.
+      if (newSat === undefined) newSat = await meanSaturation(newFileAbs);
+      if (!sameColourMode(newSat, await meanSaturation(oldAbs))) continue;
       return { postId: row.post_id };
     }
   }
