@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Check, Copy, Loader2, Trash2 } from "lucide-react";
+import { useConfirm } from "@/components/confirm-dialog";
 
 interface ReviewItem {
   id: number;
@@ -20,7 +21,9 @@ interface ReviewItem {
 export default function ImportReview() {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, confirmAsk] = useConfirm();
 
   const load = useCallback(async () => {
     try {
@@ -54,10 +57,41 @@ export default function ImportReview() {
     }
   };
 
+  const exactCount = items.filter((it) => it.match_type !== "similar").length;
+
+  const discardAllExact = async () => {
+    if (bulkBusy) return;
+    if (
+      !(await confirmAsk({
+        title: "Discard all exact copies?",
+        message: `${exactCount} parked file(s) that are byte-identical to already imported posts will be deleted. Similar matches are kept for manual review.`,
+        confirmLabel: "Discard all",
+      }))
+    )
+      return;
+    setBulkBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/import/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "discard", scope: "exact" }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Could not discard the exact copies.");
+      }
+      await load();
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   if (items.length === 0) return null;
 
   return (
     <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-6">
+      {confirmDialog}
       <div className="mb-1 flex items-center gap-2 font-semibold">
         <Copy size={16} /> Duplicates held for review ({items.length})
       </div>
@@ -65,6 +99,20 @@ export default function ImportReview() {
         These drop files matched an image the creator already has, so they were
         parked instead of deleted. Compare and decide.
       </p>
+      {exactCount > 0 && (
+        <button
+          onClick={discardAllExact}
+          disabled={bulkBusy}
+          className="mb-4 flex items-center gap-1.5 rounded-full bg-red-600/80 px-4 py-1.5 text-xs font-semibold transition hover:bg-red-500 disabled:opacity-50"
+        >
+          {bulkBusy ? (
+            <Loader2 size={13} className="animate-spin" />
+          ) : (
+            <Trash2 size={13} />
+          )}
+          Discard all exact copies ({exactCount})
+        </button>
+      )}
 
       <div className="space-y-4">
         {items.map((it) => (

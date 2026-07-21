@@ -18,6 +18,8 @@ import {
   renamePostImageFiles,
   mediaPathFor,
   deletePostImageFiles,
+  moveFile,
+  POSTS_ROOT,
 } from "./posts-storage";
 import { ingestMedia } from "./gallery-ingest";
 import { ingestUpload } from "./books";
@@ -717,7 +719,34 @@ async function importPostsSection(
   // aggregates under one /people profile (like @sophieraiin). A LOOSE file stays
   // the user's own post. Caption: a "<stem>.md" sidecar, else the [token] title.
   for (const item of collectItems(dir)) {
-    if (!isSupportedImage(item.name, "")) continue;
+    if (!isSupportedImage(item.name, "")) {
+      // This section only stores images. Videos dropped in a CREATOR folder are
+      // handed to the posts importer (scripts/import-posts.mjs knows how to make
+      // video post media); anything else is reported instead of vanishing —
+      // a silent `continue` here once left mp4 drops sitting unexplained.
+      if (isSupportedVideo(item.name, "") && item.collection) {
+        try {
+          const destDir = path.join(POSTS_ROOT, "_import", item.collection);
+          fs.mkdirSync(destDir, { recursive: true });
+          moveFile(item.abs, path.join(destDir, item.name));
+          res.skipped++;
+          res.details.push(
+            `posts ${item.name}: video routed to the posts importer (${item.collection})`
+          );
+        } catch (err) {
+          res.skipped++;
+          res.details.push(
+            `posts ${item.name}: video route failed: ${(err as Error).message}`
+          );
+        }
+      } else if (isSupportedVideo(item.name, "")) {
+        res.skipped++;
+        res.details.push(
+          `posts ${item.name}: loose video (no creator folder) — not supported here`
+        );
+      }
+      continue;
+    }
     const [stem] = splitExt(item.name);
     const parsed = parseImportName(stem);
     const md = readMdSidecar(item.abs);

@@ -52,16 +52,43 @@ export async function GET() {
   return NextResponse.json({ items, count: items.length });
 }
 
-// Decide a parked duplicate: import anyway, or discard the file.
+// Decide a parked duplicate: import anyway, or discard the file. With
+// { action: "discard", scope: "exact" } every exact-copy item the requester
+// can see is discarded in one call (similar matches always stay for a manual
+// look — a "similar" can be a different photo from the same shoot).
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const requester = {
+    userId: Number(session.sub),
+    isAdmin: session.role === "admin",
+  };
 
   const body = await request.json().catch(() => null);
-  const id = Number(body?.id);
   const action = body?.action;
+
+  if (action === "discard" && body?.scope === "exact") {
+    // Rows from before the match_type column exist as NULL and are exact
+    // matches too (the UI labels everything non-"similar" as exact copy).
+    let q = qb
+      .selectFrom("import_review")
+      .select("id")
+      .where((eb) =>
+        eb.or([eb("match_type", "is", null), eb("match_type", "!=", "similar")])
+      );
+    if (!requester.isAdmin) q = q.where("user_id", "=", requester.userId);
+    const ids = getAll<{ id: number }>(q).map((r) => r.id);
+    let discarded = 0;
+    for (const rid of ids) {
+      const res = await decideImportReview(rid, requester, "discard");
+      if (res.ok) discarded++;
+    }
+    return NextResponse.json({ ok: true, discarded, total: ids.length });
+  }
+
+  const id = Number(body?.id);
   if (!Number.isInteger(id) || (action !== "import" && action !== "discard")) {
     return NextResponse.json(
       { error: "id and action (import|discard) are required." },
@@ -69,11 +96,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await decideImportReview(
-    id,
-    { userId: Number(session.sub), isAdmin: session.role === "admin" },
-    action
-  );
+  const result = await decideImportReview(id, requester, action);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }

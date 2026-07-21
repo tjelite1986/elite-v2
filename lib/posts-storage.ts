@@ -323,7 +323,7 @@ export async function storeAvatar(
 // rename(2) fails with EXDEV when source and destination sit on different bind
 // mounts (a user upload under PROFILE_ROOT moving to a creator folder under
 // POSTS_ROOT — separate volumes in production) — fall back to copy + unlink.
-function moveFile(src: string, dest: string): void {
+export function moveFile(src: string, dest: string): void {
   try {
     fs.renameSync(src, dest);
   } catch (err) {
