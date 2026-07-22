@@ -486,6 +486,7 @@ export default function PersonProfile({
               empty="No photos yet."
               viewer={{ userId: viewerId, isAdmin }}
               storageKey="posts-view-profile"
+              restoreKey={`profile:${person.handle}:posts`}
             />
           )}
 

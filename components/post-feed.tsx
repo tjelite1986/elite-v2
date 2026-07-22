@@ -12,11 +12,15 @@ export default function PostFeed({
   query,
   empty = "No posts yet.",
   viewer,
+  restoreKey,
 }: {
   query: Record<string, string>;
   empty?: string;
   // Who is looking: enables the delete action on own posts (or all, for admins).
   viewer?: LightboxViewer;
+  // When set, the loaded cards + scroll position are cached (sessionStorage) so
+  // returning after leaving the lightbox lands where you left.
+  restoreKey?: string;
 }) {
   const [items, setItems] = useState<FeedPost[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
@@ -25,6 +29,56 @@ export default function PostFeed({
   const [loadedOnce, setLoadedOnce] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<{ id: number; photo: number } | null>(null);
+
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+  const openRef = useRef(open);
+  openRef.current = open;
+  const openedAtRef = useRef<number | null>(null);
+
+  const saveCache = useCallback(() => {
+    if (!restoreKey) return;
+    try {
+      sessionStorage.setItem(
+        "pf:" + restoreKey,
+        JSON.stringify({
+          items: itemsRef.current.slice(0, 400),
+          cursor: cursorRef.current,
+          hasMore: hasMoreRef.current,
+          scrollY: window.scrollY,
+          at: Date.now(),
+        })
+      );
+    } catch {
+      /* quota / private mode */
+    }
+  }, [restoreKey]);
+
+  const openPost = useCallback(
+    (id: number, photo: number) => {
+      openedAtRef.current = id;
+      saveCache();
+      setOpen({ id, photo });
+    },
+    [saveCache]
+  );
+
+  const closeLightbox = useCallback(() => {
+    const last = openRef.current?.id;
+    const openedAt = openedAtRef.current;
+    setOpen(null);
+    if (last && last !== openedAt) {
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-post-id="${last}"]`)
+          ?.scrollIntoView({ block: "center" });
+      });
+    }
+  }, []);
 
   const load = useCallback(async () => {
     if (loading || !hasMore) return;
@@ -49,7 +103,34 @@ export default function PostFeed({
     }
   }, [cursor, hasMore, loading, query]);
 
+  // Restore cached cards + scroll on mount, else initial load.
   useEffect(() => {
+    if (restoreKey) {
+      try {
+        const raw = sessionStorage.getItem("pf:" + restoreKey);
+        if (raw) {
+          const c = JSON.parse(raw);
+          if (c?.items?.length && Date.now() - (c.at || 0) < 5 * 60 * 1000) {
+            setItems(c.items);
+            setCursor(c.cursor ?? null);
+            setHasMore(c.hasMore ?? true);
+            setLoadedOnce(true);
+            const targetY = c.scrollY || 0;
+            let tries = 0;
+            const apply = () => {
+              window.scrollTo(0, targetY);
+              if (Math.abs(window.scrollY - targetY) > 4 && ++tries < 40) {
+                requestAnimationFrame(apply);
+              }
+            };
+            requestAnimationFrame(apply);
+            return;
+          }
+        }
+      } catch {
+        /* fall through */
+      }
+    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -72,16 +153,17 @@ export default function PostFeed({
   return (
     <div className="space-y-3">
       {items.map((p) => (
-        <PostCard
-          key={p.id}
-          post={p}
-          onImageTap={(photo) => setOpen({ id: p.id, photo })}
-          onPatch={(patch) =>
-            setItems((prev) =>
-              prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x))
-            )
-          }
-        />
+        <div key={p.id} data-post-id={p.id}>
+          <PostCard
+            post={p}
+            onImageTap={(photo) => openPost(p.id, photo)}
+            onPatch={(patch) =>
+              setItems((prev) =>
+                prev.map((x) => (x.id === p.id ? { ...x, ...patch } : x))
+              )
+            }
+          />
+        </div>
       ))}
       <div ref={sentinel} className="h-1 w-full" />
       {loading && <p className="py-4 text-center text-sm text-white/40">Loading…</p>}
@@ -90,7 +172,7 @@ export default function PostFeed({
         posts={items}
         open={open}
         viewer={viewer}
-        onClose={() => setOpen(null)}
+        onClose={closeLightbox}
         onNavigate={(id) => setOpen({ id, photo: 0 })}
         onNearEnd={load}
         onPatch={(id, patch) =>

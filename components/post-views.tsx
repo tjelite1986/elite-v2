@@ -18,6 +18,7 @@ export default function PostViews({
   viewer,
   storageKey,
   defaultView = "feed",
+  restoreKey,
 }: {
   query: Record<string, string>;
   empty?: string;
@@ -25,6 +26,8 @@ export default function PostViews({
   // localStorage key that remembers the chosen view for this surface.
   storageKey: string;
   defaultView?: View;
+  // Passed to the grid/feed so scroll position survives leaving the lightbox.
+  restoreKey?: string;
 }) {
   const [view, setView] = useState<View>(defaultView);
   // Wait for the saved preference before mounting a list, so we never fetch
@@ -73,9 +76,19 @@ export default function PostViews({
       </div>
       {ready &&
         (view === "grid" ? (
-          <PostGrid query={query} empty={empty} viewer={viewer} />
+          <PostGrid
+            query={query}
+            empty={empty}
+            viewer={viewer}
+            restoreKey={restoreKey ? `${restoreKey}:grid` : undefined}
+          />
         ) : (
-          <PostFeed query={query} empty={empty} viewer={viewer} />
+          <PostFeed
+            query={query}
+            empty={empty}
+            viewer={viewer}
+            restoreKey={restoreKey ? `${restoreKey}:feed` : undefined}
+          />
         ))}
     </div>
   );

@@ -16,9 +16,14 @@ export default function PostGrid({
   select,
   reloadKey = 0,
   viewer,
+  restoreKey,
 }: {
   query: Record<string, string>;
   empty?: string;
+  // When set, the loaded tiles + scroll position are cached (sessionStorage) so
+  // returning here after navigating away from the lightbox (into a profile or a
+  // post permalink) lands where you left. Must be unique per surface.
+  restoreKey?: string;
   // Selection mode: when set, a tile calls onSelect(firstMediaId) instead of
   // linking to the post (used to pick a profile picture from the real feed).
   onSelect?: (mediaId: number) => void;
@@ -41,6 +46,66 @@ export default function PostGrid({
   const [loadedOnce, setLoadedOnce] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<{ id: number; photo: number } | null>(null);
+
+  // Latest state, for the click-time cache save.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+  // Track the live open target (updated as you swipe) and the id the lightbox
+  // was opened at, so closing can land the grid on the LAST-viewed post.
+  const openRef = useRef(open);
+  openRef.current = open;
+  const openedAtRef = useRef<number | null>(null);
+
+  // Cache tiles + scroll so returning after leaving the lightbox (into a profile
+  // or permalink) restores the position. Saved when a post is OPENED — the grid
+  // is a fixed overlay's backdrop then, so window.scrollY is still the grid's
+  // offset; by the time any in-lightbox link navigates, Next has scrolled to 0.
+  const saveCache = useCallback(() => {
+    if (!restoreKey) return;
+    try {
+      sessionStorage.setItem(
+        "pg:" + restoreKey,
+        JSON.stringify({
+          items: itemsRef.current.slice(0, 800),
+          cursor: cursorRef.current,
+          hasMore: hasMoreRef.current,
+          scrollY: window.scrollY,
+          at: Date.now(),
+        })
+      );
+    } catch {
+      /* quota / private mode — position just won't restore */
+    }
+  }, [restoreKey]);
+
+  const openPost = useCallback(
+    (id: number, photo: number) => {
+      openedAtRef.current = id;
+      saveCache();
+      setOpen({ id, photo });
+    },
+    [saveCache]
+  );
+
+  // Closing lands the grid on the last-viewed post when you swiped away from the
+  // one you opened (the overlay never moved the grid). Same-post open/close
+  // leaves the scroll untouched.
+  const closeLightbox = useCallback(() => {
+    const last = openRef.current?.id;
+    const openedAt = openedAtRef.current;
+    setOpen(null);
+    if (last && last !== openedAt) {
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-post-id="${last}"]`)
+          ?.scrollIntoView({ block: "center" });
+      });
+    }
+  }, []);
 
   const load = useCallback(async () => {
     if (loading || !hasMore) return;
@@ -68,8 +133,42 @@ export default function PostGrid({
 
   // Initial load, and a full reset+reload whenever reloadKey changes (so a merge
   // immediately drops the emptied source posts and shows the new carousel).
+  const firstRun = useRef(true);
   useEffect(() => {
     let cancelled = false;
+
+    // On the very first mount (not a reloadKey reset), restore the cached tiles
+    // + scroll instead of fetching from the top. Short-lived (5 min) so a later
+    // fresh visit doesn't land mid-list.
+    if (firstRun.current && restoreKey) {
+      firstRun.current = false;
+      try {
+        const raw = sessionStorage.getItem("pg:" + restoreKey);
+        if (raw) {
+          const c = JSON.parse(raw);
+          if (c?.items?.length && Date.now() - (c.at || 0) < 5 * 60 * 1000) {
+            setItems(c.items);
+            setCursor(c.cursor ?? null);
+            setHasMore(c.hasMore ?? true);
+            setLoadedOnce(true);
+            const targetY = c.scrollY || 0;
+            let tries = 0;
+            const apply = () => {
+              window.scrollTo(0, targetY);
+              if (Math.abs(window.scrollY - targetY) > 4 && ++tries < 40) {
+                requestAnimationFrame(apply);
+              }
+            };
+            requestAnimationFrame(apply);
+            return; // skip the initial fetch
+          }
+        }
+      } catch {
+        /* fall through to a normal load */
+      }
+    }
+    firstRun.current = false;
+
     setItems([]);
     setCursor(null);
     setHasMore(true);
@@ -171,6 +270,7 @@ export default function PostGrid({
           return onSelect ? (
             <button
               key={p.id}
+              data-post-id={p.id}
               onClick={() => p.media[0] && onSelect(p.media[0].id)}
               className={cls}
             >
@@ -179,7 +279,8 @@ export default function PostGrid({
           ) : (
             <button
               key={p.id}
-              onClick={() => setOpen({ id: p.id, photo: 0 })}
+              data-post-id={p.id}
+              onClick={() => openPost(p.id, 0)}
               className={cls}
             >
               {inner}
@@ -194,7 +295,7 @@ export default function PostGrid({
         posts={items}
         open={open}
         viewer={viewer}
-        onClose={() => setOpen(null)}
+        onClose={closeLightbox}
         onNavigate={(id) => setOpen({ id, photo: 0 })}
         onNearEnd={load}
         onPatch={(id, patch) =>

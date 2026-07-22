@@ -23,6 +23,7 @@ export default async function PostsHomePage() {
         empty="Your feed is empty — follow people on Explore to see their posts here."
         viewer={{ userId: Number(session.sub), isAdmin: session.role === "admin" }}
         storageKey="posts-view-home"
+        restoreKey="posts:home"
       />
       <div className="mt-6 text-center">
         <Link

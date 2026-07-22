@@ -31,6 +31,7 @@ export default async function PostsExplorePage() {
         viewer={{ userId: Number(session.sub), isAdmin: session.role === "admin" }}
         storageKey="posts-view-explore"
         defaultView="grid"
+        restoreKey="posts:explore"
       />
     </div>
   );
