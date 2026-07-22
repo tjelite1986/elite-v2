@@ -36,14 +36,26 @@ function toEntries(posts: FeedPost[]): VideoEntry[] {
 // over video posts via /api/posts/feed?videos=1.
 export default function VideosFeed({
   viewer,
+  restoreKey,
 }: {
   viewer: { userId: number; isAdmin: boolean };
+  // When set, the loaded posts + scroll position are cached (sessionStorage) so
+  // returning after visiting a video's profile lands on the same clip instead of
+  // the top.
+  restoreKey?: string;
 }) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+
+  const postsRef = useRef(posts);
+  postsRef.current = posts;
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
   const [muted, setMuted] = useState(true);
   const [chromeHidden, setChromeHidden] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -127,10 +139,57 @@ export default function VideosFeed({
     }
   }, [cursor, hasMore, loading]);
 
+  // Restore cached posts + scroll on mount, else initial load.
   useEffect(() => {
+    if (restoreKey) {
+      try {
+        const raw = sessionStorage.getItem("vf:" + restoreKey);
+        if (raw) {
+          const c = JSON.parse(raw);
+          if (c?.posts?.length && Date.now() - (c.at || 0) < 5 * 60 * 1000) {
+            setPosts(c.posts);
+            setCursor(c.cursor ?? null);
+            setHasMore(c.hasMore ?? true);
+            const top = c.scrollTop || 0;
+            let tries = 0;
+            const apply = () => {
+              const root = containerRef.current;
+              if (root) root.scrollTop = top;
+              if (root && Math.abs(root.scrollTop - top) > 4 && ++tries < 40) {
+                requestAnimationFrame(apply);
+              }
+            };
+            requestAnimationFrame(apply);
+            return;
+          }
+        }
+      } catch {
+        /* fall through to a normal load */
+      }
+    }
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Persist posts + container scroll each time the clip in view changes, so a
+  // navigation away (into a profile) has an up-to-date position to return to.
+  useEffect(() => {
+    if (!restoreKey || !activeKey) return;
+    try {
+      sessionStorage.setItem(
+        "vf:" + restoreKey,
+        JSON.stringify({
+          posts: postsRef.current.slice(0, 400),
+          cursor: cursorRef.current,
+          hasMore: hasMoreRef.current,
+          scrollTop: containerRef.current?.scrollTop ?? 0,
+          at: Date.now(),
+        })
+      );
+    } catch {
+      /* quota / private mode */
+    }
+  }, [activeKey, restoreKey]);
 
   const entries = toEntries(posts);
 

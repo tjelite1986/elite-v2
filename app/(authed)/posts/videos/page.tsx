@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
-import VideosFeed from "@/components/videos-feed";
+import VideosViews from "@/components/videos-views";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +14,10 @@ export default async function PostsVideosPage() {
   ensureUserProfile(Number(session.sub), session.email);
 
   return (
-    <VideosFeed
+    <VideosViews
       viewer={{ userId: Number(session.sub), isAdmin: session.role === "admin" }}
+      storageKey="videos-view"
+      restoreKey="posts:videos"
     />
   );
 }
