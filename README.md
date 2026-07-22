@@ -83,16 +83,27 @@ experience. **Here for the internals?** See
   links.
 - **Shorts** — a TikTok-style vertical video feed with an immersive player,
   per-user public/private clips, playlists, and a PIN-gated 18+ section
-  (`/shorts18`). Clips can be auto-polled (`yt-dlp`), transcoded, and
+  (`/shorts18`). Explore and every profile offer a **grid / feed view toggle**,
+  and clips are editable (title / source / tags) straight from the grid or the
+  player's menu. Clips can be auto-polled (`yt-dlp`), transcoded, and
   deduplicated. An optional "Grab from web" button appears if you point
   `GRABBIT_URL` at a
   [grabbit](https://github.com/tjelite1986/grabbit) media-grabber instance.
-- **Posts** — an Instagram-style feed with likes, comments, follows, stories,
-  search, rich markdown composing (`react-markdown` + `remark-gfm`),
-  `@mention` autocomplete, and link-preview cards.
+- **Posts & Videos** — an Instagram-style feed with likes, comments, follows,
+  stories, search, rich markdown composing (`react-markdown` + `remark-gfm`),
+  `@mention` autocomplete, and link-preview cards. Photos open in a shared
+  lightbox; a dedicated **Videos** tab plays video posts in the same immersive
+  swipe view as Shorts, with its own grid / feed toggle. Captions are editable
+  from any surface.
+- **Return where you left off** — every feed and grid (Shorts, 18+, Explore,
+  posts, Videos, profiles) restores your exact scroll position or the clip you
+  were on when you open a profile and press Back, rather than jumping to the top.
 - **People & profiles** — a unified `/people/<username>` directory; each profile
   has custom fields with per-field visibility, badges, an avatar with crop, and
-  member stats.
+  member stats. Profiles can carry **alternate @handles (aliases)** so a clip or
+  post tagged with a different spelling still resolves to the right person, and
+  `@mentions` in a clip's caption both linkify in the player and surface that
+  clip on the mentioned person's profile.
 - **Books** — a shared EPUB / PDF / CBZ reader (`epubjs`, `pdfjs-dist`,
   `jszip`) with per-user reading progress.
 - **App Store** — an in-app `/store` catalog of installable "apps" plus an APK
