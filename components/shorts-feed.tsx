@@ -69,6 +69,25 @@ export default function ShortsFeed({
   // Show the top-center expandable mode selector (main channel feeds only).
   showModeSelector?: boolean;
 }) {
+  // On a Back-navigation Next can restore the page's server tree WITHOUT the
+  // ?focus we wrote to the URL while scrolling (it keeps its own history state),
+  // so the focusId prop may be missing even though the URL has it — read the
+  // live URL too. Captured ONCE at mount: we later rewrite ?focus as the user
+  // scrolls, and re-reading it every render would flip effectiveSort mid-feed.
+  // A focus always implies id-cursor loading ('new'): For You / Random paginate
+  // by offset and can't anchor on a specific clip.
+  const [effectiveFocus] = useState<number | undefined>(
+    () =>
+      focusId ??
+      (typeof window !== "undefined"
+        ? Number(new URLSearchParams(window.location.search).get("focus")) ||
+          undefined
+        : undefined)
+  );
+  const effectiveSort: "new" | "foryou" | "following" | "random" = effectiveFocus
+    ? "new"
+    : sort;
+
   const router = useRouter();
   // One shuffle seed per mount: For You / Random stay stable while paginating,
   // reshuffle on the next visit.
@@ -76,18 +95,22 @@ export default function ShortsFeed({
   const [modeOpen, setModeOpen] = useState(false);
   const [items, setItems] = useState<FeedShort[]>([]);
   // Opening from a grid tile: start the feed at that clip (older ones follow).
-  const [cursor, setCursor] = useState<number | null>(focusId ? focusId + 1 : null);
+  const [cursor, setCursor] = useState<number | null>(
+    effectiveFocus ? effectiveFocus + 1 : null
+  );
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   // Backward pagination: clips NEWER than the top of the list, so a feed opened
   // mid-list from a grid tile can scroll up past its starting clip.
-  const [prevCursor, setPrevCursor] = useState<number | null>(focusId ?? null);
-  const [hasPrev, setHasPrev] = useState(Boolean(focusId));
+  const [prevCursor, setPrevCursor] = useState<number | null>(
+    effectiveFocus ?? null
+  );
+  const [hasPrev, setHasPrev] = useState(Boolean(effectiveFocus));
   const [loadingPrev, setLoadingPrev] = useState(false);
   // Whether the initial jump to the focused clip has happened. Backward loading
   // is held until then so the jump and the prepend scroll compensation can't
   // race each other (state, not a ref: the top sentinel re-arms on re-render).
-  const [focusJumped, setFocusJumped] = useState(!focusId);
+  const [focusJumped, setFocusJumped] = useState(!effectiveFocus);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [muted, setMuted] = useState(true);
   // Three independent toggles, each with its own button in the control cluster:
@@ -184,8 +207,8 @@ export default function ShortsFeed({
       if (category) url.searchParams.set("category", category);
       if (tag) url.searchParams.set("tag", tag);
       if (handle) url.searchParams.set("handle", handle);
-      if (sort !== "new") {
-        url.searchParams.set("sort", sort);
+      if (effectiveSort !== "new") {
+        url.searchParams.set("sort", effectiveSort);
         url.searchParams.set("seed", String(seed));
       }
       if (cursor) url.searchParams.set("cursor", String(cursor));
@@ -203,7 +226,7 @@ export default function ShortsFeed({
     } finally {
       setLoading(false);
     }
-  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle, sort, seed]);
+  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle, effectiveSort, seed]);
 
   // Backward load: clips immediately newer than the current top, prepended.
   // Held until the initial focus jump is done; the prepend is committed
@@ -211,8 +234,8 @@ export default function ShortsFeed({
   // other effect can scroll in between.
   const loadPrev = useCallback(async () => {
     // Backward pagination needs an id-ordered feed; the seeded modes don't
-    // have one (focus deep-links force sort=new at the page level anyway).
-    if (sort !== "new") return;
+    // have one (a focus always forces 'new' loading via effectiveSort).
+    if (effectiveSort !== "new") return;
     if (loadingPrev || !hasPrev || prevCursor === null || !focusJumped) return;
     setLoadingPrev(true);
     try {
@@ -276,7 +299,7 @@ export default function ShortsFeed({
     category,
     tag,
     handle,
-    sort,
+    effectiveSort,
   ]);
 
   // Initial load.
@@ -333,12 +356,25 @@ export default function ShortsFeed({
     return () => io.disconnect();
   }, [items]);
 
+  // Keep ?focus in the URL in sync with the clip in view, so leaving the feed
+  // (e.g. tapping into a profile) and pressing Back returns to THIS clip instead
+  // of the top of the feed. replaceState => no history spam while scrolling.
+  // Held until the initial deep-link jump lands so it can't overwrite the
+  // targeted clip mid-jump.
+  useEffect(() => {
+    if (!activeId || !focusJumped) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("focus") === String(activeId)) return;
+    url.searchParams.set("focus", String(activeId));
+    window.history.replaceState(window.history.state, "", url.toString());
+  }, [activeId, focusJumped]);
+
   // Jump to a shared clip once it's in the list (once only — backward loads
   // prepend items and this must not yank the view back to the starting clip).
   useEffect(() => {
-    if (!focusId || focusJumped || !containerRef.current) return;
+    if (!effectiveFocus || focusJumped || !containerRef.current) return;
     const el = containerRef.current.querySelector(
-      `[data-short-id="${focusId}"]`
+      `[data-short-id="${effectiveFocus}"]`
     );
     if (el) {
       (el as HTMLElement).scrollIntoView();
@@ -349,7 +385,7 @@ export default function ShortsFeed({
       setFocusJumped(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items.length, focusId, focusJumped]);
+  }, [items.length, effectiveFocus, focusJumped]);
 
   // Auto-scroll: when a clip finishes (autoScroll disables looping), glide to
   // the next one. The active-card observer takes over from there.
