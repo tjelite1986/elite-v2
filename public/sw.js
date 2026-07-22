@@ -6,12 +6,22 @@
  * Deliberately conservative: it never intercepts video or range requests (that
  * is easy to get wrong and break playback) — those pass straight to the network.
  */
-const IMG_CACHE = "elite-img-v1";
+// Bump the version to drop the previous cache: the old worker was cache-first
+// and could pin a stale poster/thumbnail under a constant URL. Purging on
+// activate self-heals every device once.
+const IMG_CACHE = "elite-img-v2";
 const IMG_LIMIT = 600;
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) =>
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    (async () => {
+      for (const name of await caches.keys()) {
+        if (name !== IMG_CACHE) await caches.delete(name);
+      }
+      await self.clients.claim();
+    })()
+  )
 );
 
 function isCacheableImage(url) {
@@ -40,23 +50,30 @@ self.addEventListener("fetch", (event) => {
   }
   if (url.origin !== self.location.origin || !isCacheableImage(url)) return;
 
+  // Stale-while-revalidate: serve the cached copy instantly (fast grids) but
+  // always refetch in the background and update the cache, so a replaced cover
+  // frame shows up on the next view even when the URL is unchanged. The server
+  // sends no-cache + ETag, so an unchanged poster revalidates as a cheap 304.
   event.respondWith(
     (async () => {
       const cache = await caches.open(IMG_CACHE);
       const hit = await cache.match(req);
-      if (hit) return hit;
-      try {
-        const res = await fetch(req);
-        if (res.ok && res.status === 200) {
-          cache.put(req, res.clone());
-          trimCache(cache);
-        }
-        return res;
-      } catch (err) {
-        const fallback = await cache.match(req);
-        if (fallback) return fallback;
-        throw err;
+      const revalidate = fetch(req)
+        .then((res) => {
+          if (res.ok && res.status === 200) {
+            cache.put(req, res.clone());
+            trimCache(cache);
+          }
+          return res;
+        })
+        .catch(() => null);
+      if (hit) {
+        event.waitUntil(revalidate);
+        return hit;
       }
+      const res = await revalidate;
+      if (res) return res;
+      return new Response("", { status: 504 });
     })()
   );
 });

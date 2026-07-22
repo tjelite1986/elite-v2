@@ -80,6 +80,7 @@ export interface FeedShort {
   viewer_liked: boolean;
   viewer_saved: boolean;
   has_poster: boolean;
+  poster_v: string | null;
   is_private: boolean;
 }
 
@@ -549,7 +550,7 @@ export default function ShortCard({
       <video
         ref={videoRef}
         src={`/api/shorts/${short.id}/video`}
-        poster={short.has_poster ? `/api/shorts/${short.id}/poster?c=2` : undefined}
+        poster={short.has_poster ? `/api/shorts/${short.id}/poster?v=${short.poster_v ?? "2"}` : undefined}
         className="h-full w-full object-contain"
         loop={!autoAdvance}
         onEnded={() => autoAdvance && onEnded?.()}

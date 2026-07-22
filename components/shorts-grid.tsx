@@ -19,6 +19,7 @@ interface GridShort {
   id: number;
   caption: string | null;
   has_poster: boolean;
+  poster_v: string | null;
   like_count: number;
   profile_name: string | null;
   category: string;
@@ -174,7 +175,7 @@ export default function ShortsGrid({
               const poster = s.has_poster ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={`/api/shorts/${s.id}/poster?c=2`}
+                  src={`/api/shorts/${s.id}/poster?v=${s.poster_v ?? "2"}`}
                   alt=""
                   loading="lazy"
                   className="h-full w-full object-cover transition group-hover:opacity-80"

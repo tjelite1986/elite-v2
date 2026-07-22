@@ -65,6 +65,11 @@ export interface FeedShort {
   viewer_liked: boolean;
   viewer_saved: boolean;
   has_poster: boolean;
+  // Cache-busting token for the poster URL, derived from the poster file key so
+  // it changes whenever the cover frame is replaced. The grid uses it as
+  // `?v=<poster_v>` — without a per-poster token the service worker (cache-first
+  // on poster URLs) would keep serving the old cover under a constant query.
+  poster_v: string | null;
   is_private: boolean;
 }
 
@@ -75,6 +80,15 @@ interface FeedRow extends ShortRow {
   comment_count: number;
   viewer_liked: number;
   viewer_saved: number;
+}
+
+// Compact, stable token for a poster file key (djb2 → base36). Changes whenever
+// the poster_key changes (a new cover frame writes a new key), so the grid's
+// poster URL changes and the cache-first service worker fetches the new image.
+function posterVersion(key: string): string {
+  let h = 5381;
+  for (let i = 0; i < key.length; i++) h = ((h << 5) + h + key.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
 }
 
 // Cursor-paginated feed, newest first. The cursor is the last short id seen (ids
@@ -305,6 +319,7 @@ export function getFeed(
     viewer_liked: Boolean(r.viewer_liked),
     viewer_saved: Boolean(r.viewer_saved),
     has_poster: Boolean(r.poster_key),
+    poster_v: r.poster_key ? posterVersion(r.poster_key) : null,
     is_private: Boolean(r.is_private),
   }));
 
