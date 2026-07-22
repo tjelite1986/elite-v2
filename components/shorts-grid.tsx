@@ -113,7 +113,11 @@ export default function ShortsGrid({
       sessionStorage.setItem(
         "sg:" + restoreKey,
         JSON.stringify({
-          items: itemsRef.current.slice(0, 120),
+          // Cache ALL loaded tiles (capped high only to bound storage): a
+          // partial list would be shorter than the saved scroll offset, so the
+          // page would clamp to the wrong place and the anchor tile would be
+          // missing (the reported "lands in the wrong spot" after a deep scroll).
+          items: itemsRef.current.slice(0, 800),
           cursor: cursorRef.current,
           hasMore: hasMoreRef.current,
           scrollY: window.scrollY,
