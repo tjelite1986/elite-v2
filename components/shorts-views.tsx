@@ -129,6 +129,7 @@ export default function ShortsViews({
           hrefPrefix={hrefPrefix}
           empty={empty}
           restoreKey={restoreKey}
+          isAdmin={feed.isAdmin}
         />
       )}
       {ready && view === "feed" && (

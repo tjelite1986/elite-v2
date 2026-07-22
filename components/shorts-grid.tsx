@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Play, Heart, Pencil, Trash2, FolderInput, X, Plus, Check, Lock } from "lucide-react";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
-import { splitCaption, buildCaption } from "@/lib/shorts-caption";
+import ShortsEditSheet from "@/components/shorts-edit-sheet";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useConfirm } from "@/components/confirm-dialog";
 
@@ -39,10 +39,14 @@ export default function ShortsGrid({
   channel,
   onSelect,
   restoreKey,
+  isAdmin = false,
 }: {
   query: Record<string, string>;
   hrefPrefix: string;
   empty?: string;
+  // Admins get a per-tile edit pencil (title / source / #tags) — the grid's
+  // counterpart of the immersive card's 3-dot "Edit title".
+  isAdmin?: boolean;
   // When set, the loaded tiles + scroll position are cached (sessionStorage)
   // under this key, so returning to this grid after opening a clip lands where
   // you left instead of scrolling back to the top. Must be unique per surface.
@@ -65,10 +69,12 @@ export default function ShortsGrid({
   const [loading, setLoading] = useState(false);
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [moveId, setMoveId] = useState<number | null>(null);
+  const [editClip, setEditClip] = useState<{ id: number; caption: string | null } | null>(null);
   const [confirmDialog, confirmAsk] = useConfirm();
   const sentinel = useRef<HTMLDivElement>(null);
-  // Device Back closes the move sheet instead of leaving the page.
+  // Device Back closes the move / edit sheet instead of leaving the page.
   useBackDismiss(moveId !== null, () => setMoveId(null));
+  useBackDismiss(editClip !== null, () => setEditClip(null));
 
   const load = useCallback(async () => {
     if (loading || !hasMore) return;
@@ -195,24 +201,9 @@ export default function ShortsGrid({
     if (!res.ok) setItems(prev);
   };
 
-  // Rename only swaps the title part of the caption; #tags and the
-  // "Source: <url>" line survive the edit.
-  const renameClip = async (id: number, current: string | null) => {
-    const parts = splitCaption(current);
-    const title = window.prompt("Title", parts.title);
-    if (title === null) return; // cancelled
-    const res = await fetch(`/api/shorts/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caption: buildCaption({ ...parts, title }) }),
-    });
-    if (res.ok) {
-      const d = await res.json().catch(() => ({}));
-      setItems((list) =>
-        list.map((s) => (s.id === id ? { ...s, caption: d.caption ?? null } : s))
-      );
-    }
-  };
+  // Open the full title/source/tags editor (same sheet as the immersive card).
+  const openEdit = (id: number, caption: string | null) =>
+    setEditClip({ id, caption });
 
   const deleteClip = async (id: number) => {
     const ok = await confirmAsk({
@@ -305,17 +296,34 @@ export default function ShortsGrid({
                 ))}
               </select>
             )}
+            {/* Admin edit pencil — the grid's counterpart of the immersive
+                card's "Edit title" (title / source / #tags). Shown standalone
+                for admins even when the fuller adminActions cluster is off. */}
+            {isAdmin && !adminActions && !onSelect && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openEdit(s.id, s.caption);
+                }}
+                className="absolute right-1 top-1 rounded bg-black/70 p-1 text-white ring-1 ring-white/20 transition active:scale-90"
+                title="Edit title, source & tags"
+                aria-label="Edit clip"
+              >
+                <Pencil size={13} />
+              </button>
+            )}
             {adminActions && (
               <div className="absolute right-1 top-1 flex gap-1">
                 <button
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    renameClip(s.id, s.caption);
+                    openEdit(s.id, s.caption);
                   }}
                   className="rounded bg-black/70 p-1 text-white ring-1 ring-white/20 transition active:scale-90"
-                  title="Rename"
-                  aria-label="Rename clip"
+                  title="Edit"
+                  aria-label="Edit clip"
                 >
                   <Pencil size={13} />
                 </button>
@@ -360,6 +368,19 @@ export default function ShortsGrid({
           channel={channel}
           onClose={() => setMoveId(null)}
           onMoved={onMoved}
+        />
+      )}
+      {editClip && (
+        <ShortsEditSheet
+          shortId={editClip.id}
+          caption={editClip.caption}
+          onClose={() => setEditClip(null)}
+          onSaved={(caption) => {
+            setItems((list) =>
+              list.map((s) => (s.id === editClip.id ? { ...s, caption } : s))
+            );
+            setEditClip(null);
+          }}
         />
       )}
       {confirmDialog}

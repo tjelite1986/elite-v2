@@ -32,6 +32,7 @@ export default async function Explore18Page(
         empty="Nothing here yet."
         categoryEditable={session?.role === "admin"}
         restoreKey={`explore18:${category ?? "all"}`}
+        isAdmin={session?.role === "admin"}
       />
     </div>
   );
