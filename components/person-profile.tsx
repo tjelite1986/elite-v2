@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Camera, Pencil, X, Link as LinkIcon, MapPin, CalendarDays, Lock, Upload } from "lucide-react";
@@ -103,6 +103,29 @@ export default function PersonProfile({
   ];
   const visible = tabs.filter((t) => t.show);
   const [tab, setTab] = useState<Tab>(initialTab);
+
+  // Switch tab AND mirror it into the URL query (replaceState — no new history
+  // entry). Opening a clip pushes the person watch route; pressing Back then
+  // returns to `?tab=shorts` instead of the profile's default tab.
+  const selectTab = (id: Tab) => {
+    setTab(id);
+    if (typeof window === "undefined") return;
+    const url =
+      id === "profile"
+        ? window.location.pathname
+        : `${window.location.pathname}?tab=${id}`;
+    window.history.replaceState(window.history.state, "", url);
+  };
+
+  // Restore the tab from the URL on mount / back-navigation. The tab lives in
+  // the query (via selectTab), but the server prop can be a cached "profile", so
+  // read the live URL here to land on the tab the user left from.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab") as Tab | null;
+    if (t && visible.some((v) => v.id === t)) setTab(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [selecting, setSelecting] = useState(false);
   const [avatarBust, setAvatarBust] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -292,7 +315,7 @@ export default function PersonProfile({
               {visible.map((t) => (
                 <button
                   key={t.id}
-                  onClick={() => setTab(t.id)}
+                  onClick={() => selectTab(t.id)}
                   className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
                     tab === t.id
                       ? "border-white text-white"
