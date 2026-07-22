@@ -8,7 +8,8 @@ import {
   parseShortsSort,
 } from "@/lib/shorts";
 import { parseCategory } from "@/lib/shorts-categories";
-import { personContentIds } from "@/lib/profile-links";
+import { personContentIds, getGroupMembers } from "@/lib/profile-links";
+import { shortIdsMentioning } from "@/lib/short-mentions";
 
 export const dynamic = "force-dynamic";
 
@@ -71,11 +72,19 @@ export async function GET(request: Request) {
   const handle = url.searchParams.get("handle");
   let profileIds: number[] = [];
   let ownerIds: number[] = [];
+  let mentionedIds: number[] = [];
   if (handle) {
     const ids = personContentIds(handle, channel === "18plus");
     profileIds = channel === "18plus" ? ids.shorts18Ids : ids.shortsMainIds;
     ownerIds = ids.userIds;
-    if (profileIds.length === 0 && ownerIds.length === 0) {
+    // Also surface clips that @mention this person (or an alias), even when they
+    // were imported under a different creator profile.
+    mentionedIds = shortIdsMentioning(getGroupMembers(handle), channel);
+    if (
+      profileIds.length === 0 &&
+      ownerIds.length === 0 &&
+      mentionedIds.length === 0
+    ) {
       return NextResponse.json({ items: [], nextCursor: null });
     }
   }
@@ -97,7 +106,8 @@ export async function GET(request: Request) {
     after,
     tag,
     sort,
-    seed
+    seed,
+    mentionedIds
   );
 
   return NextResponse.json({ items, nextCursor });

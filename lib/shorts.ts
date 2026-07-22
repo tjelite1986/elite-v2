@@ -120,13 +120,19 @@ export function getFeed(
   // shuffle. foryou/random paginate by OFFSET (cursor doubles as the offset —
   // a seeded order has no monotone id to cut on).
   sort: ShortsSort = "new",
-  seed = 0
+  seed = 0,
+  // Mention scope: clip ids whose caption @mentions this person (or an alias),
+  // unioned with the profile/owner scope so a tagged clip surfaces on the
+  // tagged person's profile too — even though it was imported under a different
+  // creator profile.
+  mentionedIds: number[] = []
 ): { items: FeedShort[]; nextCursor: number | null } {
   const offsetMode = sort === "foryou" || sort === "random";
   // Keep the seed inside SQLite's integer math comfort zone.
   const s32 = Math.abs(Math.floor(seed)) % 2147483647;
   const profIds = profileId !== null ? [profileId, ...profileIds] : [...profileIds];
   const ownIds = ownerId !== null ? [ownerId, ...ownerIds] : [...ownerIds];
+  const mentIds = [...mentionedIds];
   // Structure (joins, filters, ordering, pagination) is built with the typed
   // builder. The correlated count/exists columns stay as sql`` fragments —
   // this is exactly the "gnarliest queries fall partly back to raw SQL" case.
@@ -182,12 +188,13 @@ export function getFeed(
     // Profile/owner scope: a clip belongs to the creator profile (profile_id) OR
     // the person's own uploads (uploader_id) — unioned so a user's uploads show
     // on their profile alongside the creator's imports.
-    .$if(profIds.length > 0 || ownIds.length > 0, (q) =>
+    .$if(profIds.length > 0 || ownIds.length > 0 || mentIds.length > 0, (q) =>
       q.where((eb) =>
         eb.or(
           [
             profIds.length ? eb("s.profile_id", "in", profIds) : null,
             ownIds.length ? eb("s.uploader_id", "in", ownIds) : null,
+            mentIds.length ? eb("s.id", "in", mentIds) : null,
           ].filter((c): c is NonNullable<typeof c> => c !== null)
         )
       )

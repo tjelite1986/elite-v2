@@ -2,7 +2,8 @@ import { sql } from "kysely";
 import { qb, getOne, getAll } from "./kysely";
 import { getProfileExtras, ProfileLink, ProfileField } from "./profiles";
 import { resolveBadges } from "./badges";
-import { getPrimaryHandle, personContentIds } from "./profile-links";
+import { getPrimaryHandle, personContentIds, getGroupMembers } from "./profile-links";
+import { shortIdsMentioning } from "./short-mentions";
 
 // A badge as sent to the client — the BadgeDef's `earned` predicate is dropped
 // (a function prop would break server→client serialization).
@@ -255,11 +256,23 @@ export function resolvePerson(
   // applied so the badge matches what the feed renders (public + viewer's own).
   // Clips on a person's profile, unioned across every linked member's creator
   // profiles (profile_id) and own uploads (uploader_id). Privacy still applies.
+  // Clip ids that @mention this person (or an alias), per channel — surfaced on
+  // the profile even when imported under another creator profile.
+  const members = getGroupMembers(h);
+  const mentionedMainIds = shortIdsMentioning(members, "main");
+  const mentioned18Ids = include18 ? shortIdsMentioning(members, "18plus") : [];
+
   const clipCount = (
     profileIds: number[],
-    channel: "main" | "18plus"
+    channel: "main" | "18plus",
+    mentionedIds: number[]
   ): number => {
-    if (profileIds.length === 0 && ids.userIds.length === 0) return 0;
+    if (
+      profileIds.length === 0 &&
+      ids.userIds.length === 0 &&
+      mentionedIds.length === 0
+    )
+      return 0;
     return (
       getOne<{ c: number }>(
         qb
@@ -273,6 +286,7 @@ export function resolvePerson(
               [
                 profileIds.length ? eb("profile_id", "in", profileIds) : null,
                 ids.userIds.length ? eb("uploader_id", "in", ids.userIds) : null,
+                mentionedIds.length ? eb("id", "in", mentionedIds) : null,
               ].filter((c): c is NonNullable<typeof c> => c !== null)
             )
           )
@@ -378,11 +392,11 @@ export function resolvePerson(
     viewerFollows,
     photos,
     shortsMainId,
-    shortsMain: clipCount(ids.shortsMainIds, "main"),
+    shortsMain: clipCount(ids.shortsMainIds, "main", mentionedMainIds),
     shortsMainAutoPoll,
     shortsMainPollable,
     shorts18Id: include18 ? shorts18Id : null,
-    shorts18: include18 ? clipCount(ids.shorts18Ids, "18plus") : 0,
+    shorts18: include18 ? clipCount(ids.shorts18Ids, "18plus", mentioned18Ids) : 0,
     shorts18AutoPoll: include18 ? shorts18AutoPoll : false,
     shorts18Pollable: include18 ? shorts18Pollable : false,
     instagramHandle: extras?.instagramHandle ?? null,

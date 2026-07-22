@@ -40,6 +40,7 @@ import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
 import { splitCaption, buildCaption } from "@/lib/shorts-caption";
 import PostAvatar from "@/components/post-avatar";
+import LinkifyText from "@/components/linkify-text";
 
 // Player interaction tuning.
 const SEEK_SECONDS = 10; // double-tap skip distance
@@ -800,7 +801,7 @@ export default function ShortCard({
                 titleLong && "cursor-pointer"
               )}
             >
-              {title}
+              <LinkifyText text={title} />
               {titleLong && (
                 <span className="ml-1 font-medium text-white/60">
                   {titleExpanded ? " less" : "… more"}
