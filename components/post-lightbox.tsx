@@ -11,11 +11,13 @@ import {
   ExternalLink,
   Trash2,
   Clapperboard,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useConfirm } from "@/components/confirm-dialog";
 import { CommentsSheet } from "@/components/post-card";
+import EditCaptionSheet from "@/components/edit-caption-sheet";
 import PostAvatar from "@/components/post-avatar";
 import Markdown from "@/components/markdown";
 import type { FeedPost } from "@/lib/posts";
@@ -56,6 +58,7 @@ export default function PostLightbox({
   const post = open ? posts.find((p) => p.id === open.id) ?? null : null;
   const [confirmDialog, confirmAsk] = useConfirm();
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   // Caption expansion, keyed to the post so stepping resets to clamped.
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -72,6 +75,7 @@ export default function PostLightbox({
 
   const closeAll = useCallback(() => {
     setCommentsOpen(false);
+    setShowEdit(false);
     onClose();
   }, [onClose]);
 
@@ -79,14 +83,17 @@ export default function PostLightbox({
   // order, and only a stack-top entry pops its history sentinel — sheet first
   // keeps both entries popped when the lightbox closes with the sheet open.
   useBackDismiss(commentsOpen, () => setCommentsOpen(false));
+  useBackDismiss(showEdit, () => setShowEdit(false));
   useBackDismiss(open !== null, closeAll);
 
-  const canDelete =
+  const isOwnerOrAdmin =
     !!post &&
     !!viewer &&
-    !!onRemove &&
     (viewer.isAdmin ||
       (post.author.type === "user" && post.author.id === viewer.userId));
+  // Delete needs the parent's removal callback too; editing only needs onPatch.
+  const canDelete = isOwnerOrAdmin && !!onRemove;
+  const canEdit = isOwnerOrAdmin;
   // Same owner/admin rule for moving the current video to shorts.
   const canMoveToShorts = canDelete && !!post.media[photoIndex]?.is_video;
 
@@ -407,9 +414,31 @@ export default function PostLightbox({
                 <span className="text-sm font-semibold">{post.comment_count}</span>
               )}
             </button>
+            {canEdit && (
+              <button
+                onClick={() => setShowEdit(true)}
+                className="flex items-center gap-1.5 text-white transition active:scale-90"
+                aria-label="Edit caption"
+                title="Edit caption"
+              >
+                <Pencil size={22} />
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {showEdit && post && (
+        <EditCaptionSheet
+          postId={post.id}
+          initial={post.caption ?? ""}
+          onClose={() => setShowEdit(false)}
+          onSaved={(next) => {
+            onPatch(post.id, { caption: next });
+            setShowEdit(false);
+          }}
+        />
+      )}
 
       {commentsOpen && (
         <CommentsSheet
