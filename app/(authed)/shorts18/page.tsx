@@ -19,14 +19,21 @@ export default async function Shorts18Page(
   const hasFocus = Boolean(focus && !isNaN(focus));
   const category = parseCategory(searchParams?.cat);
   const tag = searchParams?.tag?.replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "") || undefined;
-  // "For You" is the default; a focus deep-link needs the chronological feed
-  // (its pagination cuts on ids). Tag views stay chronological too.
-  const sort =
-    hasFocus || tag
-      ? ("new" as const)
-      : searchParams?.sort
-        ? parseShortsSort(searchParams.sort)
-        : ("foryou" as const);
+  // "For You" is the default. Tag views stay chronological. A focus deep-link
+  // downgrades ONLY the offset-paginated modes (foryou/random) to "new" — those
+  // can't anchor a clip; the id-ordered modes (new/following/liked) keep their
+  // mode, so Back / reload restores the feed the user was actually in.
+  const requested = searchParams?.sort ? parseShortsSort(searchParams.sort) : null;
+  const offsetSort = requested === "foryou" || requested === "random";
+  const sort = tag
+    ? ("new" as const)
+    : requested === null
+      ? hasFocus
+        ? ("new" as const)
+        : ("foryou" as const)
+      : hasFocus && offsetSort
+        ? ("new" as const)
+        : requested;
   return (
     <ShortsFeed
       key={(category ?? "all") + ":" + (tag ?? "") + ":" + sort}
@@ -35,7 +42,7 @@ export default async function Shorts18Page(
       category={category ?? undefined}
       tag={tag}
       sort={sort}
-      showModeSelector={!tag && !hasFocus}
+      showModeSelector={!tag && !(hasFocus && (requested === null || offsetSort))}
       focusId={hasFocus ? focus : undefined}
       isAdmin={session?.role === "admin"}
       viewerId={Number(session?.sub) || 0}

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Eye,
   EyeOff,
@@ -18,13 +17,21 @@ import ShortCard, { type FeedShort } from "@/components/short-card";
 
 // Feed ordering modes for the top-center selector (matches lib/shorts
 // parseShortsSort). "For You" reshuffles per visit via a client seed.
-const SORT_LABELS: Record<string, string> = {
+type SortMode = "new" | "foryou" | "following" | "liked" | "random";
+const SORT_LABELS: Record<SortMode, string> = {
   foryou: "For You",
   new: "New",
   following: "Following",
+  liked: "Liked",
   random: "Random",
 };
-const SORT_ORDER = ["foryou", "new", "following", "random"] as const;
+const SORT_ORDER: readonly SortMode[] = [
+  "foryou",
+  "new",
+  "following",
+  "liked",
+  "random",
+];
 
 export default function ShortsFeed({
   channel,
@@ -63,9 +70,9 @@ export default function ShortsFeed({
   // Fill the parent instead of sizing against the viewport (used when the
   // feed is embedded in an overlay that already owns the layout).
   fill?: boolean;
-  // Feed ordering mode (foryou/new/following/random) — driven by ?sort on the
-  // main channel pages.
-  sort?: "new" | "foryou" | "following" | "random";
+  // Initial feed ordering mode — seeded from ?sort on the channel pages. After
+  // mount the mode is client state (switched in-place, no navigation).
+  sort?: SortMode;
   // Show the top-center expandable mode selector (main channel feeds only).
   showModeSelector?: boolean;
 }) {
@@ -75,8 +82,8 @@ export default function ShortsFeed({
   // Explore → /shorts?focus=X, then scrolled to Y): the prop is still X while
   // the URL is Y, and Y is where the user actually is. Read the URL first, fall
   // back to the prop for a plain server render. Captured ONCE at mount so the
-  // ?focus we rewrite while scrolling can't flip effectiveSort mid-feed. A focus
-  // always implies id-cursor loading ('new'): For You / Random paginate by
+  // ?focus we rewrite while scrolling can't flip the initial mode mid-feed. A
+  // focus always implies id-cursor loading ('new'): For You / Random paginate by
   // offset and can't anchor on a specific clip.
   const [effectiveFocus] = useState<number | undefined>(
     () =>
@@ -85,14 +92,27 @@ export default function ShortsFeed({
           undefined
         : undefined) ?? focusId
   );
-  const effectiveSort: "new" | "foryou" | "following" | "random" = effectiveFocus
-    ? "new"
-    : sort;
+  // Feed ordering mode is CLIENT STATE, not a URL round-trip. A deep-link focus
+  // forces "new" (foryou/random paginate by offset and can't anchor a clip).
+  // Switching modes resets the feed in place (see switchMode) — no navigation,
+  // so the ?focus that scrolling writes can never linger and collapse every mode
+  // back to "new" (the bug this replaced).
+  // Only the offset-paginated modes (foryou/random) truly can't anchor a focus
+  // clip; the id-ordered modes (new/following/liked) can, so a focus deep-link
+  // keeps them intact (this is what lets Back / reload restore the chosen mode).
+  const [mode, setMode] = useState<SortMode>(
+    effectiveFocus && (sort === "foryou" || sort === "random") ? "new" : sort
+  );
+  // Latest mode, read inside async loaders to drop responses from a superseded
+  // mode (a slow fetch that resolves after the user switched away).
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
-  const router = useRouter();
-  // One shuffle seed per mount: For You / Random stay stable while paginating,
-  // reshuffle on the next visit.
-  const [seed] = useState(() => Math.floor(Math.random() * 2147483646) + 1);
+  // One shuffle seed per shuffle-mode entry: For You / Random stay stable while
+  // paginating, and reshuffle each time the user (re)selects them.
+  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 2147483646) + 1);
   const [modeOpen, setModeOpen] = useState(false);
   const [items, setItems] = useState<FeedShort[]>([]);
   // Opening from a grid tile: start the feed at that clip (older ones follow).
@@ -131,6 +151,9 @@ export default function ShortsFeed({
   const containerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
+  // Monotonic id for the newest in-flight forward load, so a load superseded by
+  // a mode switch neither clears the loading flag nor applies its page.
+  const loadTokenRef = useRef(0);
 
   useEffect(() => {
     setChromeHidden(localStorage.getItem("shorts:chromeHidden") === "1");
@@ -199,6 +222,7 @@ export default function ShortsFeed({
 
   const load = useCallback(async () => {
     if (loading || !hasMore) return;
+    const token = ++loadTokenRef.current;
     setLoading(true);
     try {
       const url = new URL("/api/shorts/feed", window.location.origin);
@@ -208,13 +232,16 @@ export default function ShortsFeed({
       if (category) url.searchParams.set("category", category);
       if (tag) url.searchParams.set("tag", tag);
       if (handle) url.searchParams.set("handle", handle);
-      if (effectiveSort !== "new") {
-        url.searchParams.set("sort", effectiveSort);
+      if (mode !== "new") {
+        url.searchParams.set("sort", mode);
         url.searchParams.set("seed", String(seed));
       }
       if (cursor) url.searchParams.set("cursor", String(cursor));
+      const reqMode = mode;
       const res = await fetch(url.toString());
-      if (res.ok) {
+      // Drop the response if the user switched modes while it was in flight —
+      // otherwise stale clips from the old mode would be appended.
+      if (res.ok && modeRef.current === reqMode) {
         const data = await res.json();
         setItems((prev) => {
           const seen = new Set(prev.map((p) => p.id));
@@ -225,9 +252,11 @@ export default function ShortsFeed({
         setHasMore(data.nextCursor !== null);
       }
     } finally {
-      setLoading(false);
+      // Only the most recent load clears the flag — a stale load (superseded by
+      // a mode switch) must not flip loading off while the new one is running.
+      if (loadTokenRef.current === token) setLoading(false);
     }
-  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle, effectiveSort, seed]);
+  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle, mode, seed]);
 
   // Backward load: clips immediately newer than the current top, prepended.
   // Held until the initial focus jump is done; the prepend is committed
@@ -235,8 +264,8 @@ export default function ShortsFeed({
   // other effect can scroll in between.
   const loadPrev = useCallback(async () => {
     // Backward pagination needs an id-ordered feed; the seeded modes don't
-    // have one (a focus always forces 'new' loading via effectiveSort).
-    if (effectiveSort !== "new") return;
+    // have one (a focus always forces 'new' mode at mount).
+    if (mode !== "new") return;
     if (loadingPrev || !hasPrev || prevCursor === null || !focusJumped) return;
     setLoadingPrev(true);
     try {
@@ -300,14 +329,52 @@ export default function ShortsFeed({
     category,
     tag,
     handle,
-    effectiveSort,
+    mode,
   ]);
 
-  // Initial load.
+  // Switch the feed ordering mode in place (no navigation): reseed the shuffle
+  // modes, clear any lingering ?focus from the URL, reset the feed, and let the
+  // mode-driven load effect below fetch the first page.
+  const switchMode = useCallback(
+    (m: SortMode) => {
+      if (m === mode) return;
+      if (m === "foryou" || m === "random") {
+        setSeed(Math.floor(Math.random() * 2147483646) + 1);
+      }
+      // Keep the URL shareable/back-restorable, but never leave a stale ?focus:
+      // that is exactly what used to force every mode back to "new".
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("focus");
+        if (m === "foryou") url.searchParams.delete("sort");
+        else url.searchParams.set("sort", m);
+        window.history.replaceState(window.history.state, "", url.toString());
+      }
+      // A mode switch is always a fresh, unfocused feed. Bumping the load token
+      // orphans any in-flight load, and clearing `loading` lets the mode effect
+      // fetch immediately instead of being blocked by the old fetch.
+      loadTokenRef.current++;
+      setLoading(false);
+      setItems([]);
+      setCursor(null);
+      setHasMore(true);
+      setPrevCursor(null);
+      setHasPrev(false);
+      setFocusJumped(true);
+      setActiveId(null);
+      containerRef.current?.scrollTo({ top: 0 });
+      setMode(m);
+    },
+    [mode]
+  );
+
+  // Load the first page whenever the mode changes (and once on mount). The
+  // reset above has already cleared items/cursor for a switch; on first mount
+  // the initial cursor may point at a deep-linked focus clip.
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [mode]);
 
   // Infinite scroll via a sentinel near the end of the list.
   useEffect(() => {
@@ -468,8 +535,9 @@ export default function ShortsFeed({
         )}
       </div>
 
-      {/* Top-center feed mode selector: "For You ˅" expanding to the four
-          ordering modes. Navigates via ?sort so the page remounts the feed. */}
+      {/* Top-center feed mode selector: "For You ˅" expanding to the ordering
+          modes. Switches the feed in place via switchMode — no navigation, so a
+          scrolled-in ?focus can never collapse every mode back to "new". */}
       {showModeSelector && (
         <div
           data-immersive-hide
@@ -479,7 +547,7 @@ export default function ShortsFeed({
             onClick={() => setModeOpen((v) => !v)}
             className="flex items-center gap-1.5 rounded-full bg-black/50 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70"
           >
-            {SORT_LABELS[sort]}
+            {SORT_LABELS[mode]}
             <ChevronDown
               size={15}
               className={cn("transition-transform", modeOpen && "rotate-180")}
@@ -492,15 +560,11 @@ export default function ShortsFeed({
                   key={m}
                   onClick={() => {
                     setModeOpen(false);
-                    if (m !== sort) {
-                      router.push(
-                        m === "foryou" ? basePath : `${basePath}?sort=${m}`
-                      );
-                    }
+                    switchMode(m);
                   }}
                   className={cn(
                     "block w-full px-4 py-2.5 text-center text-sm transition hover:bg-white/10",
-                    m === sort ? "font-semibold text-white" : "text-white/70"
+                    m === mode ? "font-semibold text-white" : "text-white/70"
                   )}
                 >
                   {SORT_LABELS[m]}

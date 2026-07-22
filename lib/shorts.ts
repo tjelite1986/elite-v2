@@ -37,10 +37,18 @@ export function canViewShort(
   return short.is_private === 0 || short.uploader_id === viewerId || isAdmin;
 }
 
-export type ShortsSort = "new" | "foryou" | "following" | "random";
+export type ShortsSort =
+  | "new"
+  | "foryou"
+  | "following"
+  | "liked"
+  | "random";
 
 export function parseShortsSort(raw: string | null): ShortsSort {
-  return raw === "foryou" || raw === "following" || raw === "random"
+  return raw === "foryou" ||
+    raw === "following" ||
+    raw === "liked" ||
+    raw === "random"
     ? raw
     : "new";
 }
@@ -130,9 +138,10 @@ export function getFeed(
   tag: string | null = null,
   // Feed ordering mode. "new" (default) = newest first with id-cursor
   // pagination; "following" = newest first, scoped to followed profiles/users;
-  // "foryou" = engagement-weighted with a seeded shuffle; "random" = seeded
-  // shuffle. foryou/random paginate by OFFSET (cursor doubles as the offset —
-  // a seeded order has no monotone id to cut on).
+  // "liked" = newest first, scoped to clips the viewer liked; "foryou" =
+  // engagement-weighted with a seeded shuffle; "random" = seeded shuffle.
+  // foryou/random paginate by OFFSET (cursor doubles as the offset — a seeded
+  // order has no monotone id to cut on).
   sort: ShortsSort = "new",
   seed = 0,
   // Mention scope: clip ids whose caption @mentions this person (or an alias),
@@ -237,6 +246,19 @@ export function getFeed(
           .selectFrom("short_playlist_items")
           .select("short_id")
           .where("playlist_id", "=", playlistId!)
+      )
+    )
+    // Liked mode: only clips the viewer has liked. Newest-liked-first is close
+    // enough to newest-first (id desc) for a personal library, so it keeps the
+    // id-cursor pagination — no offset mode needed.
+    .$if(sort === "liked", (q) =>
+      q.where(
+        "s.id",
+        "in",
+        qb
+          .selectFrom("short_likes")
+          .select("short_id")
+          .where("user_id", "=", viewerId)
       )
     )
     // Following mode: only clips from followed shorts profiles or uploads by
