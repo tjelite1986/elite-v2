@@ -10,6 +10,7 @@ export default function ExplorePage() {
         query={{ channel: "main" }}
         hrefPrefix="/shorts?focus="
         empty="Nothing to explore yet."
+        restoreKey="explore:main"
       />
     </div>
   );

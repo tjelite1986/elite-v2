@@ -21,12 +21,15 @@ export default function ShortsViews({
   storageKey,
   feed,
   defaultView = "grid",
+  restoreKey,
 }: {
   query: Record<string, string>;
   hrefPrefix: string;
   empty?: string;
   // localStorage key that remembers the chosen view for this surface.
   storageKey: string;
+  // Passed to the grid so its scroll position + tiles survive opening a clip.
+  restoreKey?: string;
   feed: {
     channel: "main" | "18plus";
     handle: string;
@@ -84,7 +87,14 @@ export default function ShortsViews({
           {btn("feed", <Rows3 size={17} />, "Feed view")}
         </div>
       </div>
-      {ready && <ShortsGrid query={query} hrefPrefix={hrefPrefix} empty={empty} />}
+      {ready && (
+        <ShortsGrid
+          query={query}
+          hrefPrefix={hrefPrefix}
+          empty={empty}
+          restoreKey={restoreKey}
+        />
+      )}
       {ready && view === "feed" && (
         <div className="fixed inset-x-0 bottom-0 top-0 z-40 bg-black">
           <ShortsFeed

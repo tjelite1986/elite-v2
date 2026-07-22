@@ -38,10 +38,15 @@ export default function ShortsGrid({
   adminActions = false,
   channel,
   onSelect,
+  restoreKey,
 }: {
   query: Record<string, string>;
   hrefPrefix: string;
   empty?: string;
+  // When set, the loaded tiles + scroll position are cached (sessionStorage)
+  // under this key, so returning to this grid after opening a clip lands where
+  // you left instead of scrolling back to the top. Must be unique per surface.
+  restoreKey?: string;
   // Admins in the 18+ section get a per-tile category selector to sort clips.
   categoryEditable?: boolean;
   // Admins get per-tile rename + delete buttons (used on profile pages).
@@ -89,8 +94,75 @@ export default function ShortsGrid({
     }
   }, [cursor, hasMore, loading, query]);
 
+  // Latest state, for the click-time cache save (the closure would otherwise
+  // capture stale values).
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+
+  // Cache the loaded tiles + current scroll so returning here lands where you
+  // left. Saved on the TILE CLICK, not on unmount: Next scrolls the window to 0
+  // as it navigates, before the component unmounts, so an unmount save would
+  // record scrollY = 0.
+  const saveCache = useCallback(() => {
+    if (!restoreKey) return;
+    try {
+      sessionStorage.setItem(
+        "sg:" + restoreKey,
+        JSON.stringify({
+          items: itemsRef.current.slice(0, 120),
+          cursor: cursorRef.current,
+          hasMore: hasMoreRef.current,
+          scrollY: window.scrollY,
+          at: Date.now(),
+        })
+      );
+    } catch {
+      /* quota / private mode — position just won't restore */
+    }
+  }, [restoreKey]);
+
+  // Restore-on-back: hydrate tiles + scroll from the cache instead of the
+  // top-of-list initial load. Short-lived (5 min) so a deliberate fresh visit
+  // later doesn't land mid-list. Runs post-mount (not in a useState initializer)
+  // to avoid an SSR/hydration mismatch.
   useEffect(() => {
-    load();
+    let restored = false;
+    if (restoreKey) {
+      try {
+        const raw = sessionStorage.getItem("sg:" + restoreKey);
+        if (raw) {
+          const c = JSON.parse(raw);
+          if (c?.items?.length && Date.now() - (c.at || 0) < 5 * 60 * 1000) {
+            setItems(c.items);
+            setCursor(c.cursor ?? null);
+            setHasMore(c.hasMore ?? true);
+            setLoadedOnce(true);
+            restored = true;
+            // Keep re-applying the offset for a few hundred ms: the tiles need a
+            // frame or two to lay out (so the page is tall enough), and Next's
+            // own back/forward scroll restoration fires around the same time and
+            // would otherwise win and drop us at the top. Stop once it sticks.
+            const targetY = c.scrollY || 0;
+            let tries = 0;
+            const apply = () => {
+              window.scrollTo(0, targetY);
+              tries++;
+              if (Math.abs(window.scrollY - targetY) > 4 && tries < 40) {
+                requestAnimationFrame(apply);
+              }
+            };
+            requestAnimationFrame(apply);
+          }
+        }
+      } catch {
+        /* private mode / bad JSON — fall back to a normal load */
+      }
+    }
+    if (!restored) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -204,7 +276,11 @@ export default function ShortsGrid({
                   {overlay}
                 </button>
               ) : (
-                <Link href={`${hrefPrefix}${s.id}`} className="block h-full w-full">
+                <Link
+                  href={`${hrefPrefix}${s.id}`}
+                  onClick={saveCache}
+                  className="block h-full w-full"
+                >
                   {poster}
                   {overlay}
                 </Link>

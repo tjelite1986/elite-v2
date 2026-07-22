@@ -495,6 +495,7 @@ export default function PersonProfile({
               hrefPrefix={shortsHref("main")}
               empty="No shorts yet."
               storageKey="shorts-view-profile"
+              restoreKey={`profile:${person.handle}:main`}
               feed={{ channel: "main", handle: person.handle, viewerId, isAdmin }}
             />
           )}
@@ -505,6 +506,7 @@ export default function PersonProfile({
               hrefPrefix={shortsHref("18plus")}
               empty="No clips yet."
               storageKey="shorts18-view-profile"
+              restoreKey={`profile:${person.handle}:18plus`}
               feed={{ channel: "18plus", handle: person.handle, viewerId, isAdmin }}
             />
           )}
