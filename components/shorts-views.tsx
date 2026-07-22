@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { LayoutGrid, Rows3 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useBackDismiss } from "@/lib/use-back-dismiss";
 import ShortsGrid from "@/components/shorts-grid";
 import ShortsFeed from "@/components/shorts-feed";
 
@@ -14,13 +13,19 @@ type View = "grid" | "feed";
 // The feed renders as a viewport overlay (under the top nav) so the whole clip
 // is visible — the profile header above would otherwise eat half the video.
 // Both render the same handle scope. The chosen view is remembered per surface.
+//
+// Feed view lives in the URL (?fv=1), NOT React state + useBackDismiss: opening
+// a clip's profile (its avatar → the SAME /people page) is a same-pathname
+// navigation that keeps this component mounted, so a history-sentinel dismiss
+// would fire on the way back and drop us to the grid. With ?fv=1 in the URL,
+// Back naturally lands back on the feed (and a further Back, popping the ?fv=1
+// entry, exits to the grid).
 export default function ShortsViews({
   query,
   hrefPrefix,
   empty = "No clips yet.",
   storageKey,
   feed,
-  defaultView = "grid",
   restoreKey,
 }: {
   query: Record<string, string>;
@@ -28,43 +33,74 @@ export default function ShortsViews({
   empty?: string;
   // localStorage key that remembers the chosen view for this surface.
   storageKey: string;
-  // Passed to the grid so its scroll position + tiles survive opening a clip.
-  restoreKey?: string;
   feed: {
     channel: "main" | "18plus";
     handle: string;
     viewerId: number;
     isAdmin: boolean;
   };
-  defaultView?: View;
+  // Passed to the grid so its scroll position + tiles survive opening a clip.
+  restoreKey?: string;
 }) {
-  const [view, setView] = useState<View>(defaultView);
-  // Wait for the saved preference before mounting a list, so we never fetch
-  // one view's first page and immediately throw it away for the other.
+  // Feed view is mirrored in the URL as ?fv=1 so Back restores it, but the render
+  // is driven by local state (set synchronously by pick + re-derived on
+  // popstate) — Next's useSearchParams does not reliably re-render on a bare
+  // window.history.pushState.
+  const [view, setView] = useState<View>("grid");
+  // Wait until the saved-preference check has run before mounting a list, so we
+  // never fetch one view's first page and immediately throw it away.
   const [ready, setReady] = useState(false);
 
+  const hasFv = () =>
+    new URLSearchParams(window.location.search).get("fv") === "1";
+
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(storageKey);
-      if (saved === "grid" || saved === "feed") setView(saved);
-    } catch {
-      /* private mode etc. — keep the default */
+    if (hasFv()) {
+      // Arrived on a feed URL (e.g. Back into the feed) — show it.
+      setView("feed");
+    } else {
+      // Honour the remembered "feed" preference by adding ?fv=1 (a real history
+      // entry, so Back still exits to the grid).
+      try {
+        if (window.localStorage.getItem(storageKey) === "feed") {
+          const u = new URL(window.location.href);
+          u.searchParams.set("fv", "1");
+          window.history.pushState(window.history.state, "", u.toString());
+          setView("feed");
+        }
+      } catch {
+        /* private mode etc. — keep the grid default */
+      }
     }
     setReady(true);
-  }, [storageKey]);
+    // Back/forward across the ?fv=1 entry flips the view.
+    const onPop = () => setView(hasFv() ? "feed" : "grid");
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pick = (v: View) => {
-    setView(v);
     try {
       window.localStorage.setItem(storageKey, v);
     } catch {
       /* non-persistent is fine */
     }
+    if (v === "feed") {
+      if (!hasFv()) {
+        const u = new URL(window.location.href);
+        u.searchParams.set("fv", "1");
+        window.history.pushState(window.history.state, "", u.toString());
+      }
+      setView("feed");
+    } else if (hasFv()) {
+      // Pop the ?fv=1 entry (popstate → view = grid) so we don't leave a
+      // dangling forward entry.
+      window.history.back();
+    } else {
+      setView("grid");
+    }
   };
-
-  // Device Back leaves the fullscreen feed back to the grid instead of
-  // leaving the profile page.
-  useBackDismiss(ready && view === "feed", () => pick("grid"));
 
   const btn = (v: View, icon: React.ReactNode, label: string) => (
     <button
