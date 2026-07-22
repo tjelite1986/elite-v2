@@ -2,6 +2,7 @@ import { sql } from "kysely";
 import { db, ShortRow, ShortChannel, ShortCategory } from "./db";
 import { qb, getOne, getAll } from "./kysely";
 import { has18Access } from "./shorts-gate";
+import { personContentIds } from "./profile-links";
 
 export function parseChannel(value: string | null | undefined): ShortChannel {
   return value === "18plus" ? "18plus" : "main";
@@ -51,6 +52,60 @@ export function parseShortsSort(raw: string | null): ShortsSort {
     raw === "random"
     ? raw
     : "new";
+}
+
+// The set of shorts a viewer "follows" on a channel, for the Following feed.
+// A person is one identity with several faces — a real user account, a post
+// creator, one or more shorts profiles — and a follow may be recorded on ANY of
+// them (a shorts follow from the shorts profile page stores target_type
+// 'shorts'; a follow from the /people page stores 'user' or 'creator'). So we
+// can't just match target_type 'shorts'/'user' on the raw ids — we resolve each
+// followed face to its handle and expand it through the unified-person graph
+// (personContentIds) to every shorts profile + owner-user id on this channel.
+// Without this, following someone via /people (creator) never surfaced their
+// shorts, and following the main profile didn't cover their 18+ profile.
+export function followedShortsScope(
+  viewerId: number,
+  channel: ShortChannel
+): { profileIds: number[]; userIds: number[] } {
+  const include18 = channel === "18plus";
+  const follows = db
+    .prepare("SELECT target_type, target_id FROM follows WHERE follower_id = ?")
+    .all(viewerId) as { target_type: string; target_id: number }[];
+  const profileIds = new Set<number>();
+  const userIds = new Set<number>();
+  const handles: string[] = [];
+
+  for (const f of follows) {
+    if (f.target_type === "shorts") {
+      const r = db
+        .prepare("SELECT name, channel FROM short_profiles WHERE id = ?")
+        .get(f.target_id) as { name: string; channel: string } | undefined;
+      if (r) {
+        if (r.channel === channel) profileIds.add(f.target_id);
+        handles.push(r.name);
+      }
+    } else if (f.target_type === "user") {
+      userIds.add(f.target_id); // a followed user's own uploads (uploader_id)
+      const r = db
+        .prepare("SELECT username FROM user_profiles WHERE user_id = ?")
+        .get(f.target_id) as { username: string } | undefined;
+      if (r) handles.push(r.username);
+    } else if (f.target_type === "creator") {
+      const r = db
+        .prepare("SELECT username FROM post_creators WHERE id = ?")
+        .get(f.target_id) as { username: string } | undefined;
+      if (r) handles.push(r.username);
+    }
+  }
+
+  for (const h of handles) {
+    const ids = personContentIds(h, include18);
+    for (const id of include18 ? ids.shorts18Ids : ids.shortsMainIds)
+      profileIds.add(id);
+    for (const id of ids.userIds) userIds.add(id);
+  }
+  return { profileIds: [...profileIds], userIds: [...userIds] };
 }
 
 export interface FeedShort {
@@ -156,6 +211,12 @@ export function getFeed(
   const profIds = profileId !== null ? [profileId, ...profileIds] : [...profileIds];
   const ownIds = ownerId !== null ? [ownerId, ...ownerIds] : [...ownerIds];
   const mentIds = [...mentionedIds];
+  // Following scope resolved once (only when needed) — the followed profile +
+  // uploader ids for this viewer on this channel, expanded via the person graph.
+  const followScope =
+    sort === "following"
+      ? followedShortsScope(viewerId, channel)
+      : { profileIds: [] as number[], userIds: [] as number[] };
   // Structure (joins, filters, ordering, pagination) is built with the typed
   // builder. The correlated count/exists columns stay as sql`` fragments —
   // this is exactly the "gnarliest queries fall partly back to raw SQL" case.
@@ -261,31 +322,26 @@ export function getFeed(
           .where("user_id", "=", viewerId)
       )
     )
-    // Following mode: only clips from followed shorts profiles or uploads by
-    // followed users.
+    // Following mode: clips from any shorts profile or uploader the viewer
+    // follows on this channel — resolved through the unified-person graph (see
+    // followedShortsScope), so a follow made on /people (creator/user) counts
+    // too, not just a follow made on the shorts profile page. An empty scope
+    // matches nothing (never falls through to channel-wide browsing).
     .$if(sort === "following", (q) =>
-      q.where((eb) =>
-        eb.or([
-          eb(
-            "s.profile_id",
-            "in",
-            qb
-              .selectFrom("follows")
-              .select("target_id")
-              .where("follower_id", "=", viewerId)
-              .where("target_type", "=", "shorts")
-          ),
-          eb(
-            "s.uploader_id",
-            "in",
-            qb
-              .selectFrom("follows")
-              .select("target_id")
-              .where("follower_id", "=", viewerId)
-              .where("target_type", "=", "user")
-          ),
-        ])
-      )
+      followScope.profileIds.length === 0 && followScope.userIds.length === 0
+        ? q.where(sql<boolean>`1 = 0`)
+        : q.where((eb) =>
+            eb.or(
+              [
+                followScope.profileIds.length
+                  ? eb("s.profile_id", "in", followScope.profileIds)
+                  : null,
+                followScope.userIds.length
+                  ? eb("s.uploader_id", "in", followScope.userIds)
+                  : null,
+              ].filter((c): c is NonNullable<typeof c> => c !== null)
+            )
+          )
     )
     // Cursor cut / backward mode only make sense for id-ordered feeds; the
     // seeded orders paginate by offset instead.

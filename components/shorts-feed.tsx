@@ -33,6 +33,13 @@ const SORT_ORDER: readonly SortMode[] = [
   "random",
 ];
 
+// Parse a ?sort URL value into a known mode, or null if absent/invalid.
+function parseSortParam(raw: string | null): SortMode | null {
+  return raw && (SORT_ORDER as readonly string[]).includes(raw)
+    ? (raw as SortMode)
+    : null;
+}
+
 export default function ShortsFeed({
   channel,
   focusId,
@@ -97,12 +104,23 @@ export default function ShortsFeed({
   // Switching modes resets the feed in place (see switchMode) — no navigation,
   // so the ?focus that scrolling writes can never linger and collapse every mode
   // back to "new" (the bug this replaced).
-  // Only the offset-paginated modes (foryou/random) truly can't anchor a focus
-  // clip; the id-ordered modes (new/following/liked) can, so a focus deep-link
-  // keeps them intact (this is what lets Back / reload restore the chosen mode).
-  const [mode, setMode] = useState<SortMode>(
-    effectiveFocus && (sort === "foryou" || sort === "random") ? "new" : sort
-  );
+  // The LIVE URL's ?sort wins over the prop, for the same reason effectiveFocus
+  // reads the URL: switchMode updates ?sort via replaceState WITHOUT a server
+  // navigation, so on a Back-restore Next hands us the cached server tree with
+  // the STALE `sort` prop from the original page load — but the browser has
+  // restored the real URL, so ?sort there is the mode the user actually chose.
+  // Only the offset-paginated modes (foryou/random) can't anchor a focus clip;
+  // the id-ordered modes (new/following/liked) keep their mode with a focus.
+  const [mode, setMode] = useState<SortMode>(() => {
+    const fromUrl =
+      typeof window !== "undefined"
+        ? parseSortParam(new URLSearchParams(window.location.search).get("sort"))
+        : null;
+    const initial = fromUrl ?? sort;
+    return effectiveFocus && (initial === "foryou" || initial === "random")
+      ? "new"
+      : initial;
+  });
   // Latest mode, read inside async loaders to drop responses from a superseded
   // mode (a slow fetch that resolves after the user switched away).
   const modeRef = useRef(mode);
