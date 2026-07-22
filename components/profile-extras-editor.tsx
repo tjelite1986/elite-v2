@@ -23,6 +23,7 @@ export default function ProfileExtrasEditor({
   initialIgHighlights,
   initialTiktok,
   initialTtAutoPoll,
+  initialAliases,
 }: {
   handle: string;
   initialBio: string;
@@ -36,6 +37,7 @@ export default function ProfileExtrasEditor({
   initialIgHighlights: boolean;
   initialTiktok: string;
   initialTtAutoPoll: boolean;
+  initialAliases: string[];
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -54,6 +56,8 @@ export default function ProfileExtrasEditor({
   const [igHighlights, setIgHighlights] = useState(initialIgHighlights);
   const [tiktok, setTiktok] = useState(initialTiktok);
   const [ttAutoPoll, setTtAutoPoll] = useState(initialTtAutoPoll);
+  const [aliases, setAliases] = useState<string[]>(initialAliases);
+  const [aliasInput, setAliasInput] = useState("");
   const [cookieState, setCookieState] = useState<"active" | "expired" | "missing" | null>(null);
   const [bannerBust, setBannerBust] = useState(hasBanner ? 1 : 0);
   const [busy, setBusy] = useState(false);
@@ -85,6 +89,54 @@ export default function ProfileExtrasEditor({
     setFields((fs) => [...fs, { label: "", value: "", public: true }]);
   const removeField = (i: number) =>
     setFields((fs) => fs.filter((_, idx) => idx !== i));
+
+  // Aliases save immediately (like avatar/banner), independently of the main
+  // "Save profile" button — each add/remove hits the aliases API and re-renders
+  // so resolution picks it up right away.
+  const addAliasHandle = async () => {
+    const value = aliasInput.trim();
+    if (!value) return;
+    setBusy(true);
+    setError(null);
+    const res = await fetch(
+      `/api/profiles/${encodeURIComponent(handle)}/aliases`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias: value }),
+      }
+    );
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setAliases(d.aliases);
+      setAliasInput("");
+      router.refresh();
+    } else {
+      setError(d.error || "Could not add alias.");
+    }
+    setBusy(false);
+  };
+
+  const removeAliasHandle = async (alias: string) => {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(
+      `/api/profiles/${encodeURIComponent(handle)}/aliases`,
+      {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alias }),
+      }
+    );
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setAliases(d.aliases);
+      router.refresh();
+    } else {
+      setError(d.error || "Could not remove alias.");
+    }
+    setBusy(false);
+  };
 
   const uploadAvatar = async (file: Blob) => {
     setBusy(true);
@@ -349,6 +401,61 @@ export default function ProfileExtrasEditor({
             <Plus size={14} /> Add field
           </button>
         )}
+      </div>
+
+      {/* Aliases / other names */}
+      <div>
+        <span className="mb-1 block text-xs font-medium text-white/50">
+          Other names (aliases)
+        </span>
+        <p className="mb-2 text-xs text-white/40">
+          Alternate @handles that should resolve to this profile. A short or post
+          tagged with an alias (e.g. a different spelling) then links here.
+          Changes apply immediately.
+        </p>
+        {aliases.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {aliases.map((a) => (
+              <span
+                key={a}
+                className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-sm"
+              >
+                @{a}
+                <button
+                  type="button"
+                  onClick={() => removeAliasHandle(a)}
+                  disabled={busy}
+                  className="text-rose-300 transition hover:text-rose-400 disabled:opacity-50"
+                  aria-label={`Remove alias ${a}`}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="mt-2 flex gap-2">
+          <input
+            value={aliasInput}
+            onChange={(e) => setAliasInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addAliasHandle();
+              }
+            }}
+            placeholder="@othername"
+            className="flex-1 rounded-xl bg-white/10 px-3 py-2 text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
+          />
+          <button
+            type="button"
+            onClick={addAliasHandle}
+            disabled={busy || !aliasInput.trim()}
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/10 px-4 text-sm font-semibold transition hover:bg-white/15 disabled:opacity-50"
+          >
+            <Plus size={14} /> Add
+          </button>
+        </div>
       </div>
 
       {/* Instagram source */}

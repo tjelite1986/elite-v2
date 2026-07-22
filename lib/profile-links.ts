@@ -135,6 +135,81 @@ export function unlinkProfile(memberHandle: string): void {
   );
 }
 
+// --- Aliases -------------------------------------------------------------
+// An alias is just a profile_links member with (usually) no backing profile of
+// its own: an alternate @handle/name that should resolve to a face. Sharing the
+// profile_links table means a single resolution path (getPrimaryHandle /
+// resolvePerson) serves both real linked profiles and bare name aliases — so a
+// short or post whose title tags a mis-/alternate-spelled handle still links to
+// the right profile.
+
+// Alias handles pointing at a face (its primary). The primary itself is
+// excluded — it is not its own alias.
+export function listAliases(handle: string): string[] {
+  const primary = getPrimaryHandle(handle);
+  const rows = db
+    .prepare(
+      "SELECT member_handle FROM profile_links WHERE primary_handle = ? ORDER BY member_handle"
+    )
+    .all(primary) as { member_handle: string }[];
+  return rows.map((r) => r.member_handle);
+}
+
+export type AddAliasResult =
+  | { ok: true; alias: string }
+  | { ok: false; error: string; status: 400 | 409 };
+
+// Add one alias handle to a face. Guards against hijacking another identity:
+// aliasing a real member account, or stealing a name already aliased to a
+// different face, is rejected (409). Returns the normalized alias on success.
+export function addAlias(handle: string, alias: string): AddAliasResult {
+  const primary = getPrimaryHandle(handle);
+  const member = norm(alias);
+  if (!member || member === primary) {
+    return {
+      ok: false,
+      error: "Enter a name that differs from this profile.",
+      status: 400,
+    };
+  }
+  if (member.length < 2 || member.length > 40) {
+    return { ok: false, error: "Name must be 2–40 characters.", status: 400 };
+  }
+  // A real member account must not be folded under someone else's face.
+  const userAcct = db
+    .prepare("SELECT 1 FROM user_profiles WHERE norm_handle(username) = ?")
+    .get(member);
+  if (userAcct) {
+    return {
+      ok: false,
+      error: "That name belongs to a member account.",
+      status: 409,
+    };
+  }
+  // A name already aliased to a different face can't be stolen.
+  const existing = db
+    .prepare("SELECT primary_handle FROM profile_links WHERE member_handle = ?")
+    .get(member) as { primary_handle: string } | undefined;
+  if (existing && existing.primary_handle !== primary) {
+    return {
+      ok: false,
+      error: "That name is already an alias of another profile.",
+      status: 409,
+    };
+  }
+  linkProfiles(primary, [member]);
+  return { ok: true, alias: member };
+}
+
+// Remove an alias from THIS face only — scoped so one profile's owner can't
+// unlink an alias belonging to another profile.
+export function removeAlias(handle: string, alias: string): void {
+  const primary = getPrimaryHandle(handle);
+  db.prepare(
+    "DELETE FROM profile_links WHERE member_handle = ? AND primary_handle = ?"
+  ).run(norm(alias), primary);
+}
+
 export interface LinkGroup {
   primary: string;
   members: string[];

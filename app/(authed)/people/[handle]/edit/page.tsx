@@ -5,6 +5,7 @@ import { getSession } from "@/lib/auth";
 import { ensureUserProfile, getProfileExtras } from "@/lib/profiles";
 import { has18Access } from "@/lib/shorts-gate";
 import { resolvePerson } from "@/lib/directory";
+import { listAliases } from "@/lib/profile-links";
 import ProfileExtrasEditor from "@/components/profile-extras-editor";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,7 @@ export default async function EditProfilePage(
   if (!person.isOwn && session.role !== "admin") redirect(`/people/${person.handle}`);
 
   const extras = getProfileExtras(person.handle);
+  const aliases = listAliases(person.handle);
 
   return (
     <div className="mx-auto max-w-md px-4 pb-24 pt-24 text-white">
@@ -52,6 +54,7 @@ export default async function EditProfilePage(
         initialIgHighlights={extras?.igHighlights ?? false}
         initialTiktok={extras?.tiktokHandle ?? ""}
         initialTtAutoPoll={extras?.ttAutoPoll ?? false}
+        initialAliases={aliases}
       />
     </div>
   );
