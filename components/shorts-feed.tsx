@@ -69,20 +69,21 @@ export default function ShortsFeed({
   // Show the top-center expandable mode selector (main channel feeds only).
   showModeSelector?: boolean;
 }) {
-  // On a Back-navigation Next can restore the page's server tree WITHOUT the
-  // ?focus we wrote to the URL while scrolling (it keeps its own history state),
-  // so the focusId prop may be missing even though the URL has it — read the
-  // live URL too. Captured ONCE at mount: we later rewrite ?focus as the user
-  // scrolls, and re-reading it every render would flip effectiveSort mid-feed.
-  // A focus always implies id-cursor loading ('new'): For You / Random paginate
-  // by offset and can't anchor on a specific clip.
+  // The LIVE URL wins over the focusId prop. We keep ?focus updated as the user
+  // scrolls (replaceState), but on a Back-navigation Next restores the page's
+  // server tree with the STALE prop from when the page was entered (e.g.
+  // Explore → /shorts?focus=X, then scrolled to Y): the prop is still X while
+  // the URL is Y, and Y is where the user actually is. Read the URL first, fall
+  // back to the prop for a plain server render. Captured ONCE at mount so the
+  // ?focus we rewrite while scrolling can't flip effectiveSort mid-feed. A focus
+  // always implies id-cursor loading ('new'): For You / Random paginate by
+  // offset and can't anchor on a specific clip.
   const [effectiveFocus] = useState<number | undefined>(
     () =>
-      focusId ??
       (typeof window !== "undefined"
         ? Number(new URLSearchParams(window.location.search).get("focus")) ||
           undefined
-        : undefined)
+        : undefined) ?? focusId
   );
   const effectiveSort: "new" | "foryou" | "following" | "random" = effectiveFocus
     ? "new"
