@@ -22,13 +22,13 @@ function norm(name: string): string {
 // components/linkify-text.tsx.
 const MENTION_RE = /(?:^|[^a-zA-Z0-9_.])@([a-zA-Z0-9_.]{1,30})/g;
 
-// Normalized, de-duplicated handles mentioned in a caption.
+// Normalized, de-duplicated handles mentioned in a caption. matchAll() takes its
+// own copy of the regex internally, so concurrent/nested calls can't corrupt a
+// shared lastIndex the way exec() in a loop would.
 export function extractMentions(caption: string | null | undefined): string[] {
   if (!caption) return [];
   const out = new Set<string>();
-  MENTION_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = MENTION_RE.exec(caption)) !== null) {
+  for (const m of caption.matchAll(MENTION_RE)) {
     const h = norm(m[1]);
     if (h) out.add(h);
   }

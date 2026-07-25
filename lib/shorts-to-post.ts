@@ -3,9 +3,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { db, PostMediaRow, PostRow, ShortChannel } from "./db";
+import { db, PostMediaRow, PostRow, ShortChannel, ShortRow } from "./db";
 import { qb, getOne } from "./kysely";
-import { getShort } from "./shorts";
 import {
   PROFILE_ROOT,
   channelDir,
@@ -24,16 +23,22 @@ import {
 import { findOrCreateShortProfile } from "./user-import";
 import { parseHashtags } from "./posts";
 
+// Hash a file by streaming it through SHA-256 rather than buffering the whole
+// thing into the heap — source videos can be 200-500 MB.
+async function fileHash(p: string): Promise<string> {
+  const h = crypto.createHash("sha256");
+  for await (const chunk of fs.createReadStream(p)) h.update(chunk);
+  return h.digest("hex");
+}
+
 // Move a short into the posts module as a single-video post (the Videos tab).
 // The clip's caption becomes the post caption (hashtags parsed) and an 18+ clip
 // becomes an 18+ post. Once the post exists the short is retired the same way
 // the delete route does (soft-delete first, then unlink). Likes/comments on the
 // short are NOT carried over — same trade-off as deleting it.
-export function moveShortToVideoPost(
-  shortId: number
-): { ok: true; postId: number } | { ok: false; error: string } {
-  const short = getShort(shortId);
-  if (!short) return { ok: false, error: "Not found" };
+export async function moveShortToVideoPost(
+  short: ShortRow
+): Promise<{ ok: true; postId: number } | { ok: false; error: string }> {
   if (short.status !== "ready") {
     return { ok: false, error: "The clip is still processing." };
   }
@@ -93,10 +98,7 @@ export function moveShortToVideoPost(
   const stored = storePostVideoFromFile(slug, src, userHome);
   // Dedup key against future re-imports of the same file (source bytes, like
   // the importer — the remux output isn't byte-stable).
-  const contentHash = crypto
-    .createHash("sha256")
-    .update(fs.readFileSync(src))
-    .digest("hex");
+  const contentHash = await fileHash(src);
 
   const caption = short.caption;
   const postId = db.transaction(() => {
@@ -162,23 +164,12 @@ function makeShortPoster(videoPath: string, posterPath: string): boolean {
 // as-is and inserted 'pending' for the transcode job. The media item is then
 // removed from the post; a post that loses its last media is soft-deleted.
 export function moveVideoPostMediaToShort(
-  mediaId: number
+  media: PostMediaRow,
+  post: PostRow
 ): { ok: true; shortId: number; postDeleted: boolean } | { ok: false; error: string } {
-  const media = getOne<PostMediaRow>(
-    qb.selectFrom("post_media").selectAll().where("id", "=", mediaId)
-  );
-  if (!media) return { ok: false, error: "Not found" };
   if (!media.mime_type.startsWith("video/")) {
     return { ok: false, error: "Only videos can move to shorts." };
   }
-  const post = getOne<PostRow>(
-    qb
-      .selectFrom("posts")
-      .selectAll()
-      .where("id", "=", media.post_id)
-      .where("is_deleted", "=", 0)
-  );
-  if (!post) return { ok: false, error: "Not found" };
 
   const src = mediaPathFor(media.storage_key);
   if (!fs.existsSync(src)) {

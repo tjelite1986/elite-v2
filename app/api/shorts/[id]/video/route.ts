@@ -28,11 +28,12 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   }
 
   const filePath = videoPathFor(short.channel, short.storage_key);
-  if (!fs.existsSync(filePath)) {
+  let size: number;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
     return new NextResponse("Not found", { status: 404 });
   }
-
-  const size = fs.statSync(filePath).size;
   // Derive the Content-Type server-side from the on-disk extension via a fixed
   // allowlist — never echo the uploaded/stored mime, which is attacker-supplied
   // (file.type) and could otherwise be set to text/html for a stored XSS.
