@@ -162,16 +162,29 @@ export default function NavMenuContent({
         <MenuRow href="/settings" icon={<Settings size={18} />} label="Settings" />
         <button
           onClick={toggleFab}
+          role="switch"
+          aria-checked={!fabHidden}
           className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-white/5"
         >
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80">
             <Camera size={18} />
           </span>
-          <span className="min-w-0">
+          <span className="min-w-0 flex-1">
             <span className="block text-[15px] font-medium">Screenshot button</span>
             <span className="block text-xs text-white/40">
-              {fabHidden ? "Hidden — tap to show" : "Shown — tap to hide"}
+              Show the floating privacy/screenshot button
             </span>
+          </span>
+          <span
+            className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+              fabHidden ? "bg-white/20" : "bg-rose-500"
+            }`}
+          >
+            <span
+              className={`absolute top-1 size-4 rounded-full bg-white transition-all ${
+                fabHidden ? "left-1" : "left-6"
+              }`}
+            />
           </span>
         </button>
         <button
