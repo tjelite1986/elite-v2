@@ -518,6 +518,10 @@ for (const entry of entries) {
     try {
       for (const f of fs.readdirSync(dir)) {
         if (f.startsWith(".")) continue;
+        // Metadata sidecars ride along with their media file and are consumed
+        // with it — by the time this listing reaches one it is usually gone.
+        // Skipping them here keeps the ENOENT out of the skipped count.
+        if (f.toLowerCase().endsWith(".json")) continue;
         const fp = path.join(dir, f);
         try {
           if (fs.statSync(fp).isFile()) await handleFile(username, fp, f);
