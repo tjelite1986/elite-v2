@@ -6,6 +6,7 @@ import {
   getProfileSummary,
   parseChannel,
   parseShortsSort,
+  parseShortsLength,
 } from "@/lib/shorts";
 import { parseCategory } from "@/lib/shorts-categories";
 import { personContentIds, getGroupMembers } from "@/lib/profile-links";
@@ -47,6 +48,8 @@ export async function GET(request: Request) {
   const sort = parseShortsSort(url.searchParams.get("sort"));
   const seedRaw = Number(url.searchParams.get("seed"));
   const seed = Number.isFinite(seedRaw) ? seedRaw : 0;
+  // Clip-length scope: short / long, split at the shorts-format minute.
+  const length = parseShortsLength(url.searchParams.get("length"));
 
   // Profile-scoped feed: derive the channel from the profile so 18+ gating still
   // applies. Channel-scoped feed: use the requested channel.
@@ -107,7 +110,8 @@ export async function GET(request: Request) {
     tag,
     sort,
     seed,
-    mentionedIds
+    mentionedIds,
+    length
   );
 
   return NextResponse.json({ items, nextCursor });

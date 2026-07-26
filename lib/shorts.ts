@@ -54,6 +54,18 @@ export function parseShortsSort(raw: string | null): ShortsSort {
     : "new";
 }
 
+// Clip-length filter. The cut is the shorts format's own 60 seconds: below it a
+// clip is something you swipe past, above it something you sit through, and the
+// library splits cleanly there. A clip whose duration never got probed has no
+// length to judge, so it belongs to neither side and only shows under "all".
+export const SHORT_MAX_SECONDS = 60;
+
+export type ShortsLength = "all" | "short" | "long";
+
+export function parseShortsLength(raw: string | null): ShortsLength {
+  return raw === "short" || raw === "long" ? raw : "all";
+}
+
 // The set of shorts a viewer "follows" on a channel, for the Following feed.
 // A person is one identity with several faces — a real user account, a post
 // creator, one or more shorts profiles — and a follow may be recorded on ANY of
@@ -203,7 +215,10 @@ export function getFeed(
   // unioned with the profile/owner scope so a tagged clip surfaces on the
   // tagged person's profile too — even though it was imported under a different
   // creator profile.
-  mentionedIds: number[] = []
+  mentionedIds: number[] = [],
+  // Clip-length scope: "short" / "long" split at SHORT_MAX_SECONDS, "all" (the
+  // default) leaves the length alone.
+  length: ShortsLength = "all"
 ): { items: FeedShort[]; nextCursor: number | null } {
   const offsetMode = sort === "foryou" || sort === "random";
   // Keep the seed inside SQLite's integer math comfort zone.
@@ -291,6 +306,13 @@ export function getFeed(
       (q) => q.where("s.channel", "=", channel)
     )
     .$if(category !== null, (q) => q.where("s.category", "=", category!))
+    // Clip length. An unprobed clip (duration NULL) is not silently sorted into
+    // either side — SQLite's NULL comparison drops it from both, which is the
+    // honest answer to "is this one short?".
+    .$if(length === "short", (q) =>
+      q.where("s.duration", "<=", SHORT_MAX_SECONDS)
+    )
+    .$if(length === "long", (q) => q.where("s.duration", ">", SHORT_MAX_SECONDS))
     // Hashtag scope: caption contains "#tag". Matches the hashtag followed by a
     // word boundary (a trailing space is appended so an end-of-caption tag also
     // matches) so #cat doesn't also surface #caturday.

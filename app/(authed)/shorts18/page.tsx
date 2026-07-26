@@ -1,6 +1,6 @@
 import ShortsFeed from "@/components/shorts-feed";
 import { getSession } from "@/lib/auth";
-import { parseShortsSort } from "@/lib/shorts";
+import { parseShortsLength, parseShortsSort } from "@/lib/shorts";
 import { parseCategory } from "@/lib/shorts-categories";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,13 @@ export const dynamic = "force-dynamic";
 // gone); it scopes the feed via the `cat` param.
 export default async function Shorts18Page(
   props: {
-    searchParams: Promise<{ focus?: string; cat?: string; tag?: string; sort?: string }>;
+    searchParams: Promise<{
+      focus?: string;
+      cat?: string;
+      tag?: string;
+      sort?: string;
+      length?: string;
+    }>;
   }
 ) {
   const searchParams = await props.searchParams;
@@ -24,6 +30,8 @@ export default async function Shorts18Page(
   // can't anchor a clip; the id-ordered modes (new/following/liked) keep their
   // mode, so Back / reload restores the feed the user was actually in.
   const requested = searchParams?.sort ? parseShortsSort(searchParams.sort) : null;
+  // Clip-length filter, so a reload or Back returns to the same slice.
+  const length = parseShortsLength(searchParams?.length ?? null);
   const offsetSort = requested === "foryou" || requested === "random";
   const sort = tag
     ? ("new" as const)
@@ -36,13 +44,21 @@ export default async function Shorts18Page(
         : requested;
   return (
     <ShortsFeed
-      key={(category ?? "all") + ":" + (tag ?? "") + ":" + sort}
+      key={(category ?? "all") + ":" + (tag ?? "") + ":" + sort + ":" + length}
       channel="18plus"
       basePath="/shorts18"
       category={category ?? undefined}
       tag={tag}
       sort={sort}
-      showModeSelector={!tag && !(hasFocus && (requested === null || offsetSort))}
+      length={length}
+      // A focus deep-link normally hides the selector (it downgrades the
+      // offset-paginated modes to "new"), but an active length filter has to
+      // stay reachable: scrolling writes ?focus back into the URL, so without
+      // this a reload would strand the user in a filter they cannot clear.
+      showModeSelector={
+        !tag &&
+        (length !== "all" || !(hasFocus && (requested === null || offsetSort)))
+      }
       focusId={hasFocus ? focus : undefined}
       isAdmin={session?.role === "admin"}
       viewerId={Number(session?.sub) || 0}

@@ -1,12 +1,12 @@
 import ShortsFeed from "@/components/shorts-feed";
 import { getSession } from "@/lib/auth";
-import { parseShortsSort } from "@/lib/shorts";
+import { parseShortsLength, parseShortsSort } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
 
 export default async function ShortsPage(
   props: {
-    searchParams: Promise<{ focus?: string; tag?: string; sort?: string }>;
+    searchParams: Promise<{ focus?: string; tag?: string; sort?: string; length?: string }>;
   }
 ) {
   const searchParams = await props.searchParams;
@@ -19,6 +19,8 @@ export default async function ShortsPage(
   // can't anchor a clip; the id-ordered modes (new/following/liked) keep their
   // mode, so Back / reload restores the feed the user was actually in.
   const requested = searchParams?.sort ? parseShortsSort(searchParams.sort) : null;
+  // Clip-length filter, so a reload or Back returns to the same slice.
+  const length = parseShortsLength(searchParams?.length ?? null);
   const offsetSort = requested === "foryou" || requested === "random";
   const sort = tag
     ? ("new" as const)
@@ -31,12 +33,20 @@ export default async function ShortsPage(
         : requested;
   return (
     <ShortsFeed
-      key={sort + ":" + (tag ?? "")}
+      key={sort + ":" + length + ":" + (tag ?? "")}
       channel="main"
       focusId={hasFocus ? focus : undefined}
       tag={tag}
       sort={sort}
-      showModeSelector={!tag && !(hasFocus && (requested === null || offsetSort))}
+      length={length}
+      // A focus deep-link normally hides the selector (it downgrades the
+      // offset-paginated modes to "new"), but an active length filter has to
+      // stay reachable: scrolling writes ?focus back into the URL, so without
+      // this a reload would strand the user in a filter they cannot clear.
+      showModeSelector={
+        !tag &&
+        (length !== "all" || !(hasFocus && (requested === null || offsetSort)))
+      }
       isAdmin={session?.role === "admin"}
       viewerId={Number(session?.sub) || 0}
     />

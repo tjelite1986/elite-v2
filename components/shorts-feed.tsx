@@ -40,6 +40,17 @@ function parseSortParam(raw: string | null): SortMode | null {
     : null;
 }
 
+// Clip-length filter, split server-side at the shorts format's 60 seconds
+// (lib/shorts SHORT_MAX_SECONDS). It crosses with the ordering mode rather than
+// replacing it: "For You, but only the long ones" is the useful question.
+type LengthFilter = "all" | "short" | "long";
+const LENGTH_LABELS: Record<LengthFilter, string> = {
+  all: "Any length",
+  short: "Short",
+  long: "Long",
+};
+const LENGTH_ORDER: readonly LengthFilter[] = ["all", "short", "long"];
+
 export default function ShortsFeed({
   channel,
   focusId,
@@ -53,6 +64,7 @@ export default function ShortsFeed({
   basePath = "/shorts",
   fill = false,
   sort = "new",
+  length: initialLength = "all",
   showModeSelector = false,
 }: {
   channel: "main" | "18plus";
@@ -80,6 +92,9 @@ export default function ShortsFeed({
   // Initial feed ordering mode — seeded from ?sort on the channel pages. After
   // mount the mode is client state (switched in-place, no navigation).
   sort?: SortMode;
+  // Initial clip-length filter — seeded from ?length on the channel pages, so a
+  // reload or Back lands in the same filter. Client state after mount.
+  length?: LengthFilter;
   // Show the top-center expandable mode selector (main channel feeds only).
   showModeSelector?: boolean;
 }) {
@@ -127,6 +142,23 @@ export default function ShortsFeed({
   useEffect(() => {
     modeRef.current = mode;
   }, [mode]);
+
+  // Clip-length filter, read from the live URL for the same reason the mode is:
+  // a Back-navigation restores the server tree with the prop from when the page
+  // was entered, while the URL holds what the user actually picked.
+  const [length, setLength] = useState<LengthFilter>(() => {
+    const raw =
+      typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("length")
+        : null;
+    return raw === "short" || raw === "long" ? raw : initialLength;
+  });
+  // Same stale-response guard as the mode: a filter switch must drop the pages
+  // still in flight for the previous one.
+  const lengthRef = useRef(length);
+  useEffect(() => {
+    lengthRef.current = length;
+  }, [length]);
 
   // One shuffle seed per shuffle-mode entry: For You / Random stay stable while
   // paginating, and reshuffle each time the user (re)selects them.
@@ -254,12 +286,14 @@ export default function ShortsFeed({
         url.searchParams.set("sort", mode);
         url.searchParams.set("seed", String(seed));
       }
+      if (length !== "all") url.searchParams.set("length", length);
       if (cursor) url.searchParams.set("cursor", String(cursor));
       const reqMode = mode;
+      const reqLength = length;
       const res = await fetch(url.toString());
-      // Drop the response if the user switched modes while it was in flight —
-      // otherwise stale clips from the old mode would be appended.
-      if (res.ok && modeRef.current === reqMode) {
+      // Drop the response if the user switched modes or length filters while it
+      // was in flight — otherwise stale clips from the old feed get appended.
+      if (res.ok && modeRef.current === reqMode && lengthRef.current === reqLength) {
         const data = await res.json();
         setItems((prev) => {
           const seen = new Set(prev.map((p) => p.id));
@@ -274,7 +308,7 @@ export default function ShortsFeed({
       // a mode switch) must not flip loading off while the new one is running.
       if (loadTokenRef.current === token) setLoading(false);
     }
-  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle, mode, seed]);
+  }, [channel, cursor, hasMore, loading, profileId, playlistId, category, tag, handle, mode, length, seed]);
 
   // Backward load: clips immediately newer than the current top, prepended.
   // Held until the initial focus jump is done; the prepend is committed
@@ -294,6 +328,7 @@ export default function ShortsFeed({
       if (category) url.searchParams.set("category", category);
       if (tag) url.searchParams.set("tag", tag);
       if (handle) url.searchParams.set("handle", handle);
+      if (length !== "all") url.searchParams.set("length", length);
       url.searchParams.set("after", String(prevCursor));
       const res = await fetch(url.toString());
       if (res.ok) {
@@ -348,6 +383,7 @@ export default function ShortsFeed({
     tag,
     handle,
     mode,
+    length,
   ]);
 
   // Switch the feed ordering mode in place (no navigation): reseed the shuffle
@@ -386,13 +422,41 @@ export default function ShortsFeed({
     [mode]
   );
 
+  // Switch the clip-length filter in place, the same way switchMode does: the
+  // ordering mode and its shuffle seed survive, so "For You" stays the same
+  // shuffle with only the long clips left in it.
+  const switchLength = useCallback(
+    (l: LengthFilter) => {
+      if (l === length) return;
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("focus");
+        if (l === "all") url.searchParams.delete("length");
+        else url.searchParams.set("length", l);
+        window.history.replaceState(window.history.state, "", url.toString());
+      }
+      loadTokenRef.current++;
+      setLoading(false);
+      setItems([]);
+      setCursor(null);
+      setHasMore(true);
+      setPrevCursor(null);
+      setHasPrev(false);
+      setFocusJumped(true);
+      setActiveId(null);
+      containerRef.current?.scrollTo({ top: 0 });
+      setLength(l);
+    },
+    [length]
+  );
+
   // Load the first page whenever the mode changes (and once on mount). The
   // reset above has already cleared items/cursor for a switch; on first mount
   // the initial cursor may point at a deep-linked focus clip.
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [mode, length]);
 
   // Infinite scroll via a sentinel near the end of the list.
   useEffect(() => {
@@ -566,13 +630,16 @@ export default function ShortsFeed({
             className="flex items-center gap-1.5 rounded-full bg-black/50 px-4 py-2 text-sm font-semibold text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70"
           >
             {SORT_LABELS[mode]}
+            {length !== "all" && (
+              <span className="text-white/60">· {LENGTH_LABELS[length]}</span>
+            )}
             <ChevronDown
               size={15}
               className={cn("transition-transform", modeOpen && "rotate-180")}
             />
           </button>
           {modeOpen && (
-            <div className="absolute left-1/2 top-full mt-1.5 w-40 -translate-x-1/2 overflow-hidden rounded-xl bg-neutral-900/95 py-1 ring-1 ring-white/15 backdrop-blur">
+            <div className="absolute left-1/2 top-full mt-1.5 w-44 -translate-x-1/2 overflow-hidden rounded-xl bg-neutral-900/95 py-1 ring-1 ring-white/15 backdrop-blur">
               {SORT_ORDER.map((m) => (
                 <button
                   key={m}
@@ -586,6 +653,24 @@ export default function ShortsFeed({
                   )}
                 >
                   {SORT_LABELS[m]}
+                </button>
+              ))}
+              {/* Length is a second axis, not a sixth mode: it narrows whichever
+                  ordering is selected, so it sits below its own divider. */}
+              <div className="my-1 border-t border-white/10" />
+              {LENGTH_ORDER.map((l) => (
+                <button
+                  key={l}
+                  onClick={() => {
+                    setModeOpen(false);
+                    switchLength(l);
+                  }}
+                  className={cn(
+                    "block w-full px-4 py-2.5 text-center text-sm transition hover:bg-white/10",
+                    l === length ? "font-semibold text-white" : "text-white/70"
+                  )}
+                >
+                  {LENGTH_LABELS[l]}
                 </button>
               ))}
             </div>
