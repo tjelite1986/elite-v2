@@ -59,8 +59,31 @@ jobs:
       # Gate the build only on critical vulnerabilities. High/moderate are
       # reported below but do not fail CI (the known Next.js DoS advisories
       # have no fix on the 14.x line and require a major upgrade).
+      #
+      # A failed audit and an audit that never ran are not the same thing, and
+      # npm exits 1 for both: the registry has served the advisory endpoint as
+      # undeclared gzip, which npm reports as invalid JSON. Only a real report
+      # (it always carries .metadata.vulnerabilities) can fail this job; an
+      # unreachable endpoint is retried, then warned about, so a registry
+      # outage cannot silently pass as "no vulnerabilities" either.
       - name: Audit production dependencies (fail on critical)
-        run: npm audit --omit=dev --audit-level=critical
+        run: |
+          for attempt in 1 2 3; do
+            if report=$(npm audit --omit=dev --audit-level=critical --json 2>audit-stderr.log); then
+              echo "$report" | jq -c '.metadata.vulnerabilities'
+              echo "No critical vulnerabilities in production dependencies."
+              exit 0
+            fi
+            if printf '%s' "$report" | jq -e '.metadata.vulnerabilities' >/dev/null 2>&1; then
+              printf '%s' "$report" | jq '.metadata.vulnerabilities'
+              echo "::error::Critical vulnerabilities found in production dependencies."
+              exit 1
+            fi
+            echo "::warning::npm audit did not return a report (attempt $attempt of 3)."
+            cat audit-stderr.log
+            sleep 15
+          done
+          echo "::warning::Audit gate skipped: the registry never returned a usable report."
 
       - name: Report high/moderate vulnerabilities (non-blocking)
         if: always()
