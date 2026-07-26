@@ -15,6 +15,16 @@ interface PickerProfile {
   clip_count: number;
 }
 
+// Clip-length filter, the grid's counterpart of the feed's (same server-side
+// split at lib/shorts SHORT_MAX_SECONDS, same ?length param).
+type LengthFilter = "all" | "short" | "long";
+const LENGTH_LABELS: Record<LengthFilter, string> = {
+  all: "All",
+  short: "Short",
+  long: "Long",
+};
+const LENGTH_ORDER: readonly LengthFilter[] = ["all", "short", "long"];
+
 interface GridShort {
   id: number;
   caption: string | null;
@@ -40,6 +50,7 @@ export default function ShortsGrid({
   onSelect,
   restoreKey,
   isAdmin = false,
+  lengthFilter = false,
 }: {
   query: Record<string, string>;
   hrefPrefix: string;
@@ -61,6 +72,8 @@ export default function ShortsGrid({
   // Selection mode: a tile calls onSelect(shortId) instead of opening the clip
   // (used to pick a profile picture from a clip's poster frame).
   onSelect?: (shortId: number) => void;
+  // Show the short/long segmented control above the tiles.
+  lengthFilter?: boolean;
 }) {
   const router = useRouter();
   const [items, setItems] = useState<GridShort[]>([]);
@@ -71,7 +84,17 @@ export default function ShortsGrid({
   const [moveId, setMoveId] = useState<number | null>(null);
   const [editClip, setEditClip] = useState<{ id: number; caption: string | null } | null>(null);
   const [confirmDialog, confirmAsk] = useConfirm();
+  // Clip length, read from the live URL so a Back-navigation returns to the
+  // same slice (switchLength writes it with replaceState — no server round-trip).
+  const [length, setLength] = useState<LengthFilter>(() => {
+    if (!lengthFilter || typeof window === "undefined") return "all";
+    const raw = new URLSearchParams(window.location.search).get("length");
+    return raw === "short" || raw === "long" ? raw : "all";
+  });
   const sentinel = useRef<HTMLDivElement>(null);
+  // Orphans the pages still in flight when the filter changes, so tiles from
+  // the previous filter can never land in the new list.
+  const loadToken = useRef(0);
   // Device Back closes the move / edit sheet instead of leaving the page.
   useBackDismiss(moveId !== null, () => setMoveId(null));
   useBackDismiss(editClip !== null, () => setEditClip(null));
@@ -83,9 +106,11 @@ export default function ShortsGrid({
       const url = new URL("/api/shorts/feed", window.location.origin);
       url.searchParams.set("limit", "30");
       for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
+      if (length !== "all") url.searchParams.set("length", length);
       if (cursor) url.searchParams.set("cursor", String(cursor));
+      const token = ++loadToken.current;
       const res = await fetch(url.toString());
-      if (res.ok) {
+      if (res.ok && token === loadToken.current) {
         const data = await res.json();
         setItems((prev) => {
           const seen = new Set(prev.map((p) => p.id));
@@ -98,7 +123,7 @@ export default function ShortsGrid({
       setLoading(false);
       setLoadedOnce(true);
     }
-  }, [cursor, hasMore, loading, query]);
+  }, [cursor, hasMore, loading, query, length]);
 
   // Latest state, for the click-time cache save (the closure would otherwise
   // capture stale values).
@@ -113,11 +138,15 @@ export default function ShortsGrid({
   // left. Saved on the TILE CLICK, not on unmount: Next scrolls the window to 0
   // as it navigates, before the component unmounts, so an unmount save would
   // record scrollY = 0.
+  // One cache slot per filter: the tiles of "long" are not the tiles of "all",
+  // and a Back-navigation has to land in the list it left.
+  const cacheKey = "sg:" + restoreKey + (length === "all" ? "" : ":" + length);
+
   const saveCache = useCallback(() => {
     if (!restoreKey) return;
     try {
       sessionStorage.setItem(
-        "sg:" + restoreKey,
+        cacheKey,
         JSON.stringify({
           // Cache ALL loaded tiles (capped high only to bound storage): a
           // partial list would be shorter than the saved scroll offset, so the
@@ -133,7 +162,7 @@ export default function ShortsGrid({
     } catch {
       /* quota / private mode — position just won't restore */
     }
-  }, [restoreKey]);
+  }, [restoreKey, cacheKey]);
 
   // Restore-on-back: hydrate tiles + scroll from the cache instead of the
   // top-of-list initial load. Short-lived (5 min) so a deliberate fresh visit
@@ -143,7 +172,7 @@ export default function ShortsGrid({
     let restored = false;
     if (restoreKey) {
       try {
-        const raw = sessionStorage.getItem("sg:" + restoreKey);
+        const raw = sessionStorage.getItem(cacheKey);
         if (raw) {
           const c = JSON.parse(raw);
           if (c?.items?.length && Date.now() - (c.at || 0) < 5 * 60 * 1000) {
@@ -175,6 +204,40 @@ export default function ShortsGrid({
     if (!restored) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Switch the length filter in place: empty the list, orphan the pages still
+  // in flight, and let the effect below fetch the first page of the new slice.
+  // The URL gets ?length via replaceState (no navigation), so Back returns here
+  // with the filter intact — and the tile links carry it into the feed.
+  const switchLength = (l: LengthFilter) => {
+    if (l === length) return;
+    loadToken.current++;
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (l === "all") url.searchParams.delete("length");
+      else url.searchParams.set("length", l);
+      window.history.replaceState(window.history.state, "", url.toString());
+    }
+    setLoading(false);
+    setItems([]);
+    setCursor(null);
+    setHasMore(true);
+    setLoadedOnce(false);
+    window.scrollTo(0, 0);
+    setLength(l);
+  };
+
+  // First page of a newly picked filter. Skipped on mount — the effect above
+  // already loads (or restores) the initial list.
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [length]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -226,12 +289,53 @@ export default function ShortsGrid({
     router.refresh();
   };
 
+  // A tile opens the feed at that clip — carry the filter along, so the clips
+  // above and below it are the ones the grid was showing. hrefPrefix always
+  // ends with "?focus=" or "&focus=" (except the selection-mode "#"), so the
+  // parameter goes in front of it.
+  const clipHref = (id: number) =>
+    length === "all" || !hrefPrefix.includes("focus=")
+      ? `${hrefPrefix}${id}`
+      : `${hrefPrefix.replace(/focus=$/, `length=${length}&focus=`)}${id}`;
+
+  // The control renders above the tiles AND above the empty state: a filter
+  // that matches nothing must still be switchable, or it traps the surface.
+  const lengthTabs = lengthFilter ? (
+    <div className="mb-3 flex gap-1 px-1">
+      {LENGTH_ORDER.map((l) => (
+        <button
+          key={l}
+          onClick={() => switchLength(l)}
+          className={
+            l === length
+              ? "rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-black"
+              : "rounded-full bg-white/10 px-4 py-1.5 text-sm text-white/70 transition hover:bg-white/15"
+          }
+        >
+          {LENGTH_LABELS[l]}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
   if (loadedOnce && items.length === 0) {
-    return <p className="px-4 py-16 text-center text-sm text-white/50">{empty}</p>;
+    return (
+      <>
+        {lengthTabs}
+        <p className="px-4 py-16 text-center text-sm text-white/50">
+          {/* The surface's own empty text would claim there is nothing here at
+              all, which is false when a filter is what emptied it. */}
+          {length === "all"
+            ? empty
+            : `No ${LENGTH_LABELS[length].toLowerCase()} clips here.`}
+        </p>
+      </>
+    );
   }
 
   return (
     <>
+      {lengthTabs}
       <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
         {items.map((s) => (
           <div
@@ -272,7 +376,7 @@ export default function ShortsGrid({
                 </button>
               ) : (
                 <Link
-                  href={`${hrefPrefix}${s.id}`}
+                  href={clipHref(s.id)}
                   onClick={saveCache}
                   className="block h-full w-full"
                 >

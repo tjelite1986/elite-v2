@@ -59,6 +59,7 @@ export default async function ShortsProfilePage(
         empty="No clips for this profile yet."
         adminActions={session.role === "admin"}
         channel="main"
+        lengthFilter
       />
     </div>
   );

@@ -13,6 +13,7 @@ export default async function ExplorePage() {
         hrefPrefix="/shorts?focus="
         empty="Nothing to explore yet."
         restoreKey="explore:main"
+        lengthFilter
         isAdmin={session?.role === "admin"}
       />
     </div>
