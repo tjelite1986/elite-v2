@@ -1,3 +1,4 @@
+import Link from "next/link";
 import ShortsGrid from "@/components/shorts-grid";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,13 @@ export default async function ShortsTagPage(props: {
   const tag = decodeURIComponent(raw).replace(/^#/, "").replace(/[^\p{L}\p{N}_]/gu, "");
   return (
     <div className="mx-auto max-w-5xl px-2 pb-24 pt-6">
-      <h1 className="mb-3 px-1 text-lg font-semibold text-white">#{tag}</h1>
+      <div className="mb-3 flex items-baseline gap-2 px-1">
+        <h1 className="text-lg font-semibold text-white">#{tag}</h1>
+        {/* Back to the catalogue this category came from. */}
+        <Link href="/shorts/tags" className="text-sm text-white/50 hover:text-white/80">
+          All categories
+        </Link>
+      </div>
       <ShortsGrid
         query={{ channel: "main", tag }}
         hrefPrefix={`/shorts?tag=${encodeURIComponent(tag)}&focus=`}

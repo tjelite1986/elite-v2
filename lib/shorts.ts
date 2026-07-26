@@ -571,3 +571,85 @@ export function mergeShortProfiles(
   tx();
   return { reassigned, merged };
 }
+
+// ---------------------------------------------------------------------------
+// Hashtags as categories.
+//
+// Shorts keep their tags inside the caption (unlike posts, which have a
+// post_hashtags table), so the catalogue is derived rather than stored: every
+// caption on the channel is read and its #tags counted. That is a few thousand
+// short strings — cheap enough per request, and it can never drift from what
+// the captions actually say, which a materialised table would.
+
+export interface ShortTagSummary {
+  tag: string;
+  count: number;
+  // Newest clip carrying the tag that has a poster — the category's cover.
+  coverId: number | null;
+  coverV: string | null;
+}
+
+export function getShortTags(
+  channel: ShortChannel,
+  viewerId: number,
+  isAdmin = false
+): ShortTagSummary[] {
+  const rows = getAll<{
+    id: number;
+    caption: string | null;
+    poster_key: string | null;
+  }>(
+    qb
+      .selectFrom("shorts as s")
+      .select(["s.id", "s.caption", "s.poster_key"])
+      .where("s.is_deleted", "=", 0)
+      .where("s.status", "=", "ready")
+      .where("s.channel", "=", channel)
+      // Only captions that can carry a tag at all.
+      .where("s.caption", "like", "%#%")
+      // Same privacy rule as the feed: others' private clips stay invisible,
+      // so a tag only used by one cannot be counted or named here either.
+      .$if(!isAdmin, (q) =>
+        q.where((eb) =>
+          eb.or([eb("s.is_private", "=", 0), eb("s.uploader_id", "=", viewerId)])
+        )
+      )
+      // Newest first, so the first clip seen for a tag becomes its cover.
+      .orderBy("s.id", "desc")
+  );
+
+  const byTag = new Map<string, ShortTagSummary>();
+  for (const r of rows) {
+    // splitCaption's rules, inlined: strip the trailing "Source: <url>" first
+    // so a fragment in the URL never reads as a hashtag.
+    const stripped = (r.caption ?? "").replace(
+      /(?:^|\s)Source:\s*(https?:\/\/\S+)/i,
+      " "
+    );
+    const seen = new Set<string>();
+    for (const m of stripped.matchAll(/#([\p{L}\p{N}_]+)/gu)) {
+      const tag = m[1].toLowerCase();
+      if (seen.has(tag)) continue; // one clip counts once per tag
+      seen.add(tag);
+      const entry = byTag.get(tag);
+      if (entry) {
+        entry.count++;
+        if (entry.coverId === null && r.poster_key) {
+          entry.coverId = r.id;
+          entry.coverV = posterVersion(r.poster_key);
+        }
+      } else {
+        byTag.set(tag, {
+          tag,
+          count: 1,
+          coverId: r.poster_key ? r.id : null,
+          coverV: r.poster_key ? posterVersion(r.poster_key) : null,
+        });
+      }
+    }
+  }
+
+  return [...byTag.values()].sort(
+    (a, b) => b.count - a.count || a.tag.localeCompare(b.tag)
+  );
+}

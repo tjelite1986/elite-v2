@@ -3,6 +3,7 @@ import {
   Bookmark,
   CircleUser,
   Clapperboard,
+  Hash,
   Compass,
   Download,
   Flame,
@@ -101,10 +102,14 @@ export function getBottomNavExtras(
   ctx: { isAdmin: boolean }
 ): BottomNavItem[] {
   if (pathname === "/shorts18" || pathname.startsWith("/shorts18/")) {
-    return [{ label: "Mine", href: "/shorts18/mine", icon: Clapperboard }];
+    return [
+      { label: "Categories", href: "/shorts18/tags", icon: Hash },
+      { label: "Mine", href: "/shorts18/mine", icon: Clapperboard },
+    ];
   }
   if (pathname === "/shorts" || pathname.startsWith("/shorts/")) {
     return [
+      { label: "Categories", href: "/shorts/tags", icon: Hash },
       { label: "Mine", href: "/shorts/mine", icon: Clapperboard },
       { label: "Grab", href: "/shorts/grab", icon: Download },
     ];
