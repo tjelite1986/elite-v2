@@ -40,11 +40,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Only the audit runs here, so the Node version is free to be newer than
+      # the runtime's 18: npm 10 asks the registry's "quick" audit endpoint,
+      # which npm has retired and which now answers 400 for every tree. npm 11
+      # uses the bulk advisory endpoint instead, and it needs Node >= 20.17.
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "18"
+          node-version: "22"
           cache: npm
+
+      - name: Use npm 11 (bulk advisory endpoint)
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: npm ci
