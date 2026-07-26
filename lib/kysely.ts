@@ -14,6 +14,7 @@ import {
   type ShortDupeGroupRow,
   type ShortDupeStateRow,
   type ShortTitleStateRow,
+  type ShortCaptionStateRow,
   type ShortProfileRow,
   type UserProfileRow,
   type PostCreatorRow,
@@ -174,6 +175,7 @@ export interface DB {
   short_dupe_groups: ShortDupeGroupRow;
   short_dupe_state: ShortDupeStateRow;
   short_title_state: ShortTitleStateRow;
+  short_caption_state: ShortCaptionStateRow;
   short_media_fp: MediaFpRow & { short_id: number };
   user_profiles: UserProfileRow;
   post_creators: PostCreatorRow;

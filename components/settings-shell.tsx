@@ -41,6 +41,7 @@ import PostsCleanup from "@/components/posts-cleanup";
 import GalleryDuplicates from "@/components/gallery-duplicates";
 import GalleryCleanup from "@/components/gallery-cleanup";
 import ShortsTitleFetch from "@/components/shorts-title-fetch";
+import ShortsCaptionBackfill from "@/components/shorts-caption-backfill";
 import InstagramAutoConnect from "@/components/instagram-auto-connect";
 import TiktokAutoConnect from "@/components/tiktok-auto-connect";
 import ShortsAdmin from "@/components/shorts-admin";
@@ -605,8 +606,12 @@ function LibraryToolPanel({
     return <GalleryCleanup />;
   }
   if (tool === "titles" && isAdmin) {
+    const channel = section === "shorts18" ? "18plus" : "main";
     return (
-      <ShortsTitleFetch channel={section === "shorts18" ? "18plus" : "main"} />
+      <>
+        <ShortsTitleFetch channel={channel} />
+        <ShortsCaptionBackfill channel={channel} />
+      </>
     );
   }
   if (tool === "sources" && isAdmin) {

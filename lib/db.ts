@@ -329,6 +329,20 @@ function migrate(db: Database.Database) {
       message TEXT
     );
 
+    -- The same beacon for the caption backfill, which re-reads the source album
+    -- for clips whose caption is still the bare CDN media id
+    -- (scripts/backfill-shorts-captions.mjs).
+    CREATE TABLE IF NOT EXISTS short_caption_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
+      started_at TEXT,
+      finished_at TEXT,
+      processed INTEGER NOT NULL DEFAULT 0,
+      updated INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      message TEXT
+    );
+
     -- Instagram-style social photo feed ("posts"). Shares the one users table;
     -- a post is authored either by a real user OR a mirrored creator, never both.
 
@@ -1544,6 +1558,9 @@ export interface ShortTitleStateRow {
   total: number;
   message: string | null;
 }
+
+// Same shape, different job: the caption backfill (scripts/backfill-shorts-captions.mjs).
+export type ShortCaptionStateRow = ShortTitleStateRow;
 
 export interface ShortProfileRow {
   id: number;
