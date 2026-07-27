@@ -74,6 +74,43 @@ export function thumbKeyFor(storageKey: string): string {
   return storageKey.replace(/\.[^./]+$/, "") + "_t.jpg";
 }
 
+// Aspect-preserving thumbnail, <stem>_tf.jpg. The regular _t.jpg is a SQUARE
+// CROP, so any grid tile that is not square would show those cropped pixels
+// stretched — an uncropped tile needs its own derivative. Generated on first
+// request (see ensureFitThumb), so the library needs no bulk regeneration and
+// only the images actually shown uncropped ever get a second file.
+export function fitThumbKeyFor(storageKey: string): string {
+  return storageKey.replace(/\.[^./]+$/, "") + "_tf.jpg";
+}
+
+// Make sure the aspect-preserving thumbnail exists, deriving it from the display
+// file — an uncropped frame for a video, a downscale for an image. Returns its
+// key, or null when it can't be produced (missing or unreadable source) so the
+// caller can fall back to the square thumb.
+export async function ensureFitThumb(
+  storageKey: string
+): Promise<string | null> {
+  const key = fitThumbKeyFor(storageKey);
+  const dest = mediaPathFor(key);
+  if (fs.existsSync(dest)) return key;
+  const src = mediaPathFor(storageKey);
+  if (!fs.existsSync(src)) return null;
+  try {
+    if (isVideoKey(storageKey)) {
+      makeVideoFitPoster(src, dest);
+    } else {
+      await sharp(src, { failOn: "none" })
+        .resize(THUMB_SIZE, THUMB_SIZE, { fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 75 })
+        .toFile(dest);
+    }
+    return key;
+  } catch (err) {
+    console.error("[posts-storage] fit thumb failed for", storageKey, err);
+    return null;
+  }
+}
+
 // True for a post media key that points at a video file.
 export function isVideoKey(storageKey: string): boolean {
   return /\.(mp4|m4v|webm)$/i.test(storageKey);
@@ -161,6 +198,28 @@ function makeVideoPoster(videoPath: string, posterPath: string): void {
         ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
          "-ss", seek, "-i", videoPath, "-vframes", "1",
          "-vf", `scale=${THUMB_SIZE}:${THUMB_SIZE}:force_original_aspect_ratio=increase,crop=${THUMB_SIZE}:${THUMB_SIZE}`,
+         "-q:v", "5", posterPath],
+        { stdio: "ignore" }
+      );
+    } catch {
+      /* try the next seek */
+    }
+    if (fs.existsSync(posterPath) && fs.statSync(posterPath).size > 0) return;
+  }
+  throw new Error("Could not read a frame from the video.");
+}
+
+// The same frame WITHOUT the square crop, for grid tiles that show a video at
+// its own aspect ratio (see ensureFitThumb). Scaling down only — a small clip
+// stays small rather than being blown up to the thumbnail box.
+function makeVideoFitPoster(videoPath: string, posterPath: string): void {
+  for (const seek of ["1", "0"]) {
+    try {
+      execFileSync(
+        "ffmpeg",
+        ["-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+         "-ss", seek, "-i", videoPath, "-vframes", "1",
+         "-vf", `scale=${THUMB_SIZE}:${THUMB_SIZE}:force_original_aspect_ratio=decrease`,
          "-q:v", "5", posterPath],
         { stdio: "ignore" }
       );
@@ -366,12 +425,13 @@ export function movePostImageToAuthor(
   moveFile(srcDisplay, destDisplay);
   const newKey = `${slug}/${base}`;
 
-  const srcThumb = mediaPathFor(thumbKeyFor(storageKey));
-  if (fs.existsSync(srcThumb)) {
+  for (const keyOf of [thumbKeyFor, fitThumbKeyFor]) {
+    const srcThumb = mediaPathFor(keyOf(storageKey));
+    if (!fs.existsSync(srcThumb)) continue;
     try {
-      moveFile(srcThumb, mediaPathFor(thumbKeyFor(newKey)));
+      moveFile(srcThumb, mediaPathFor(keyOf(newKey)));
     } catch {
-      /* best effort — thumbnail can be regenerated */
+      /* best effort — thumbnails can be regenerated */
     }
   }
   return newKey;
@@ -422,12 +482,13 @@ export function renamePostImageFiles(storageKey: string, newStem: string): strin
   const newKey = keyFor(finalStem);
   fs.renameSync(src, mediaPathFor(newKey));
 
-  const srcThumb = mediaPathFor(thumbKeyFor(storageKey));
-  if (fs.existsSync(srcThumb)) {
+  for (const keyOf of [thumbKeyFor, fitThumbKeyFor]) {
+    const srcThumb = mediaPathFor(keyOf(storageKey));
+    if (!fs.existsSync(srcThumb)) continue;
     try {
-      fs.renameSync(srcThumb, mediaPathFor(thumbKeyFor(newKey)));
+      fs.renameSync(srcThumb, mediaPathFor(keyOf(newKey)));
     } catch {
-      /* thumbnail is regenerable */
+      /* thumbnails are regenerable */
     }
   }
   return newKey;
@@ -435,7 +496,11 @@ export function renamePostImageFiles(storageKey: string, newStem: string): strin
 
 // Remove a post image's display + thumbnail (best effort).
 export function deletePostImageFiles(storageKey: string) {
-  for (const p of [mediaPathFor(storageKey), mediaPathFor(thumbKeyFor(storageKey))]) {
+  for (const p of [
+    mediaPathFor(storageKey),
+    mediaPathFor(thumbKeyFor(storageKey)),
+    mediaPathFor(fitThumbKeyFor(storageKey)),
+  ]) {
     try {
       if (fs.existsSync(p)) fs.unlinkSync(p);
     } catch {

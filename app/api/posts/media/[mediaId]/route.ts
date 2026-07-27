@@ -5,15 +5,23 @@ import { PostMediaRow, PostRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { has18Access } from "@/lib/shorts-gate";
-import { mediaPathFor, thumbKeyFor, mediaMimeFor, isVideoKey } from "@/lib/posts-storage";
+import {
+  mediaPathFor,
+  thumbKeyFor,
+  ensureFitThumb,
+  mediaMimeFor,
+  isVideoKey,
+} from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
 
-// Serve a post's media file (display or ?size=thumb; a video's thumb is its
-// poster frame). Videos are streamed with HTTP Range support so <video> can
-// seek and start before the full file arrives. Re-checks the 18+ gate here —
-// the media route is exactly where access must not be assumed from the page or
-// feed API. Content-Type is derived from the on-disk extension, never echoed.
+// Serve a post's media file (display, ?size=thumb for the square grid crop, or
+// ?size=fit for the aspect-preserving thumbnail an uncropped tile needs; a
+// video's thumb is its poster frame). Videos are streamed with HTTP Range
+// support so <video> can seek and start before the full file arrives.
+// Re-checks the 18+ gate here — the media route is exactly where access must
+// not be assumed from the page or feed API. Content-Type is derived from the
+// on-disk extension, never echoed.
 export async function GET(request: Request, props: { params: Promise<{ mediaId: string }> }) {
   const params = await props.params;
   const session = await getSession();
@@ -34,8 +42,15 @@ export async function GET(request: Request, props: { params: Promise<{ mediaId: 
   }
 
   const url = new URL(request.url);
-  const wantThumb = url.searchParams.get("size") === "thumb";
-  const key = wantThumb ? thumbKeyFor(media.storage_key) : media.storage_key;
+  const sizeParam = url.searchParams.get("size");
+  const wantFit = sizeParam === "fit";
+  const wantThumb = sizeParam === "thumb" || wantFit;
+  // The fit thumbnail is written on first request; a video (or an unreadable
+  // source) falls back to the square thumb rather than 404ing the tile.
+  const fitKey = wantFit ? await ensureFitThumb(media.storage_key) : null;
+  const key = wantThumb
+    ? (fitKey ?? thumbKeyFor(media.storage_key))
+    : media.storage_key;
   const filePath = mediaPathFor(key);
   if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
 

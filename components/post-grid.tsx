@@ -6,6 +6,31 @@ import { cn } from "@/lib/utils";
 import PostLightbox, { LightboxViewer } from "@/components/post-lightbox";
 import type { FeedPost } from "@/lib/posts";
 
+// Images per row, picked by the viewer. 3 is the classic square grid; 1 shows
+// every post uncropped at its own aspect ratio (the square thumbnail is a CROP,
+// so an uncropped tile has to ask the media route for ?size=fit instead).
+type GridCols = 1 | 2 | 3;
+const COL_ORDER: readonly GridCols[] = [3, 2, 1];
+const COLS_KEY = "post-grid-cols";
+const COL_CLASS: Record<GridCols, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-2",
+  3: "grid-cols-3",
+};
+
+function parseCols(raw: string | null): GridCols | null {
+  const n = Number(raw);
+  return n === 1 || n === 2 || n === 3 ? n : null;
+}
+
+// A post is laid out uncropped when the grid is one-per-row, or when its first
+// image is wider than tall — a landscape photo squeezed into a square tile
+// loses its sides, so it takes a row of its own instead.
+function isLandscapeMedia(p: FeedPost): boolean {
+  const m = p.media[0];
+  return Boolean(m?.width && m?.height && m.width > m.height);
+}
+
 // Square-thumbnail grid (Explore, profile pages, hashtags). Tapping a tile opens
 // the shared PostLightbox: full display resolution with like/comment/delete and
 // vertical stepping through the feed (paginating as it goes).
@@ -46,6 +71,25 @@ export default function PostGrid({
   const [loadedOnce, setLoadedOnce] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<{ id: number; photo: number } | null>(null);
+  // Density is a viewer preference, remembered across surfaces and visits.
+  // Read post-mount (not in the initializer) so SSR and hydration agree.
+  const [cols, setCols] = useState<GridCols>(3);
+  useEffect(() => {
+    try {
+      const saved = parseCols(localStorage.getItem(COLS_KEY));
+      if (saved) setCols(saved);
+    } catch {
+      /* private mode — stay on the default */
+    }
+  }, []);
+  const switchCols = (c: GridCols) => {
+    setCols(c);
+    try {
+      localStorage.setItem(COLS_KEY, String(c));
+    } catch {
+      /* preference just won't persist */
+    }
+  };
 
   // Latest state, for the click-time cache save.
   const itemsRef = useRef(items);
@@ -216,14 +260,37 @@ export default function PostGrid({
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-1">
+      <div className="mb-2 flex justify-end gap-1 px-1">
+        {COL_ORDER.map((c) => (
+          <button
+            key={c}
+            onClick={() => switchCols(c)}
+            aria-label={`${c} per row`}
+            aria-pressed={c === cols}
+            className={
+              c === cols
+                ? "rounded-full bg-white px-3 py-1 text-xs font-semibold text-black"
+                : "rounded-full bg-white/10 px-3 py-1 text-xs text-white/70 transition hover:bg-white/15"
+            }
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <div className={cn("grid gap-1", COL_CLASS[cols])}>
         {items.map((p) => {
+          // One-per-row shows everything uncropped; in the denser grids only a
+          // landscape post breaks out, taking a full row of its own.
+          const uncropped = cols === 1 || isLandscapeMedia(p);
+          const m = p.media[0];
+          const ratio =
+            uncropped && m?.width && m?.height ? `${m.width} / ${m.height}` : undefined;
           const inner = (
             <>
               {p.media[0] && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={`/api/posts/media/${p.media[0].id}?size=thumb`}
+                  src={`/api/posts/media/${p.media[0].id}?size=${uncropped ? "fit" : "thumb"}`}
                   alt=""
                   loading="lazy"
                   className="h-full w-full object-cover transition group-hover:opacity-80"
@@ -244,7 +311,16 @@ export default function PostGrid({
               </div>
             </>
           );
-          const cls = "group relative aspect-square overflow-hidden bg-white/5";
+          const cls = cn(
+            "group relative overflow-hidden bg-white/5",
+            // A landscape post in a multi-column grid takes the whole row, so no
+            // row ever mixes a wide tile with a tall one.
+            uncropped ? "col-span-full" : "aspect-square",
+            // Falls back to square when the dimensions were never recorded.
+            uncropped && !ratio && "aspect-square"
+          );
+          // The tile takes the image's own ratio, so ?size=fit fills it exactly.
+          const tileStyle = ratio ? { aspectRatio: ratio } : undefined;
           if (select?.active) {
             const checked = select.selected.has(p.id);
             return (
@@ -252,6 +328,7 @@ export default function PostGrid({
                 key={p.id}
                 onClick={() => select.toggle(p.id)}
                 className={cn(cls, checked && "ring-2 ring-inset ring-white")}
+                style={tileStyle}
               >
                 {inner}
                 <span
@@ -273,6 +350,7 @@ export default function PostGrid({
               data-post-id={p.id}
               onClick={() => p.media[0] && onSelect(p.media[0].id)}
               className={cls}
+              style={tileStyle}
             >
               {inner}
             </button>
@@ -282,6 +360,7 @@ export default function PostGrid({
               data-post-id={p.id}
               onClick={() => openPost(p.id, 0)}
               className={cls}
+              style={tileStyle}
             >
               {inner}
             </button>
