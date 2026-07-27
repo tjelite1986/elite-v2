@@ -8,6 +8,7 @@ import { SHORT_CATEGORIES, CATEGORY_LABELS } from "@/lib/shorts-categories";
 import ShortsEditSheet from "@/components/shorts-edit-sheet";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useConfirm } from "@/components/confirm-dialog";
+import GridDensity, { useGridCols, GRID_COL_CLASS } from "@/components/grid-density";
 
 interface PickerProfile {
   id: number;
@@ -102,6 +103,7 @@ export default function ShortsGrid({
     const raw = new URLSearchParams(window.location.search).get("length");
     return raw === "short" || raw === "long" ? raw : "all";
   });
+  const [cols, switchCols] = useGridCols("shorts-grid-cols");
   const sentinel = useRef<HTMLDivElement>(null);
   // Orphans the pages still in flight when the filter changes, so tiles from
   // the previous filter can never land in the new list.
@@ -311,28 +313,32 @@ export default function ShortsGrid({
 
   // The control renders above the tiles AND above the empty state: a filter
   // that matches nothing must still be switchable, or it traps the surface.
-  const lengthTabs = lengthFilter ? (
-    <div className="mb-3 flex gap-1 px-1">
-      {LENGTH_ORDER.map((l) => (
-        <button
-          key={l}
-          onClick={() => switchLength(l)}
-          className={
-            l === length
-              ? "rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-black"
-              : "rounded-full bg-white/10 px-4 py-1.5 text-sm text-white/70 transition hover:bg-white/15"
-          }
-        >
-          {LENGTH_LABELS[l]}
-        </button>
-      ))}
+  // The length filter and the density control share one row, so a surface that
+  // has both doesn't stack two bars above the tiles.
+  const controls = (
+    <div className="mb-3 flex items-center gap-1 px-1">
+      {lengthFilter &&
+        LENGTH_ORDER.map((l) => (
+          <button
+            key={l}
+            onClick={() => switchLength(l)}
+            className={
+              l === length
+                ? "rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-black"
+                : "rounded-full bg-white/10 px-4 py-1.5 text-sm text-white/70 transition hover:bg-white/15"
+            }
+          >
+            {LENGTH_LABELS[l]}
+          </button>
+        ))}
+      <GridDensity cols={cols} onChange={switchCols} className="ml-auto" />
     </div>
-  ) : null;
+  );
 
   if (loadedOnce && items.length === 0) {
     return (
       <>
-        {lengthTabs}
+        {controls}
         <p className="px-4 py-16 text-center text-sm text-white/50">
           {/* The surface's own empty text would claim there is nothing here at
               all, which is false when a filter is what emptied it. */}
@@ -346,10 +352,10 @@ export default function ShortsGrid({
 
   return (
     <>
-      {lengthTabs}
+      {controls}
       {/* Dense flow keeps the tiles packed; a wide clip takes a whole row of its
           own, so there is no column left over beside it to fill. */}
-      <div className="grid grid-flow-row-dense grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
+      <div className={`grid grid-flow-row-dense gap-1 ${GRID_COL_CLASS[cols]}`}>
         {items.map((s) => (
           <div
             key={s.id}

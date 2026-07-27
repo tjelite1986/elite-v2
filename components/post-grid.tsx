@@ -4,24 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Heart, MessageCircle, Copy, Check, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import PostLightbox, { LightboxViewer } from "@/components/post-lightbox";
+import GridDensity, { useGridCols, GRID_COL_CLASS } from "@/components/grid-density";
 import type { FeedPost } from "@/lib/posts";
 
 // Images per row, picked by the viewer. 3 is the classic square grid; 1 shows
 // every post uncropped at its own aspect ratio (the square thumbnail is a CROP,
 // so an uncropped tile has to ask the media route for ?size=fit instead).
-type GridCols = 1 | 2 | 3;
-const COL_ORDER: readonly GridCols[] = [3, 2, 1];
 const COLS_KEY = "post-grid-cols";
-const COL_CLASS: Record<GridCols, string> = {
-  1: "grid-cols-1",
-  2: "grid-cols-2",
-  3: "grid-cols-3",
-};
-
-function parseCols(raw: string | null): GridCols | null {
-  const n = Number(raw);
-  return n === 1 || n === 2 || n === 3 ? n : null;
-}
 
 // A post is laid out uncropped when the grid is one-per-row, or when its first
 // image is wider than tall — a landscape photo squeezed into a square tile
@@ -71,25 +60,7 @@ export default function PostGrid({
   const [loadedOnce, setLoadedOnce] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<{ id: number; photo: number } | null>(null);
-  // Density is a viewer preference, remembered across surfaces and visits.
-  // Read post-mount (not in the initializer) so SSR and hydration agree.
-  const [cols, setCols] = useState<GridCols>(3);
-  useEffect(() => {
-    try {
-      const saved = parseCols(localStorage.getItem(COLS_KEY));
-      if (saved) setCols(saved);
-    } catch {
-      /* private mode — stay on the default */
-    }
-  }, []);
-  const switchCols = (c: GridCols) => {
-    setCols(c);
-    try {
-      localStorage.setItem(COLS_KEY, String(c));
-    } catch {
-      /* preference just won't persist */
-    }
-  };
+  const [cols, switchCols] = useGridCols(COLS_KEY);
 
   // Latest state, for the click-time cache save.
   const itemsRef = useRef(items);
@@ -260,24 +231,8 @@ export default function PostGrid({
 
   return (
     <>
-      <div className="mb-2 flex justify-end gap-1 px-1">
-        {COL_ORDER.map((c) => (
-          <button
-            key={c}
-            onClick={() => switchCols(c)}
-            aria-label={`${c} per row`}
-            aria-pressed={c === cols}
-            className={
-              c === cols
-                ? "rounded-full bg-white px-3 py-1 text-xs font-semibold text-black"
-                : "rounded-full bg-white/10 px-3 py-1 text-xs text-white/70 transition hover:bg-white/15"
-            }
-          >
-            {c}
-          </button>
-        ))}
-      </div>
-      <div className={cn("grid gap-1", COL_CLASS[cols])}>
+      <GridDensity cols={cols} onChange={switchCols} className="mb-2 justify-end px-1" />
+      <div className={cn("grid gap-1", GRID_COL_CLASS[cols])}>
         {items.map((p) => {
           // One-per-row shows everything uncropped; in the denser grids only a
           // landscape post breaks out, taking a full row of its own.

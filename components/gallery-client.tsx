@@ -34,6 +34,7 @@ import {
   Link2 as LinkIcon,
 } from "lucide-react";
 import BlurhashCanvas from "@/components/blurhash-canvas";
+import GridDensity, { useGridCols, GRID_COL_CLASS } from "@/components/grid-density";
 import GalleryMap from "@/components/gallery-map";
 import { ShareDialog, type SharePayload } from "@/components/share-dialog";
 import SmartAlbumBuilder from "@/components/smart-album-builder";
@@ -173,6 +174,10 @@ export default function GalleryClient() {
   const [loading, setLoading] = React.useState(true);
   const [query, setQuery] = React.useState("");
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
+  // Photos per row. Gallery thumbnails are already stored aspect-preserving
+  // (fit: inside), so one-per-row can show them uncropped without a second
+  // derivative — unlike the posts grid.
+  const [cols, switchCols] = useGridCols("gallery-cols");
   const [confirmDialog, confirmAsk] = useConfirm();
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [lightboxId, setLightboxId] = React.useState<number | null>(null);
@@ -1273,16 +1278,28 @@ export default function GalleryClient() {
                 : "No photos yet. Upload some to get started."}
             </div>
           ) : (
-            groups.map(([label, groupItems]) => (
+            <>
+              <GridDensity cols={cols} onChange={switchCols} className="mb-3 justify-end" />
+              {groups.map(([label, groupItems]) => (
               <section key={label} className="mb-8">
                 <h2 className="mb-3 text-sm font-medium text-white/60">{label}</h2>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-1.5">
+                <div className={`grid gap-1.5 ${GRID_COL_CLASS[cols]}`}>
                   {groupItems.map((it) => {
                     const isSel = selected.has(it.id);
+                    // One per row is a viewing size, not a contact sheet: show
+                    // the photo whole. The denser grids stay square so the rows
+                    // line up.
+                    const ratio =
+                      cols === 1 && it.width && it.height
+                        ? `${it.width} / ${it.height}`
+                        : undefined;
                     return (
                       <div
                         key={it.id}
-                        className="relative aspect-square cursor-pointer overflow-hidden rounded-xl bg-white/5"
+                        style={ratio ? { aspectRatio: ratio } : undefined}
+                        className={`relative cursor-pointer overflow-hidden rounded-xl bg-white/5 ${
+                          ratio ? "" : "aspect-square"
+                        }`}
                         onClick={() => handleTileClick(it.id)}
                         onPointerDown={() => startPress(it.id)}
                         onPointerUp={cancelPress}
@@ -1335,7 +1352,8 @@ export default function GalleryClient() {
                   })}
                 </div>
               </section>
-            ))
+              ))}
+            </>
           )}
         </div>
       </main>
