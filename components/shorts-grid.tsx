@@ -347,15 +347,15 @@ export default function ShortsGrid({
   return (
     <>
       {lengthTabs}
-      {/* Dense flow so the column a wide tile leaves over in its row is filled
-          by the next portrait clip instead of staying blank. */}
+      {/* Dense flow keeps the tiles packed; a wide clip takes a whole row of its
+          own, so there is no column left over beside it to fill. */}
       <div className="grid grid-flow-row-dense grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
         {items.map((s) => (
           <div
             key={s.id}
             className={
               isLandscape(s)
-                ? "group relative col-span-2 self-start overflow-hidden rounded-md bg-white/5"
+                ? "group relative col-span-full overflow-hidden rounded-md bg-white/5"
                 : "group relative aspect-[9/16] overflow-hidden rounded-md bg-white/5"
             }
             // The tile takes the clip's own ratio (16:9, 4:3, …), so the wide
