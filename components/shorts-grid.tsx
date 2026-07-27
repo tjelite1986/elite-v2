@@ -34,6 +34,17 @@ interface GridShort {
   profile_name: string | null;
   category: string;
   is_private?: boolean;
+  // Source dimensions, used to lay a wide clip out as a wide tile instead of
+  // cropping it into the portrait one. Optional: tiles restored from an older
+  // session cache predate these fields and fall back to portrait.
+  width?: number | null;
+  height?: number | null;
+}
+
+// A clip counts as landscape only when it is genuinely wider than tall — square
+// and unmeasured clips keep the portrait tile.
+function isLandscape(s: GridShort): boolean {
+  return Boolean(s.width && s.height && s.width > s.height);
 }
 
 // Responsive poster-thumbnail grid used by Explore, profile pages and playlists.
@@ -336,11 +347,20 @@ export default function ShortsGrid({
   return (
     <>
       {lengthTabs}
-      <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
+      {/* Dense flow so the column a wide tile leaves over in its row is filled
+          by the next portrait clip instead of staying blank. */}
+      <div className="grid grid-flow-row-dense grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
         {items.map((s) => (
           <div
             key={s.id}
-            className="group relative aspect-[9/16] overflow-hidden rounded-md bg-white/5"
+            className={
+              isLandscape(s)
+                ? "group relative col-span-2 self-start overflow-hidden rounded-md bg-white/5"
+                : "group relative aspect-[9/16] overflow-hidden rounded-md bg-white/5"
+            }
+            // The tile takes the clip's own ratio (16:9, 4:3, …), so the wide
+            // poster fills it edge to edge without a crop.
+            style={isLandscape(s) ? { aspectRatio: `${s.width} / ${s.height}` } : undefined}
           >
             {(() => {
               const poster = s.has_poster ? (
