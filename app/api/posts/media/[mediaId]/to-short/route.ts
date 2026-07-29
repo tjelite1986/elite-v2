@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PostMediaRow, PostRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
+import { has18Access } from "@/lib/shorts-gate";
 import { moveVideoPostMediaToShort } from "@/lib/shorts-to-post";
 
 export const dynamic = "force-dynamic";
@@ -35,9 +36,12 @@ export async function POST(
   if (session.role !== "admin" && !isOwner) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (post.is_adult && !(await has18Access())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   try {
-    const result = moveVideoPostMediaToShort(media.id);
+    const result = moveVideoPostMediaToShort(media, post);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }

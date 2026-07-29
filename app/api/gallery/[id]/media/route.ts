@@ -57,14 +57,17 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       variant === "preview"
         ? previewPathFor(ownerId, item.storage_key)
         : thumbPathFor(ownerId, item.storage_key);
-    if (!fs.existsSync(filePath)) {
+    let size: number;
+    try {
+      size = fs.statSync(filePath).size;
+    } catch {
       return new NextResponse("Not found", { status: 404 });
     }
     const stream = fs.createReadStream(filePath);
     return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
       headers: {
         "Content-Type": "image/jpeg",
-        "Content-Length": String(fs.statSync(filePath).size),
+        "Content-Length": String(size),
         "Cache-Control": "private, max-age=86400",
         "X-Content-Type-Options": "nosniff",
       },
@@ -78,9 +81,6 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   const contentType = isVideo
     ? videoMimeFor(item.storage_key)
     : imageMimeFor(item.storage_key);
-  if (!fs.existsSync(filePath)) {
-    return new NextResponse("Not found", { status: 404 });
-  }
   const wantDownload = url.searchParams.get("dl") === "1";
 
   // Videos stream with HTTP Range support so <video> can play and seek without
@@ -91,15 +91,27 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     });
   }
 
+  let size: number;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    return new NextResponse("Not found", { status: 404 });
+  }
   const headers: Record<string, string> = {
     "Content-Type": contentType,
-    "Content-Length": String(fs.statSync(filePath).size),
+    "Content-Length": String(size),
     "Cache-Control": "private, max-age=86400",
     "X-Content-Type-Options": "nosniff",
-    "Content-Disposition": `attachment; filename="${item.filename.replace(/"/g, "")}"`,
+    "Content-Disposition": `attachment; filename="${sanitizeFilename(item.filename)}"`,
   };
   const stream = fs.createReadStream(filePath);
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, { headers });
+}
+
+// Strip characters that break a quoted Content-Disposition filename: the quote
+// itself plus control chars (e.g. a stray \r\n would throw ERR_INVALID_CHAR).
+function sanitizeFilename(name: string): string {
+  return name.replace(/[\x00-\x1f\x7f"]/g, "_");
 }
 
 // Stream a file with Range support (206 partial content). Used for video so the
@@ -110,7 +122,12 @@ function streamFile(
   contentType: string,
   opts: { attachment: string | null }
 ): NextResponse {
-  const size = fs.statSync(filePath).size;
+  let size: number;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    return new NextResponse("Not found", { status: 404 });
+  }
   const headers: Record<string, string> = {
     "Content-Type": contentType,
     "Accept-Ranges": "bytes",
@@ -118,7 +135,7 @@ function streamFile(
     "X-Content-Type-Options": "nosniff",
   };
   if (opts.attachment) {
-    headers["Content-Disposition"] = `attachment; filename="${opts.attachment.replace(/"/g, "")}"`;
+    headers["Content-Disposition"] = `attachment; filename="${sanitizeFilename(opts.attachment)}"`;
   }
 
   const range = request.headers.get("range");
