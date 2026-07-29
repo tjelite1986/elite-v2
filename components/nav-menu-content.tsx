@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Bell,
-  BookOpen,
-  CalendarHeart,
   Camera,
   ChevronRight,
   Flame,
@@ -177,12 +175,6 @@ export default function NavMenuContent({
 
       <div className="mt-1 border-t border-white/10 pt-1">
         <MenuRow href="/gallery" icon={<Images size={18} />} label="Gallery" />
-        <MenuRow href="/books" icon={<BookOpen size={18} />} label="Books" />
-        <MenuRow
-          href="/memories"
-          icon={<CalendarHeart size={18} />}
-          label="On this day"
-        />
         <MenuRow href="/settings#adult" icon={<Lock size={18} />} label="Privacy" />
       </div>
 
