@@ -22,7 +22,10 @@ export default async function AuthedLayout({
   // Own handle for the nav menu's profile entry — it links to the unified
   // /people/<username> profile (same page anyone else sees), so there's a single
   // profile surface. ensureUserProfile guarantees the row exists.
-  const { username } = ensureUserProfile(Number(session.sub), session.email);
+  const { username, display_name } = ensureUserProfile(
+    Number(session.sub),
+    session.email
+  );
 
   // Per-user appearance: accent colour + background theme, applied as CSS vars
   // server-side (no flash). Live changes in Settings override these on :root.
@@ -46,6 +49,7 @@ export default async function AuthedLayout({
       >
         <BottomNav
           username={username}
+          displayName={display_name}
           email={session.email}
           canActAs={session.role === "admin" || !!session.imp}
           isAdmin={session.role === "admin"}

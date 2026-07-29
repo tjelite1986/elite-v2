@@ -7,11 +7,16 @@ import {
   BookOpen,
   CalendarHeart,
   Camera,
+  ChevronRight,
   Flame,
+  Github,
+  Globe,
   House,
   Images,
   Loader2,
+  Lock,
   LogOut,
+  Mail,
   MessageCircle,
   Newspaper,
   Play,
@@ -24,10 +29,12 @@ import {
 import PostAvatar from "@/components/post-avatar";
 
 // ---------------------------------------------------------------------------
-// Shared app menu — profile header plus quick links to the rest of the app,
-// in the style of Messenger's Menu page. Rendered both by the messenger
-// shell's Menu tab and by the global bottom-nav menu sheet, so the two menus
-// never diverge.
+// Shared app menu — designed in Layout Studio (docs/layout-studio/
+// elitev3-copy.json, "Menu" screen): compact profile header with @handle and
+// an Edit button, a search field, flat chevron rows in divided groups, the
+// screenshot toggle + settings + log out, and a social-links footer. Rendered
+// both by the messenger shell's Menu tab and by the global bottom-nav menu
+// sheet, so the two menus never diverge.
 // ---------------------------------------------------------------------------
 
 export function MenuRow({
@@ -44,28 +51,39 @@ export function MenuRow({
   return (
     <Link
       href={href}
-      className="flex items-center gap-4 px-4 py-3 transition hover:bg-white/5"
+      className="flex items-center gap-3.5 px-4 py-2.5 transition hover:bg-white/5"
     >
-      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80">
-        {icon}
-      </span>
-      <span className="min-w-0">
+      <span className="shrink-0 text-white/60">{icon}</span>
+      <span className="min-w-0 flex-1">
         <span className="block text-[15px] font-medium">{label}</span>
         {sub && <span className="block text-xs text-white/40">{sub}</span>}
       </span>
+      <ChevronRight size={16} className="shrink-0 text-white/25" />
     </Link>
   );
 }
 
+const SOCIALS = [
+  { href: "https://github.com/tjelite1986", label: "GitHub", icon: Github },
+  { href: "https://mecloud.win", label: "Website", icon: Globe },
+  { href: "mailto:tjelite1986@gmail.com", label: "Email", icon: Mail },
+];
+
 export default function NavMenuContent({
   myUsername,
   myEmail,
+  myDisplayName,
   beforeSections,
 }: {
   myUsername: string;
   myEmail: string;
+  myDisplayName?: string | null;
   beforeSections?: React.ReactNode;
 }) {
+  // The sketch's header shows @handle + "View profile" without the email, but
+  // both callers still pass it — keep the prop so the API stays stable.
+  void myEmail;
+
   const [loggingOut, setLoggingOut] = useState(false);
 
   // Visibility of the floating screenshot/privacy button. Persisted per device
@@ -93,22 +111,48 @@ export default function NavMenuContent({
     }
   };
 
+  const profileHref = `/people/${encodeURIComponent(myUsername)}`;
+
   return (
     <>
-      <Link
-        href={`/people/${encodeURIComponent(myUsername)}`}
-        className="mt-2 flex items-center gap-3 px-4 py-3 transition hover:bg-white/5"
-      >
-        <PostAvatar username={myUsername} size={44} />
-        <span className="min-w-0">
-          <span data-pii className="block truncate font-semibold">
-            {myUsername}
+      {/* Profile header: avatar with accent ring, name, @handle, edit button.
+          Avatar/name and the edit button are separate links — nesting them
+          would be invalid markup. */}
+      <div className="mt-2 flex items-center gap-3 px-4 py-3">
+        <Link href={profileHref} className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="shrink-0 rounded-full ring-2 ring-blue-400 ring-offset-2 ring-offset-neutral-900">
+            <PostAvatar username={myUsername} size={44} />
           </span>
-          <span data-pii className="block truncate text-xs text-white/40">
-            View profile · {myEmail}
+          <span className="min-w-0">
+            <span data-pii className="block truncate font-semibold">
+              {myDisplayName || myUsername}
+            </span>
+            <span data-pii className="block truncate text-xs text-white/40">
+              @{myUsername}
+            </span>
+            <span className="block truncate text-xs text-white/40">
+              View profile
+            </span>
           </span>
-        </span>
-      </Link>
+        </Link>
+        <Link
+          href={`${profileHref}/edit`}
+          className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium transition hover:bg-white/10"
+        >
+          Edit profile
+        </Link>
+      </div>
+
+      {/* Tap-to-search field, matching the sketch's search bar. */}
+      <div className="border-t border-white/10 px-4 pb-1 pt-3">
+        <Link
+          href="/search"
+          className="flex items-center gap-2.5 rounded-full bg-white/10 px-3.5 py-2 text-sm text-white/50 transition hover:bg-white/15"
+        >
+          <Search size={15} />
+          Search
+        </Link>
+      </div>
 
       {beforeSections && (
         <div className="mt-1 border-t border-white/10 pt-1">
@@ -123,50 +167,47 @@ export default function NavMenuContent({
           icon={<MessageCircle size={18} />}
           label="Messages"
         />
+        <MenuRow href="/people" icon={<Users size={18} />} label="Profiles" />
         <MenuRow
           href="/messages?tab=notifications"
           icon={<Bell size={18} />}
           label="Notifications"
         />
-        <MenuRow href="/people" icon={<Users size={18} />} label="People" />
-        <MenuRow href="/posts" icon={<Newspaper size={18} />} label="Posts" />
-        <MenuRow href="/gallery" icon={<Images size={18} />} label="Gallery" />
-        <MenuRow href="/shorts" icon={<Play size={18} />} label="Shorts" />
-        <MenuRow href="/shorts18" icon={<Flame size={18} />} label="18+" />
-        <MenuRow href="/books" icon={<BookOpen size={18} />} label="Books" />
-        <MenuRow href="/store" icon={<Store size={18} />} label="App Store" />
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
-        <MenuRow
-          href="/search"
-          icon={<Search size={18} />}
-          label="Search"
-          sub="Posts, messages, photos, shorts, books"
-        />
+        <MenuRow href="/gallery" icon={<Images size={18} />} label="Gallery" />
+        <MenuRow href="/books" icon={<BookOpen size={18} />} label="Books" />
         <MenuRow
           href="/memories"
           icon={<CalendarHeart size={18} />}
           label="On this day"
-          sub="Posts, photos and messages from earlier years"
         />
-        <MenuRow
-          href="/ask"
-          icon={<Sparkles size={18} />}
-          label="Ask AI"
-          sub="Search and chat with AI"
-        />
+        <MenuRow href="/settings#adult" icon={<Lock size={18} />} label="Privacy" />
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
-        <MenuRow href="/settings" icon={<Settings size={18} />} label="Settings" />
+        <MenuRow href="/posts" icon={<Newspaper size={18} />} label="InstaElite" />
+        <MenuRow href="/shorts" icon={<Play size={18} />} label="Shorts" />
+        <MenuRow href="/shorts18" icon={<Flame size={18} />} label="Shorts 18+" />
+      </div>
+
+      <div className="mt-1 border-t border-white/10 pt-1">
+        <MenuRow href="/store" icon={<Store size={18} />} label="App Store" />
+      </div>
+
+      <div className="mt-1 border-t border-white/10 pt-1">
+        <MenuRow href="/ask" icon={<Sparkles size={18} />} label="Ask AI" />
+      </div>
+
+      <div className="mt-1 border-t border-white/10 pt-1">
         <button
           onClick={toggleFab}
           role="switch"
           aria-checked={!fabHidden}
-          className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-white/5"
+          className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left transition hover:bg-white/5"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80">
+          <span className="shrink-0 text-white/60">
             <Camera size={18} />
           </span>
           <span className="min-w-0 flex-1">
@@ -177,7 +218,7 @@ export default function NavMenuContent({
           </span>
           <span
             className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-              fabHidden ? "bg-white/20" : "bg-rose-500"
+              fabHidden ? "bg-white/20" : "bg-blue-600"
             }`}
           >
             <span
@@ -187,12 +228,13 @@ export default function NavMenuContent({
             />
           </span>
         </button>
+        <MenuRow href="/settings" icon={<Settings size={18} />} label="Settings" />
         <button
           onClick={logout}
           disabled={loggingOut}
-          className="flex w-full items-center gap-4 px-4 py-3 text-left text-red-400 transition hover:bg-white/5 disabled:opacity-50"
+          className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left text-red-400 transition hover:bg-white/5 disabled:opacity-50"
         >
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/10">
+          <span className="shrink-0">
             {loggingOut ? (
               <Loader2 size={18} className="animate-spin" />
             ) : (
@@ -201,6 +243,24 @@ export default function NavMenuContent({
           </span>
           <span className="text-[15px] font-medium">Log out</span>
         </button>
+      </div>
+
+      {/* Social links footer — round icon buttons, centred. */}
+      <div className="mt-2 border-t border-white/10 px-4 pb-2 pt-4">
+        <div className="flex justify-center gap-3">
+          {SOCIALS.map(({ href, label, icon: Icon }) => (
+            <a
+              key={href}
+              href={href}
+              target={href.startsWith("http") ? "_blank" : undefined}
+              rel="noreferrer"
+              title={label}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white/70 transition hover:bg-white/20 hover:text-white"
+            >
+              <Icon size={18} />
+            </a>
+          ))}
+        </div>
       </div>
     </>
   );

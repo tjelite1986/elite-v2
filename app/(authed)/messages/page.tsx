@@ -12,6 +12,7 @@ export default async function MessagesPage() {
     <MessagesShell
       meId={Number(session.sub)}
       myUsername={profile.username}
+      myDisplayName={profile.display_name}
       myEmail={session.email}
     />
   );

@@ -436,11 +436,13 @@ export function RequestsView({
 
 export function MenuTab({
   myUsername,
+  myDisplayName,
   myEmail,
   requestsCount,
   onOpenRequests,
 }: {
   myUsername: string;
+  myDisplayName?: string | null;
   myEmail: string;
   requestsCount: number;
   onOpenRequests: () => void;
@@ -451,13 +453,14 @@ export function MenuTab({
 
       <NavMenuContent
         myUsername={myUsername}
+        myDisplayName={myDisplayName}
         myEmail={myEmail}
         beforeSections={
           <button
             onClick={onOpenRequests}
-            className="flex w-full items-center gap-4 px-4 py-3 text-left transition hover:bg-white/5"
+            className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left transition hover:bg-white/5"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80">
+            <span className="shrink-0 text-white/60">
               <MessageCircleQuestion size={18} />
             </span>
             <span className="min-w-0 flex-1">

@@ -34,10 +34,12 @@ const TABS: { key: BarTab; label: string; icon: typeof MessageCircle }[] = [
 export default function MessagesShell({
   meId,
   myUsername,
+  myDisplayName,
   myEmail,
 }: {
   meId: number;
   myUsername: string;
+  myDisplayName?: string | null;
   myEmail: string;
 }) {
   const { subscribe } = useWs();
@@ -163,6 +165,7 @@ export default function MessagesShell({
         {tab === "menu" && (
           <MenuTab
             myUsername={myUsername}
+            myDisplayName={myDisplayName}
             myEmail={myEmail}
             requestsCount={requestsCount}
             onOpenRequests={() => setTab("requests")}

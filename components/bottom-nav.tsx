@@ -20,12 +20,14 @@ import NavMenuSheet from "@/components/nav-menu-sheet";
 // badge (the old top-nav bell's poll + websocket pattern).
 export default function BottomNav({
   username,
+  displayName,
   email,
   canActAs,
   isAdmin = false,
   children,
 }: {
   username: string;
+  displayName?: string | null;
   email: string;
   canActAs: boolean;
   isAdmin?: boolean;
@@ -143,6 +145,7 @@ export default function BottomNav({
             open={menuOpen}
             onClose={() => setMenuOpen(false)}
             username={username}
+            displayName={displayName}
             email={email}
             canActAs={canActAs}
             extras={extras}
