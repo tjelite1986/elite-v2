@@ -32,6 +32,7 @@ import {
 } from "./gallery-storage";
 import { getProfileByUserId } from "./profiles";
 import { parseHashtags } from "./posts";
+import { SOURCE_RE } from "./shorts-caption";
 import {
   parseImportName,
   canonicalStem,
@@ -135,24 +136,60 @@ function collectItems(sectionDir: string): DropItem[] {
   return out;
 }
 
-// Read a "<stem>.md" caption sidecar dropped next to a file (the same convention
-// the shorts importer uses: the .md holds the post/clip caption). Returns the
-// trimmed caption (null if absent or empty) plus the sidecar path so the caller
-// can delete it after a successful import.
-function readMdSidecar(fileAbs: string): {
+const CAPTION_LIMIT = 2200;
+
+// Read a caption sidecar dropped next to a file. Two formats are accepted:
+//
+//   <stem>.md    plain text, the convention the shorts importer uses
+//   <stem>.json  the piko Instagram patch's post metadata, whose "caption" field
+//                is the original post text (the rest of the object — username,
+//                shortcode, post_url, mentions — is not consumed here)
+//
+// A .md wins when both exist: it is hand-written, so it is the deliberate one.
+// Returns the trimmed caption (null if absent or empty) plus the sidecar path so
+// the caller can delete it after a successful import.
+function readCaptionSidecar(fileAbs: string): {
   caption: string | null;
   sidecar: string | null;
 } {
   const [stem] = splitExt(path.basename(fileAbs));
-  const sidecar = path.join(path.dirname(fileAbs), `${stem}.md`);
-  if (!fs.existsSync(sidecar)) return { caption: null, sidecar: null };
-  let caption: string | null = null;
-  try {
-    caption = fs.readFileSync(sidecar, "utf8").trim().slice(0, 2200) || null;
-  } catch {
-    /* unreadable — still let the caller consume it */
+  const dir = path.dirname(fileAbs);
+
+  const md = path.join(dir, `${stem}.md`);
+  if (fs.existsSync(md)) {
+    let caption: string | null = null;
+    try {
+      caption = fs.readFileSync(md, "utf8").trim().slice(0, CAPTION_LIMIT) || null;
+    } catch {
+      /* unreadable — still let the caller consume it */
+    }
+    return { caption, sidecar: md };
   }
-  return { caption, sidecar };
+
+  const json = path.join(dir, `${stem}.json`);
+  if (fs.existsSync(json)) {
+    let caption: string | null = null;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(json, "utf8"));
+      if (typeof parsed?.caption === "string") {
+        caption = parsed.caption.trim().slice(0, CAPTION_LIMIT) || null;
+      }
+      // Append the permalink as the "Source: <url>" row of the caption grammar.
+      // The text above it is left exactly as posted — running it through
+      // buildCaption would collapse the original line breaks — and SOURCE_RE
+      // matches anywhere, so splitCaption still finds it.
+      const source =
+        typeof parsed?.post_url === "string" ? parsed.post_url.trim() : "";
+      if (source && !SOURCE_RE.test(caption ?? "")) {
+        caption = caption ? `${caption}\n\nSource: ${source}` : `Source: ${source}`;
+      }
+    } catch {
+      /* unreadable or not the expected shape — consume it anyway */
+    }
+    return { caption, sidecar: json };
+  }
+
+  return { caption: null, sidecar: null };
 }
 
 // Resolve a file's metadata: a drop subfolder always wins as the collection;
@@ -307,6 +344,7 @@ function holdForReview(
   userId: number,
   item: DropItem,
   sidecarAbs: string | null,
+  caption: string | null,
   collection: string,
   matchedPostId: number,
   matchType: "exact" | "similar",
@@ -326,8 +364,14 @@ function holdForReview(
     while (fs.existsSync(path.join(dir, name))) name = `${stem} (${++n})${ext}`;
     fs.renameSync(item.abs, path.join(dir, name));
     if (sidecarAbs) {
+      // Write the resolved caption rather than moving the sidecar as-is: the
+      // review path reads the parked "<stem>.md" as plain text, so a .json
+      // sidecar renamed to .md would surface raw JSON as the caption.
       try {
-        fs.renameSync(sidecarAbs, path.join(dir, `${splitExt(name)[0]}.md`));
+        if (caption) {
+          fs.writeFileSync(path.join(dir, `${splitExt(name)[0]}.md`), caption, "utf8");
+        }
+        consume(sidecarAbs);
       } catch {
         /* the caption sidecar is best-effort */
       }
@@ -616,7 +660,7 @@ async function importShortsSection(
       collection = collection.toLowerCase();
       parsed.collection = collection;
     }
-    const md = readMdSidecar(item.abs);
+    const md = readCaptionSidecar(item.abs);
     if (parsed.siteId && rowExists("shorts", "uploader_id", parsed.siteId, userId)) {
       consume(item.abs);
       if (md.sidecar) consume(md.sidecar);
@@ -772,7 +816,7 @@ async function importPostsSection(
     }
     const [stem] = splitExt(item.name);
     const parsed = parseImportName(stem);
-    const md = readMdSidecar(item.abs);
+    const md = readCaptionSidecar(item.abs);
     const asCreator = !!item.collection;
     // [id_] re-import dedup only applies to a user's OWN posts; creator posts use
     // the content-hash dedup below (their id namespace isn't the user's).
@@ -831,6 +875,7 @@ async function importPostsSection(
             userId,
             item,
             md.sidecar,
+            md.caption,
             item.collection as string,
             match.id,
             "exact",
@@ -854,6 +899,7 @@ async function importPostsSection(
               userId,
               item,
               md.sidecar,
+              md.caption,
               item.collection as string,
               near.postId,
               "similar",
