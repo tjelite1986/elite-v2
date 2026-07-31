@@ -31,6 +31,7 @@ import {
   renameGalleryFiles,
 } from "./gallery-storage";
 import { getProfileByUserId } from "./profiles";
+import { getPrimaryHandle } from "./profile-links";
 import { parseHashtags } from "./posts";
 import { SOURCE_RE } from "./shorts-caption";
 import {
@@ -592,6 +593,74 @@ function findOrCreatePostCreator(name: string): number {
   );
 }
 
+// A handle has to earn a profile: it must appear in this many separate captions
+// before one is created. An Instagram caption credits photographers, brands and
+// one-off collaborations, and a profile per mention would bury the directory in
+// empty pages.
+const MENTION_THRESHOLD = 2;
+
+// Count the content whose caption mentions a handle. The LIKE narrows the scan;
+// the regex then rejects the substring hits it lets through, so "@ewouter" is
+// never counted for a caption that only says "@ewouterson".
+function countMentions(raw: string): number {
+  const like = `%@${raw}%`;
+  const re = new RegExp(
+    `(^|[^\\w])@${raw.replace(/[.]/g, "\\.")}(?![a-zA-Z0-9_.])`,
+    "i"
+  );
+  const captions = [
+    ...getAll<{ caption: string | null }>(
+      qb.selectFrom("posts").select("caption").where("caption", "like", like)
+    ),
+    ...getAll<{ caption: string | null }>(
+      qb.selectFrom("shorts").select("caption").where("caption", "like", like)
+    ),
+  ];
+  return captions.filter((c) => c.caption && re.test(c.caption)).length;
+}
+
+// An "@someone" in a caption renders as a link to /people/<handle>, so give that
+// page something to show — once the handle has been mentioned enough times. If
+// the handle, or an alias pointing at it, already belongs to a user or a
+// creator, the link resolves on its own and nothing is created. Only an unowned
+// handle gets a creator row, marked with its own source so mention-born profiles
+// stay distinguishable from imported ones.
+//
+// Alias resolution happens first, so mentioning someone's linked alt handle
+// never splits them into a second profile.
+//
+// Called after the row is inserted, so the caption being imported is already
+// part of the count.
+function ensureMentionedProfiles(caption: string | null): void {
+  if (!caption) return;
+  const seen = new Set<string>();
+  for (const m of caption.matchAll(/(^|[^\w])@([a-zA-Z0-9_.]{1,30})/g)) {
+    const raw = m[2];
+    const handle = getPrimaryHandle(creatorHandle(raw));
+    if (!handle || seen.has(handle)) continue;
+    seen.add(handle);
+    const taken =
+      getOne(
+        qb
+          .selectFrom("user_profiles")
+          .select("user_id")
+          .where("username", "=", handle)
+      ) ??
+      getOne(
+        qb.selectFrom("post_creators").select("id").where("username", "=", handle)
+      );
+    if (taken) continue;
+    if (countMentions(raw) < MENTION_THRESHOLD) continue;
+    try {
+      db.prepare(
+        "INSERT INTO post_creators (username, display_name, source) VALUES (?, ?, 'mention')"
+      ).run(handle, raw);
+    } catch {
+      /* raced with another creator insert — the link resolves either way */
+    }
+  }
+}
+
 function findOrCreateAlbum(userId: number, name: string): number {
   const row = getOne<{ id: number }>(
     qb
@@ -740,6 +809,7 @@ async function importShortsSection(
       } catch {
         /* keep the original stored name if the rename fails */
       }
+      ensureMentionedProfiles(caption);
       consumeImported(item.abs, parsed, shortId, "clip", `shorts/${channel}`, res);
       if (md.sidecar) consume(md.sidecar);
       res.imported++;
@@ -942,6 +1012,7 @@ async function importPostsSection(
       if (asCreator && creatorId) {
         cacheMediaFingerprint(mediaId, mediaPathFor(finalKey), contentHash, newFp);
       }
+      ensureMentionedProfiles(caption);
       consumeImported(item.abs, parsed, postId, "post", "posts", res);
       if (md.sidecar) consume(md.sidecar);
       res.imported++;

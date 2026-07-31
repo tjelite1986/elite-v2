@@ -11,15 +11,34 @@ function withMentions(text: string): string {
   );
 }
 
+// Turn bare #hashtags into links to the tag listing, the way the shorts overlay
+// links its tag chips. The character class matches parseHashtags() so a link can
+// only ever point at a tag that was actually indexed, and the href is lowercased
+// like the rows and the route are.
+//
+// A markdown heading ("# Title") is left alone because the '#' there is followed
+// by a space, and a URL fragment ("...page#top") because the '#' there follows a
+// word character.
+function withHashtags(text: string, tagBase: string): string {
+  return text.replace(
+    /(^|[^\w#])#([a-z0-9_]{1,50})/gi,
+    (_m, pre, tag) => `${pre}[#${tag}](${tagBase}/${encodeURIComponent(tag.toLowerCase())})`
+  );
+}
+
 // Render user text as safe markdown (GFM, no raw HTML, no images). URLs are
 // auto-linked by remark-gfm; @mentions link to profiles. Used for post captions
 // and comments.
 export default function Markdown({
   text,
   className,
+  tagBase = "/posts/tag",
 }: {
   text: string;
   className?: string;
+  // Where a #hashtag links. Captions live in different sections, and each has
+  // its own tag listing.
+  tagBase?: string;
 }) {
   return (
     <div
@@ -54,7 +73,7 @@ export default function Markdown({
           },
         }}
       >
-        {withMentions(text)}
+        {withHashtags(withMentions(text), tagBase)}
       </ReactMarkdown>
     </div>
   );
