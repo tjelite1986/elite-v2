@@ -213,21 +213,49 @@ function dateKey(name) {
   return null;
 }
 
-// gallery-dl writes a `<file>.json` sidecar (--write-metadata) with the post's
-// caption, shortcode, and date. Read it for an image/video source, if present.
+// Two sidecar conventions land here, and both are read:
+//   <file>.json   gallery-dl's --write-metadata, caption in "description"
+//   <stem>.json   the piko Instagram patch (phone downloads), caption in "caption"
+// The second arrives via the per-user drop tree, which routes videos into this
+// folder and moves the sidecar along with them.
+function sidecarPath(srcPath) {
+  const withExt = `${srcPath}.json`;
+  if (fs.existsSync(withExt)) return withExt;
+  const dot = srcPath.lastIndexOf(".");
+  const stem = dot > 0 ? srcPath.slice(0, dot) + ".json" : null;
+  if (stem && stem !== srcPath && fs.existsSync(stem)) return stem;
+  return null;
+}
+
 function readSidecar(srcPath) {
+  const file = sidecarPath(srcPath);
+  if (!file) return null;
   try {
-    const d = JSON.parse(fs.readFileSync(`${srcPath}.json`, "utf8"));
+    const d = JSON.parse(fs.readFileSync(file, "utf8"));
+    let caption =
+      typeof d.description === "string" ? d.description
+        : typeof d.caption === "string" ? d.caption
+        : null;
+    caption = caption ? caption.trim() : null;
+    // Same caption grammar as the rest of the library: the permalink goes in as a
+    // trailing "Source:" row, which is what the readers parse back out.
+    const source = typeof d.post_url === "string" ? d.post_url.trim() : "";
+    if (source && !/(^|\n)\s*Source:\s*\S+/i.test(caption ?? "")) {
+      caption = caption ? `${caption}\n\nSource: ${source}` : `Source: ${source}`;
+    }
     return {
-      caption: typeof d.description === "string" ? d.description : null,
+      caption: caption || null,
       shortcode: d.post_shortcode || d.shortcode || null,
     };
   } catch {
     return null;
   }
 }
+
 function consumeSidecar(srcPath) {
-  try { fs.unlinkSync(`${srcPath}.json`); } catch { /* none / best effort */ }
+  const file = sidecarPath(srcPath);
+  if (!file) return;
+  try { fs.unlinkSync(file); } catch { /* best effort */ }
 }
 
 // Unique lowercase #hashtags from a caption — mirrors parseHashtags in lib/posts.

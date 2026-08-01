@@ -995,6 +995,18 @@ async function importPostsSection(
           const destDir = path.join(POSTS_ROOT, "_import", item.collection);
           fs.mkdirSync(destDir, { recursive: true });
           moveFile(item.abs, path.join(destDir, item.name));
+          // The sidecar travels with the video. Left behind it is both litter in
+          // the drop folder and a caption the posts importer never gets to read,
+          // which is exactly what a phone upload drops here as a pair.
+          const routed = readCaptionSidecar(item.abs);
+          for (const sidecar of [routed.sidecar, routed.json]) {
+            if (!sidecar || !fs.existsSync(sidecar)) continue;
+            try {
+              moveFile(sidecar, path.join(destDir, path.basename(sidecar)));
+            } catch {
+              /* the caption is best effort; the video is already routed */
+            }
+          }
           res.skipped++;
           res.details.push(
             `posts ${item.name}: video routed to the posts importer (${item.collection})`
