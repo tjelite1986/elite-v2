@@ -43,6 +43,10 @@ export async function verifySessionToken(
 ): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
+    // Reject a token minted for a different purpose (e.g. the 18+ gate token,
+    // which shares this JWT_SECRET and carries `scope: "shorts18"`) so it can
+    // never be structurally accepted as a session token.
+    if (payload.scope) return null;
     const result: SessionPayload = {
       sub: String(payload.sub),
       email: String(payload.email),

@@ -42,7 +42,7 @@
   "overrides": {
     "@xmldom/xmldom": "^0.8.13",
     "next": {
-      "postcss": "8.5.15"
+      "postcss": "8.5.19"
     }
   },
   "devDependencies": {

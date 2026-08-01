@@ -19,16 +19,17 @@ function norm(name: string): string {
 
 // A mention needs a boundary before '@' (start or a non-handle char) so the
 // local part of an email ("a@b.com") isn't treated as a mention — mirrors
-// components/linkify-text.tsx.
-const MENTION_RE = /(?:^|[^a-zA-Z0-9_.])@([a-zA-Z0-9_.]{1,30})/g;
+// components/linkify-text.tsx. Declared inside the function (not module-scope)
+// so concurrent/async callers can't corrupt a shared `lastIndex`.
+function mentionRe(): RegExp {
+  return /(?:^|[^a-zA-Z0-9_.])@([a-zA-Z0-9_.]{1,30})/g;
+}
 
 // Normalized, de-duplicated handles mentioned in a caption.
 export function extractMentions(caption: string | null | undefined): string[] {
   if (!caption) return [];
   const out = new Set<string>();
-  MENTION_RE.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = MENTION_RE.exec(caption)) !== null) {
+  for (const m of caption.matchAll(mentionRe())) {
     const h = norm(m[1]);
     if (h) out.add(h);
   }

@@ -21,7 +21,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
   }
   const isOwner = short.uploader_id === Number(session.sub);
   if (session.role !== "admin" && !isOwner) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // 404, not 403 — mirrors the video/poster routes so a private clip's
+    // existence isn't revealed to a non-owner.
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   const body = await request.json().catch(() => ({}));
@@ -49,7 +51,9 @@ export async function DELETE(_request: Request, props: { params: Promise<{ id: s
   }
   const isOwner = short.uploader_id === Number(session.sub);
   if (session.role !== "admin" && !isOwner) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // 404, not 403 — mirrors the video/poster routes so a private clip's
+    // existence isn't revealed to a non-owner.
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   // Soft-delete FIRST, then unlink: if the file removal fails the clip is

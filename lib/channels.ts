@@ -141,7 +141,7 @@ export function postMessage(
     replyTo !== null &&
     !db
       .prepare(
-        "SELECT 1 FROM channel_messages WHERE id = ? AND channel_id = ?"
+        "SELECT 1 FROM channel_messages WHERE id = ? AND channel_id = ? AND deleted_at IS NULL"
       )
       .get(replyTo, channelId)
   ) {

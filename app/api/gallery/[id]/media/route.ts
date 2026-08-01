@@ -57,14 +57,17 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       variant === "preview"
         ? previewPathFor(ownerId, item.storage_key)
         : thumbPathFor(ownerId, item.storage_key);
-    if (!fs.existsSync(filePath)) {
+    let variantStat: fs.Stats;
+    try {
+      variantStat = fs.statSync(filePath);
+    } catch {
       return new NextResponse("Not found", { status: 404 });
     }
     const stream = fs.createReadStream(filePath);
     return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
       headers: {
         "Content-Type": "image/jpeg",
-        "Content-Length": String(fs.statSync(filePath).size),
+        "Content-Length": String(variantStat.size),
         "Cache-Control": "private, max-age=86400",
         "X-Content-Type-Options": "nosniff",
       },
@@ -78,7 +81,10 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   const contentType = isVideo
     ? videoMimeFor(item.storage_key)
     : imageMimeFor(item.storage_key);
-  if (!fs.existsSync(filePath)) {
+  let originalStat: fs.Stats;
+  try {
+    originalStat = fs.statSync(filePath);
+  } catch {
     return new NextResponse("Not found", { status: 404 });
   }
   const wantDownload = url.searchParams.get("dl") === "1";
@@ -86,20 +92,26 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   // Videos stream with HTTP Range support so <video> can play and seek without
   // pulling the whole file into memory; images are sent whole as a download.
   if (isVideo) {
-    return streamFile(request, filePath, contentType, {
+    return streamFile(request, filePath, originalStat.size, contentType, {
       attachment: wantDownload ? item.filename : null,
     });
   }
 
   const headers: Record<string, string> = {
     "Content-Type": contentType,
-    "Content-Length": String(fs.statSync(filePath).size),
+    "Content-Length": String(originalStat.size),
     "Cache-Control": "private, max-age=86400",
     "X-Content-Type-Options": "nosniff",
-    "Content-Disposition": `attachment; filename="${item.filename.replace(/"/g, "")}"`,
+    "Content-Disposition": `attachment; filename="${safeFilename(item.filename)}"`,
   };
   const stream = fs.createReadStream(filePath);
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, { headers });
+}
+
+// Strips characters that would break a quoted Content-Disposition header
+// (control chars, CR/LF) instead of only stripping the quote character.
+function safeFilename(name: string): string {
+  return name.replace(/[\x00-\x1f\x7f"]/g, "_");
 }
 
 // Stream a file with Range support (206 partial content). Used for video so the
@@ -107,10 +119,10 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
 function streamFile(
   request: Request,
   filePath: string,
+  size: number,
   contentType: string,
   opts: { attachment: string | null }
 ): NextResponse {
-  const size = fs.statSync(filePath).size;
   const headers: Record<string, string> = {
     "Content-Type": contentType,
     "Accept-Ranges": "bytes",
@@ -118,7 +130,7 @@ function streamFile(
     "X-Content-Type-Options": "nosniff",
   };
   if (opts.attachment) {
-    headers["Content-Disposition"] = `attachment; filename="${opts.attachment.replace(/"/g, "")}"`;
+    headers["Content-Disposition"] = `attachment; filename="${safeFilename(opts.attachment)}"`;
   }
 
   const range = request.headers.get("range");

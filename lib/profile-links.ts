@@ -186,6 +186,28 @@ export function addAlias(handle: string, alias: string): AddAliasResult {
       status: 409,
     };
   }
+  // An existing creator profile (shorts channel or posts import) must not be
+  // folded under someone else's face either.
+  const shortProfile = db
+    .prepare("SELECT 1 FROM short_profiles WHERE norm_handle(name) = ?")
+    .get(member);
+  if (shortProfile) {
+    return {
+      ok: false,
+      error: "That name belongs to an existing creator profile.",
+      status: 409,
+    };
+  }
+  const creatorProfile = db
+    .prepare("SELECT 1 FROM post_creators WHERE norm_handle(username) = ?")
+    .get(member);
+  if (creatorProfile) {
+    return {
+      ok: false,
+      error: "That name belongs to an existing creator profile.",
+      status: 409,
+    };
+  }
   // A name already aliased to a different face can't be stolen.
   const existing = db
     .prepare("SELECT primary_handle FROM profile_links WHERE member_handle = ?")
