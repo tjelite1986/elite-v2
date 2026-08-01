@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { has18Access } from "@/lib/shorts-gate";
-import { resolvePerson, handleOf } from "@/lib/directory";
+import { resolvePerson, handleOf, bioMentionHrefs } from "@/lib/directory";
 import PersonProfile from "@/components/person-profile";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +47,7 @@ export default async function PersonPage(
       isAdmin={session.role === "admin"}
       viewerId={viewerId}
       initialTab={initialTab}
+      bioMentionHrefs={bioMentionHrefs(person.bio)}
     />
   );
 }

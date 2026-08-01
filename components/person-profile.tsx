@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import BioText from "@/components/bio-text";
 import { useRouter } from "next/navigation";
 import { Camera, Pencil, X, Link as LinkIcon, MapPin, CalendarDays, Lock, Upload } from "lucide-react";
 
@@ -62,10 +63,13 @@ export default function PersonProfile({
   isAdmin,
   viewerId,
   initialTab = "profile",
+  bioMentionHrefs = {},
 }: {
   person: ResolvedPerson;
   isAdmin: boolean;
   viewerId: number;
+  // Resolved on the server: which @handles in the bio are people we host.
+  bioMentionHrefs?: Record<string, string>;
   // Deep-linked tab (/people/<handle>?tab=photos) so content links from the
   // directory and search can land straight on a section.
   initialTab?: Tab;
@@ -337,7 +341,11 @@ export default function PersonProfile({
                     <div className="text-sm font-semibold">{person.displayName}</div>
                   )}
                   {person.bio && (
-                    <p className="mt-0.5 whitespace-pre-wrap text-sm text-white/80">{person.bio}</p>
+                    <BioText
+                      text={person.bio}
+                      mentionHrefs={bioMentionHrefs}
+                      className="mt-0.5 whitespace-pre-wrap text-sm text-white/80"
+                    />
                   )}
                   {(person.links.length > 0 || person.instagramHandle) && (
                     <div className="mt-2 flex flex-wrap gap-2">

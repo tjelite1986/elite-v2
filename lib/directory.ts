@@ -1,4 +1,5 @@
 import { sql } from "kysely";
+import { db } from "./db";
 import { qb, getOne, getAll } from "./kysely";
 import { getProfileExtras, ProfileLink, ProfileField } from "./profiles";
 import { resolveBadges } from "./badges";
@@ -661,4 +662,42 @@ export function getPeople(
   }
 
   return list;
+}
+
+// Which of these handles this library actually hosts, as a lowercased set. Used
+// to decide whether an @mention in a bio links to a local profile or out to
+// Instagram: a bio names Instagram accounts, and most are not people we host.
+export function knownHandles(handles: string[]): Set<string> {
+  const wanted = Array.from(new Set(handles.map((h) => handleOf(h)))).filter(Boolean);
+  if (wanted.length === 0) return new Set();
+  const placeholders = wanted.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT lower(username) AS handle FROM user_profiles WHERE lower(username) IN (${placeholders})
+       UNION
+       SELECT lower(username) AS handle FROM post_creators WHERE lower(username) IN (${placeholders})`
+    )
+    .all(...wanted, ...wanted) as { handle: string }[];
+  return new Set(rows.map((r) => r.handle));
+}
+
+// The @handles written in a bio, in the same shape BioText matches them.
+export function mentionsIn(text: string | null | undefined): string[] {
+  if (!text) return [];
+  return Array.from(text.matchAll(/@([a-zA-Z0-9_.]{1,30})/g)).map((m) =>
+    m[1].replace(/\.+$/, "").toLowerCase()
+  );
+}
+
+// Local hrefs for the @mentions in a bio, keyed by lowercased handle. Handles we
+// do not host are left out, and BioText sends those to Instagram instead.
+export function bioMentionHrefs(bio: string | null | undefined): Record<string, string> {
+  const handles = mentionsIn(bio);
+  if (handles.length === 0) return {};
+  const known = knownHandles(handles);
+  const out: Record<string, string> = {};
+  for (const handle of handles) {
+    if (known.has(handle)) out[handle] = `/people/${encodeURIComponent(handle)}`;
+  }
+  return out;
 }

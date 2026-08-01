@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Pencil } from "lucide-react";
+import BioText from "@/components/bio-text";
+import { bioMentionHrefs } from "@/lib/directory";
 import { getSession } from "@/lib/auth";
 import { PostCreatorRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
@@ -94,7 +96,13 @@ export default async function PostsProfilePage(
       {(displayName || bio) && (
         <div className="mb-5">
           {displayName && <div className="text-sm font-semibold">{displayName}</div>}
-          {bio && <p className="mt-0.5 whitespace-pre-wrap text-sm text-white/80">{bio}</p>}
+          {bio && (
+            <BioText
+              text={bio}
+              mentionHrefs={bioMentionHrefs(bio)}
+              className="mt-0.5 whitespace-pre-wrap text-sm text-white/80"
+            />
+          )}
         </div>
       )}
 
