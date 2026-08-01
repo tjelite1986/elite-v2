@@ -195,8 +195,9 @@ function searchGallery(match: string | null, q: string, viewer: SearchViewer): S
 
 function searchShorts(match: string | null, q: string, viewer: SearchViewer): SearchResults["shorts"] {
   const guards = `s.is_deleted = 0 AND s.status = 'ready'
-    AND (s.is_private = 0 OR s.uploader_id = @me${viewer.isAdmin ? " OR 1 = 1" : ""})
+    AND (s.is_private = 0 OR s.uploader_id = @me OR @isAdmin)
     ${viewer.adult ? "" : "AND s.channel = 'main'"}`;
+  const isAdmin = viewer.isAdmin ? 1 : 0;
   if (match && hasFts("shorts_fts")) {
     return db
       .prepare(
@@ -207,7 +208,7 @@ function searchShorts(match: string | null, q: string, viewer: SearchViewer): Se
           WHERE shorts_fts MATCH @q AND ${guards}
           ORDER BY rank LIMIT ${LIMIT}`
       )
-      .all({ q: match, me: viewer.userId }) as SearchResults["shorts"];
+      .all({ q: match, me: viewer.userId, isAdmin }) as SearchResults["shorts"];
   }
   return db
     .prepare(
@@ -217,7 +218,7 @@ function searchShorts(match: string | null, q: string, viewer: SearchViewer): Se
         WHERE s.caption LIKE @q AND ${guards}
         ORDER BY s.id DESC LIMIT ${LIMIT}`
     )
-    .all({ q: likePattern(q), me: viewer.userId }) as SearchResults["shorts"];
+    .all({ q: likePattern(q), me: viewer.userId, isAdmin }) as SearchResults["shorts"];
 }
 
 function searchBooks(q: string): SearchResults["books"] {
