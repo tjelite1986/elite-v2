@@ -20,6 +20,7 @@ import {
   deletePostImageFiles,
   moveFile,
   POSTS_ROOT,
+  type StoredPostImage,
 } from "./posts-storage";
 import { ingestMedia } from "./gallery-ingest";
 import { ingestUpload } from "./books";
@@ -81,6 +82,9 @@ export interface ImportSummary {
   users: number;
   imported: number;
   skipped: number;
+  // Duplicates that overwrote the image they matched instead of being parked
+  // (see replaceMatchedPostImage).
+  replaced: number;
   details: string[];
   // Set when a run was refused because another one was already sweeping the
   // same drop tree.
@@ -148,13 +152,19 @@ const CAPTION_LIMIT = 2200;
 //
 // A .md wins when both exist: it is hand-written, so it is the deliberate one.
 // Returns the trimmed caption (null if absent or empty) plus the sidecar path so
-// the caller can delete it after a successful import.
+// the caller can delete it after a successful import. `json` is set whenever a
+// .json sidecar sits next to the file — even when a .md supplied the caption —
+// because carrying post metadata is what promotes a duplicate from "park for
+// review" to "replace the image it matched".
 function readCaptionSidecar(fileAbs: string): {
   caption: string | null;
   sidecar: string | null;
+  json: string | null;
 } {
   const [stem] = splitExt(path.basename(fileAbs));
   const dir = path.dirname(fileAbs);
+  const json = path.join(dir, `${stem}.json`);
+  const jsonPath = fs.existsSync(json) ? json : null;
 
   const md = path.join(dir, `${stem}.md`);
   if (fs.existsSync(md)) {
@@ -164,11 +174,10 @@ function readCaptionSidecar(fileAbs: string): {
     } catch {
       /* unreadable — still let the caller consume it */
     }
-    return { caption, sidecar: md };
+    return { caption, sidecar: md, json: jsonPath };
   }
 
-  const json = path.join(dir, `${stem}.json`);
-  if (fs.existsSync(json)) {
+  if (jsonPath) {
     let caption: string | null = null;
     try {
       const parsed = JSON.parse(fs.readFileSync(json, "utf8"));
@@ -187,10 +196,20 @@ function readCaptionSidecar(fileAbs: string): {
     } catch {
       /* unreadable or not the expected shape — consume it anyway */
     }
-    return { caption, sidecar: json };
+    return { caption, sidecar: jsonPath, json: jsonPath };
   }
 
-  return { caption: null, sidecar: null };
+  return { caption: null, sidecar: null, json: null };
+}
+
+type CaptionSidecar = ReturnType<typeof readCaptionSidecar>;
+
+// Delete every sidecar that belonged to a consumed drop file. `sidecar` is the
+// one the caption came from; `json` may be a second file left over when a
+// hand-written .md outranked it.
+function consumeSidecars(md: CaptionSidecar): void {
+  if (md.sidecar) consume(md.sidecar);
+  if (md.json && md.json !== md.sidecar) consume(md.json);
 }
 
 // Resolve a file's metadata: a drop subfolder always wins as the collection;
@@ -251,13 +270,18 @@ async function findNearDuplicate(
   creatorId: number,
   fp: { hash: bigint; gray: number },
   newFileAbs: string
-): Promise<{ postId: number } | null> {
-  const rows = getAll<{ post_id: number; sig: string; storage_key: string }>(
+): Promise<{ postId: number; mediaId: number; storageKey: string } | null> {
+  const rows = getAll<{
+    id: number;
+    post_id: number;
+    sig: string;
+    storage_key: string;
+  }>(
     qb
       .selectFrom("post_media_fp as f")
       .innerJoin("post_media as pm", "pm.id", "f.media_id")
       .innerJoin("posts as p", "p.id", "pm.post_id")
-      .select(["pm.post_id", "f.sig", "pm.storage_key"])
+      .select(["pm.id", "pm.post_id", "f.sig", "pm.storage_key"])
       .where("p.author_creator_id", "=", creatorId)
       .where("f.sig", "is not", null)
   );
@@ -294,7 +318,11 @@ async function findNearDuplicate(
       // the two apart — and they are images the user wants BOTH of.
       if (newSat === undefined) newSat = await meanSaturation(newFileAbs);
       if (!sameColourMode(newSat, await meanSaturation(oldAbs))) continue;
-      return { postId: row.post_id };
+      return {
+        postId: row.post_id,
+        mediaId: row.id,
+        storageKey: row.storage_key,
+      };
     }
   }
   return null;
@@ -344,8 +372,7 @@ function cacheMediaFingerprint(
 function holdForReview(
   userId: number,
   item: DropItem,
-  sidecarAbs: string | null,
-  caption: string | null,
+  md: CaptionSidecar,
   collection: string,
   matchedPostId: number,
   matchType: "exact" | "similar",
@@ -364,15 +391,15 @@ function holdForReview(
     let n = 1;
     while (fs.existsSync(path.join(dir, name))) name = `${stem} (${++n})${ext}`;
     fs.renameSync(item.abs, path.join(dir, name));
-    if (sidecarAbs) {
+    if (md.sidecar) {
       // Write the resolved caption rather than moving the sidecar as-is: the
       // review path reads the parked "<stem>.md" as plain text, so a .json
       // sidecar renamed to .md would surface raw JSON as the caption.
       try {
-        if (caption) {
-          fs.writeFileSync(path.join(dir, `${splitExt(name)[0]}.md`), caption, "utf8");
+        if (md.caption) {
+          fs.writeFileSync(path.join(dir, `${splitExt(name)[0]}.md`), md.caption, "utf8");
         }
-        consume(sidecarAbs);
+        consumeSidecars(md);
       } catch {
         /* the caption sidecar is best-effort */
       }
@@ -396,12 +423,113 @@ function holdForReview(
     // Fall back to consuming the source rather than leaving it to re-collide
     // on every scan.
     consume(item.abs);
-    if (sidecarAbs) consume(sidecarAbs);
+    consumeSidecars(md);
     res.skipped++;
     res.details.push(
       `posts ${item.name}: ${reason} on ${collection} (review park failed: ${(err as Error).message})`
     );
   }
+}
+
+// A duplicate that arrives WITH a .json metadata sidecar is the better copy of
+// something already in the library: the sidecar carries the original post text
+// and permalink that the earlier import lacked. Instead of parking it for
+// review, it OVERWRITES the media of the post it matched — the post keeps its
+// id, position in the feed, likes and comments, and gains the new file plus the
+// sidecar's caption. The freshly stored image is reused as-is and the matched
+// post's old files are deleted, so nothing is written twice.
+//
+// Returns false when the swap could not be committed; the caller then falls
+// back to parking the drop for review as before.
+function replaceMatchedPostImage(args: {
+  item: DropItem;
+  parsed: ParsedImportName;
+  caption: string | null;
+  stored: StoredPostImage;
+  contentHash: string | null;
+  fp: Fingerprint;
+  target: { postId: number; mediaId: number; storageKey: string };
+  matchType: "exact" | "similar";
+  res: ImportSummary;
+}): boolean {
+  const { item, parsed, caption, stored, contentHash, fp, target, matchType, res } =
+    args;
+  const oldKey = target.storageKey;
+
+  const before = getOne<{ width: number | null; height: number | null; caption: string | null }>(
+    qb
+      .selectFrom("post_media as pm")
+      .innerJoin("posts as p", "p.id", "pm.post_id")
+      .select(["pm.width", "pm.height", "p.caption"])
+      .where("pm.id", "=", target.mediaId)
+  );
+
+  // Hashtags are additive: the post may already carry tags from its first
+  // import, and the new caption only ever contributes more.
+  const tags = new Set<string>(parsed.hashtags);
+  if (caption) for (const t of parseHashtags(caption)) tags.add(t);
+  const captionChanged = !!caption && caption !== before?.caption;
+
+  try {
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE post_media
+            SET storage_key = ?, mime_type = ?, width = ?, height = ?,
+                content_hash = ?, media_version = media_version + 1
+          WHERE id = ?`
+      ).run(
+        stored.storageKey,
+        stored.mimeType,
+        stored.width,
+        stored.height,
+        contentHash,
+        target.mediaId
+      );
+      if (captionChanged) {
+        db.prepare("UPDATE posts SET caption = ? WHERE id = ?").run(
+          caption,
+          target.postId
+        );
+      }
+      for (const tag of Array.from(tags)) {
+        db.prepare(
+          "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)"
+        ).run(target.postId, tag);
+      }
+    })();
+  } catch (err) {
+    res.details.push(
+      `posts ${item.name}: could not replace post #${target.postId} (${(err as Error).message})`
+    );
+    return false;
+  }
+
+  // Past the commit everything below is best effort — the post already points
+  // at the new file, so a failure here only leaves a stale name or leftover.
+  deletePostImageFiles(oldKey);
+  let finalKey = stored.storageKey;
+  try {
+    finalKey = renamePostImageFiles(
+      stored.storageKey,
+      canonicalStem(parsed, target.postId, "post")
+    );
+    db.prepare("UPDATE post_media SET storage_key = ? WHERE id = ?").run(
+      finalKey,
+      target.mediaId
+    );
+  } catch {
+    /* keep the uuid name if the rename fails */
+  }
+  cacheMediaFingerprint(target.mediaId, mediaPathFor(finalKey), contentHash, fp);
+  if (captionChanged) ensureMentionedProfiles(caption);
+
+  const dims = (w: number | null | undefined, h: number | null | undefined) =>
+    w && h ? `${w}x${h}` : "?";
+  res.replaced++;
+  res.details.push(
+    `posts ${item.name}: ${matchType} duplicate with .json metadata — replaced post #${target.postId}'s image (${dims(before?.width, before?.height)} -> ${dims(stored.width, stored.height)})${captionChanged ? ", caption updated" : ""}`
+  );
+  return true;
 }
 
 // Resolve a parked duplicate: 'import' stores it as a post on the same creator
@@ -732,7 +860,7 @@ async function importShortsSection(
     const md = readCaptionSidecar(item.abs);
     if (parsed.siteId && rowExists("shorts", "uploader_id", parsed.siteId, userId)) {
       consume(item.abs);
-      if (md.sidecar) consume(md.sidecar);
+      consumeSidecars(md);
       res.skipped++;
       res.details.push(`shorts/${channel} ${item.name}: already imported as #${parsed.siteId}`);
       continue;
@@ -811,7 +939,7 @@ async function importShortsSection(
       }
       ensureMentionedProfiles(caption);
       consumeImported(item.abs, parsed, shortId, "clip", `shorts/${channel}`, res);
-      if (md.sidecar) consume(md.sidecar);
+      consumeSidecars(md);
       res.imported++;
     } catch (err) {
       res.skipped++;
@@ -846,7 +974,8 @@ async function importPostsSection(
   // dedup mirroring scripts/import-posts.mjs, so re-dropping a creator's images —
   // or overlapping drops from several users — never duplicates.
   const creatorHashSeen = db.prepare(
-    `SELECT p.id FROM post_media pm JOIN posts p ON p.id = pm.post_id
+    `SELECT p.id AS post_id, pm.id AS media_id, pm.storage_key
+       FROM post_media pm JOIN posts p ON p.id = pm.post_id
       WHERE p.author_creator_id = ? AND pm.content_hash = ? LIMIT 1`
   );
 
@@ -896,7 +1025,7 @@ async function importPostsSection(
       rowExists("posts", "author_user_id", parsed.siteId, userId)
     ) {
       consume(item.abs);
-      if (md.sidecar) consume(md.sidecar);
+      consumeSidecars(md);
       res.skipped++;
       res.details.push(`posts ${item.name}: already imported as #${parsed.siteId}`);
       continue;
@@ -934,20 +1063,44 @@ async function importPostsSection(
         }
         const match = contentHash
           ? (creatorHashSeen.get(creatorId, contentHash) as
-              | { id: number }
+              | { post_id: number; media_id: number; storage_key: string }
               | undefined)
           : undefined;
         if (match) {
+          const target = {
+            postId: match.post_id,
+            mediaId: match.media_id,
+            storageKey: match.storage_key,
+          };
+          // Carrying a .json sidecar makes this the metadata-bearing copy:
+          // overwrite the post it matched rather than parking it.
+          if (
+            md.json &&
+            replaceMatchedPostImage({
+              item,
+              parsed,
+              caption,
+              stored,
+              contentHash,
+              fp: await fingerprintOffThread(mediaPathFor(stored.storageKey)),
+              target,
+              matchType: "exact",
+              res,
+            })
+          ) {
+            consumeImported(item.abs, parsed, target.postId, "post", "posts", res);
+            consumeSidecars(md);
+            continue;
+          }
           // Same content already on this creator — park the source for a
           // side-by-side review instead of silently deleting it.
           deletePostImageFiles(stored.storageKey);
           holdForReview(
             userId,
             item,
-            md.sidecar,
-            md.caption,
+            md,
             item.collection as string,
-            match.id,
+            target.postId,
             "exact",
             res
           );
@@ -964,12 +1117,29 @@ async function importPostsSection(
         if (newFp) {
           const near = await findNearDuplicate(creatorId, newFp, newAbs);
           if (near) {
+            if (
+              md.json &&
+              replaceMatchedPostImage({
+                item,
+                parsed,
+                caption,
+                stored,
+                contentHash,
+                fp: newFp,
+                target: near,
+                matchType: "similar",
+                res,
+              })
+            ) {
+              consumeImported(item.abs, parsed, near.postId, "post", "posts", res);
+              consumeSidecars(md);
+              continue;
+            }
             deletePostImageFiles(stored.storageKey);
             holdForReview(
               userId,
               item,
-              md.sidecar,
-              md.caption,
+              md,
               item.collection as string,
               near.postId,
               "similar",
@@ -1014,7 +1184,7 @@ async function importPostsSection(
       }
       ensureMentionedProfiles(caption);
       consumeImported(item.abs, parsed, postId, "post", "posts", res);
-      if (md.sidecar) consume(md.sidecar);
+      consumeSidecars(md);
       res.imported++;
     } catch (err) {
       res.skipped++;
@@ -1187,6 +1357,7 @@ export async function runUserFolderImport(opts?: {
       users: 0,
       imported: 0,
       skipped: 0,
+      replaced: 0,
       details: ["Another user-folder import is already running."],
       alreadyRunning: true,
     };
@@ -1203,7 +1374,13 @@ export async function runUserFolderImport(opts?: {
 async function runUserFolderImportInner(opts?: {
   onlyUser?: string;
 }): Promise<ImportSummary> {
-  const res: ImportSummary = { users: 0, imported: 0, skipped: 0, details: [] };
+  const res: ImportSummary = {
+    users: 0,
+    imported: 0,
+    skipped: 0,
+    replaced: 0,
+    details: [],
+  };
   let homes: string[];
   try {
     homes = fs

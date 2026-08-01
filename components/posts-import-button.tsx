@@ -24,6 +24,7 @@ export default function PostsImportButton() {
         ];
         if (d.videosImported) parts.push(`${d.videosImported} video(s)`);
         if (d.deduped) parts.push(`${d.deduped} already imported`);
+        if (d.replaced) parts.push(`${d.replaced} caption(s) updated`);
         if (d.skipped) parts.push(`${d.skipped} skipped`);
         setMsg(`Imported ${parts.join(", ")}.`);
         router.refresh();

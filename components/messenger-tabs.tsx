@@ -3,12 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  Archive,
   ArrowLeft,
   Check,
+  ChevronRight,
   Loader2,
   MessageCircleQuestion,
+  MessagesSquare,
   Plus,
   Trash2,
+  UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -447,6 +451,21 @@ export function MenuTab({
   requestsCount: number;
   onOpenRequests: () => void;
 }) {
+  // The app-wide menu is always here — this tab must not become a different
+  // menu depending on where you opened it. The messenger's own options from the
+  // Layout Studio sketch ride on top of it as extras, above the shared sections.
+  const messengerRows: MessengerMenuRow[] = [
+    { icon: <MessagesSquare size={18} />, label: "Channels", href: "/messages?tab=channels" },
+    {
+      icon: <MessageCircleQuestion size={18} />,
+      label: "Message requests",
+      onClick: onOpenRequests,
+      badge: requestsCount,
+    },
+    { icon: <Archive size={18} />, label: "Archive", soon: true },
+    { icon: <UserPlus size={18} />, label: "Channel invites", soon: true },
+  ];
+
   return (
     <div className="h-full overflow-y-auto pb-4">
       <div className="px-4 pt-4 text-2xl font-bold">Menu</div>
@@ -456,35 +475,60 @@ export function MenuTab({
         myDisplayName={myDisplayName}
         myEmail={myEmail}
         beforeSections={
-          <button
-            onClick={onOpenRequests}
-            className="flex w-full items-center gap-3.5 px-4 py-2.5 text-left transition hover:bg-white/5"
-          >
-            <span className="shrink-0 text-white/60">
-              <MessageCircleQuestion size={18} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[15px] font-medium">
-                Message requests
-              </span>
-              <span className="block text-xs text-white/40">
-                Chats from people you haven&apos;t talked to
-              </span>
-            </span>
-            {requestsCount > 0 && (
-              <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold">
-                {requestsCount}
-              </span>
-            )}
-          </button>
+          <div className="pb-1">
+            <p className="px-4 pb-1 pt-2 text-[11px] uppercase tracking-wider text-white/35">
+              Messenger
+            </p>
+            {messengerRows.map((row) => (
+              <MessengerMenuItem key={row.label} row={row} />
+            ))}
+          </div>
         }
       />
-
-      <div className="mt-4 flex items-center gap-2 px-4 text-xs text-white/30">
-        <MessageCircleQuestion size={14} />
-        Messages, stories and notifications live here — everything else is in
-        the menu above.
-      </div>
     </div>
+  );
+}
+
+
+interface MessengerMenuRow {
+  icon: React.ReactNode;
+  label: string;
+  href?: string;
+  onClick?: () => void;
+  badge?: number;
+  /** Sketched but not built yet — shown, disabled, and labelled as such. */
+  soon?: boolean;
+}
+
+function MessengerMenuItem({ row }: { row: MessengerMenuRow }) {
+  const body = (
+    <>
+      <span className="shrink-0 text-white/60">{row.icon}</span>
+      <span className="min-w-0 flex-1 text-[15px] font-medium">{row.label}</span>
+      {row.soon && <span className="shrink-0 text-[11px] text-white/30">Soon</span>}
+      {!!row.badge && row.badge > 0 && (
+        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-semibold">
+          {row.badge}
+        </span>
+      )}
+      {!row.soon && <ChevronRight size={16} className="shrink-0 text-white/30" />}
+    </>
+  );
+  const shell = "flex w-full items-center gap-3.5 px-4 py-2.5 text-left transition";
+
+  if (row.soon) {
+    return <div className={`${shell} cursor-default opacity-50`}>{body}</div>;
+  }
+  if (row.href) {
+    return (
+      <Link href={row.href} className={`${shell} hover:bg-white/5`}>
+        {body}
+      </Link>
+    );
+  }
+  return (
+    <button onClick={row.onClick} className={`${shell} hover:bg-white/5`}>
+      {body}
+    </button>
   );
 }

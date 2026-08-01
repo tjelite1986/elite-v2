@@ -196,9 +196,11 @@ const insertMedia = db.prepare(
 const insertHashtag = db.prepare(
   "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)"
 );
-// Has this creator already got an image with this exact content?
+// Has this creator already got an image with this exact content? The matched
+// media row comes back so a duplicate carrying metadata can update it.
 const hashSeen = db.prepare(
-  `SELECT 1 FROM post_media pm JOIN posts p ON p.id = pm.post_id
+  `SELECT pm.id AS media_id, pm.post_id, pm.storage_key
+     FROM post_media pm JOIN posts p ON p.id = pm.post_id
     WHERE p.author_creator_id = ? AND pm.content_hash = ? LIMIT 1`
 );
 
@@ -292,7 +294,26 @@ function consume(srcPath) {
 }
 
 let deduped = 0;
+let replaced = 0;
 let videosImported = 0;
+
+// A duplicate that arrives WITH a gallery-dl .json sidecar is a re-sync of a
+// photo already in the library, carrying the post text the first import lacked.
+// The stored media is byte-identical — that is what made it a duplicate — so the
+// file on disk is left alone and the metadata replaces what the matched post
+// holds: caption, plus any hashtags in it. Returns true when something changed.
+function backfillFromSidecar(dup, sidecar) {
+  const caption = sidecar?.caption?.trim();
+  if (!caption) return false;
+  const row = db.prepare("SELECT caption FROM posts WHERE id = ?").get(dup.post_id);
+  if (!row || row.caption === caption) return false;
+  db.transaction(() => {
+    db.prepare("UPDATE posts SET caption = ? WHERE id = ?").run(caption, dup.post_id);
+    for (const tag of parseHashtags(caption)) insertHashtag.run(dup.post_id, tag);
+  })();
+  log(`meta ~ post #${dup.post_id}: caption from the duplicate's sidecar`);
+  return true;
+}
 
 // Extract a square poster frame as <stem>_t.jpg (the same slot the image
 // thumbnail uses, so ?size=thumb serves it). Mirrors lib/posts-storage.ts.
@@ -354,7 +375,9 @@ function processVideo(username, srcPath, originalName) {
       .createHash("sha256")
       .update(fs.readFileSync(srcPath))
       .digest("hex");
-    if (hashSeen.get(creatorId, contentHash)) {
+    const dup = hashSeen.get(creatorId, contentHash);
+    if (dup) {
+      if (backfillFromSidecar(dup, sidecar)) replaced++;
       if (consume(srcPath)) { consumeSidecar(srcPath); deduped++; }
       return;
     }
@@ -445,7 +468,9 @@ async function processImage(username, srcPath, originalName) {
     // so re-dropping an already-imported image is skipped. Matches the backfill,
     // which hashes the same display files.
     const contentHash = crypto.createHash("sha256").update(displayBuf).digest("hex");
-    if (hashSeen.get(creatorId, contentHash)) {
+    const dup = hashSeen.get(creatorId, contentHash);
+    if (dup) {
+      if (backfillFromSidecar(dup, sidecar)) replaced++;
       if (consume(srcPath)) { consumeSidecar(srcPath); deduped++; }
       return; // already imported
     }
@@ -555,7 +580,8 @@ for (const [creatorId, items] of byCreator) {
 
 log(
   `done: ${imported} imported, ${creatorsNew} new creators, ` +
-    `${videosImported} videos, ${deduped} dup-skipped, ${skipped} skipped`
+    `${videosImported} videos, ${deduped} dup-skipped, ${replaced} meta-updated, ` +
+    `${skipped} skipped`
 );
-result({ imported, creatorsNew, videosImported, deduped, skipped });
+result({ imported, creatorsNew, videosImported, deduped, replaced, skipped });
 db.close();

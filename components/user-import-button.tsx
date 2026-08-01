@@ -21,6 +21,7 @@ export default function UserImportButton() {
           `${d.imported ?? 0} file(s)`,
           `${d.users ?? 0} user(s) scanned`,
         ];
+        if (d.replaced) parts.push(`${d.replaced} replaced`);
         if (d.skipped) parts.push(`${d.skipped} skipped`);
         setMsg(`Imported ${parts.join(", ")}.`);
       } else {

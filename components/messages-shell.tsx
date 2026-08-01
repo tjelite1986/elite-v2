@@ -6,6 +6,7 @@ import { Bell, Images, Menu, MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useWs } from "@/components/ws-provider";
+import StoryRail from "@/components/story-rail";
 import MessengerClient from "@/components/messenger-client";
 import ChannelsClient from "@/components/channels-client";
 import {
@@ -149,9 +150,15 @@ export default function MessagesShell({
                 ))}
               </div>
             </div>
-            <div className="min-h-0 flex-1">
+            <div className="min-h-0 flex-1 overflow-y-auto">
               {chatTab === "dm" ? (
-                <MessengerClient meId={meId} onUnreadChange={setDmUnread} />
+                <>
+                  {/* Stories sit above the conversations, the way they do in a
+                      real messenger — the Stories tab stays the full view. */}
+                  <StoryRail myUsername={myUsername} />
+                  <div className="mx-4 mb-1 border-t border-white/10" />
+                  <MessengerClient meId={meId} onUnreadChange={setDmUnread} />
+                </>
               ) : (
                 <ChannelsClient meId={meId} />
               )}
