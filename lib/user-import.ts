@@ -25,6 +25,7 @@ import {
 import { ingestMedia } from "./gallery-ingest";
 import { ingestUpload } from "./books";
 import { getAliasProfileId } from "./shorts";
+import { applyToPeople } from "./instagram";
 import {
   getExt,
   isSupportedImage,
@@ -203,6 +204,31 @@ function readCaptionSidecar(fileAbs: string): {
 }
 
 type CaptionSidecar = ReturnType<typeof readCaptionSidecar>;
+
+// The profile of whoever posted, as carried by the piko sidecar (schema 2+).
+// A drop from the phone is the only thing that knows this — the folder name
+// alone gives a handle and nothing else — so it is applied to the creator the
+// folder names, giving /people a real display name, bio and avatar.
+function readProfileSidecar(jsonAbs: string | null): {
+  displayName: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
+} | null {
+  if (!jsonAbs) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(jsonAbs, "utf8"));
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    const profile = {
+      displayName: str(parsed?.full_name),
+      bio: str(parsed?.bio),
+      avatarUrl: str(parsed?.profile_pic_url),
+    };
+    if (!profile.displayName && !profile.bio && !profile.avatarUrl) return null;
+    return profile;
+  } catch {
+    return null; // unreadable or an older sidecar without profile fields
+  }
+}
 
 // Delete every sidecar that belonged to a consumed drop file. `sidecar` is the
 // one the caption came from; `json` may be a second file left over when a
@@ -957,6 +983,20 @@ async function importPostsSection(
 ) {
   const userSlug = authorSlug(username ?? `u${userId}`);
   const userHome = userHomeDir(userId, username);
+  // One profile application per creator per run: a carousel drops one sidecar
+  // per slide, and each would otherwise re-download the same avatar.
+  const profiledCreators = new Set<string>();
+  const applyProfile = async (collection: string, jsonAbs: string | null) => {
+    if (profiledCreators.has(collection)) return;
+    const profile = readProfileSidecar(jsonAbs);
+    if (!profile) return;
+    profiledCreators.add(collection);
+    try {
+      await applyToPeople(creatorHandle(collection), { ...profile, links: [] }, "instagram");
+    } catch {
+      /* a missing avatar must never fail the import of the media itself */
+    }
+  };
   const insertUserPost = db.prepare(
     "INSERT INTO posts (author_user_id, caption) VALUES (?, ?)"
   );
@@ -999,6 +1039,7 @@ async function importPostsSection(
           // the drop folder and a caption the posts importer never gets to read,
           // which is exactly what a phone upload drops here as a pair.
           const routed = readCaptionSidecar(item.abs);
+          await applyProfile(item.collection, routed.json);
           for (const sidecar of [routed.sidecar, routed.json]) {
             if (!sidecar || !fs.existsSync(sidecar)) continue;
             try {
@@ -1029,6 +1070,7 @@ async function importPostsSection(
     const parsed = parseImportName(stem);
     const md = readCaptionSidecar(item.abs);
     const asCreator = !!item.collection;
+    if (asCreator) await applyProfile(item.collection as string, md.json);
     // [id_] re-import dedup only applies to a user's OWN posts; creator posts use
     // the content-hash dedup below (their id namespace isn't the user's).
     if (
