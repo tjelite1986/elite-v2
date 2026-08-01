@@ -983,18 +983,31 @@ async function importPostsSection(
 ) {
   const userSlug = authorSlug(username ?? `u${userId}`);
   const userHome = userHomeDir(userId, username);
-  // One profile application per creator per run: a carousel drops one sidecar
-  // per slide, and each would otherwise re-download the same avatar.
-  const profiledCreators = new Set<string>();
-  const applyProfile = async (collection: string, jsonAbs: string | null) => {
-    if (profiledCreators.has(collection)) return;
+  // Profiles are collected while sweeping and applied once per creator at the end.
+  // Applying on the first sidecar seen would freeze whatever that one happened to
+  // carry — a drop folder mixes downloads from different app versions, and the
+  // older ones know less — while applying on every sidecar would re-fetch the same
+  // avatar once per slide of a carousel. Merging keeps the richest answer for each
+  // field and still costs one fetch.
+  const profileByCreator = new Map<string, ReturnType<typeof readProfileSidecar>>();
+  const noteProfile = (collection: string, jsonAbs: string | null) => {
     const profile = readProfileSidecar(jsonAbs);
     if (!profile) return;
-    profiledCreators.add(collection);
-    try {
-      await applyToPeople(creatorHandle(collection), { ...profile, links: [] }, "instagram");
-    } catch {
-      /* a missing avatar must never fail the import of the media itself */
+    const seen = profileByCreator.get(collection);
+    profileByCreator.set(collection, {
+      displayName: profile.displayName ?? seen?.displayName ?? null,
+      bio: profile.bio ?? seen?.bio ?? null,
+      avatarUrl: profile.avatarUrl ?? seen?.avatarUrl ?? null,
+    });
+  };
+  const applyCollectedProfiles = async () => {
+    for (const [collection, profile] of profileByCreator) {
+      if (!profile) continue;
+      try {
+        await applyToPeople(creatorHandle(collection), { ...profile, links: [] }, "instagram");
+      } catch {
+        /* a missing avatar must never fail the import of the media itself */
+      }
     }
   };
   const insertUserPost = db.prepare(
@@ -1039,7 +1052,7 @@ async function importPostsSection(
           // the drop folder and a caption the posts importer never gets to read,
           // which is exactly what a phone upload drops here as a pair.
           const routed = readCaptionSidecar(item.abs);
-          await applyProfile(item.collection, routed.json);
+          noteProfile(item.collection, routed.json);
           for (const sidecar of [routed.sidecar, routed.json]) {
             if (!sidecar || !fs.existsSync(sidecar)) continue;
             try {
@@ -1070,7 +1083,7 @@ async function importPostsSection(
     const parsed = parseImportName(stem);
     const md = readCaptionSidecar(item.abs);
     const asCreator = !!item.collection;
-    if (asCreator) await applyProfile(item.collection as string, md.json);
+    if (asCreator) noteProfile(item.collection as string, md.json);
     // [id_] re-import dedup only applies to a user's OWN posts; creator posts use
     // the content-hash dedup below (their id namespace isn't the user's).
     if (
@@ -1245,6 +1258,7 @@ async function importPostsSection(
       res.details.push(`posts ${item.name}: ${(err as Error).message}`);
     }
   }
+  await applyCollectedProfiles();
   pruneEmptyDirs(dir);
 }
 
