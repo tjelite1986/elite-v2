@@ -17,6 +17,7 @@ import DockerWidget from "@/components/docker-widget";
 import WeekWidget from "@/components/week-widget";
 import StorageDonut from "@/components/storage-donut";
 import NotificationsWidget from "@/components/notifications-widget";
+import HomeSearch from "@/components/home-search";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,12 @@ export default async function Home() {
        the blocks it does not contain (the 3-up stats row, "Recently added",
        the welcome heading) are deliberately absent. */
     <div className="mx-auto w-full max-w-lg px-4 pb-24 pt-20 text-white md:pt-24">
+      {/* Search box first: the dashboard is the app's landing surface, so
+          everything /search can find is one tap away from here. */}
+      <div className="mb-3">
+        <HomeSearch />
+      </div>
+
       <div className="mb-3">
         <ClockWidget align="center" />
       </div>
