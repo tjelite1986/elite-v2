@@ -48,6 +48,12 @@ export interface PlayerVideo {
   storyboard_tile_h: number | null;
 }
 
+export interface PlayerMarker {
+  title: string;
+  start: number;
+  end: number | null;
+}
+
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const HIDE_DELAY = 2800;
 
@@ -73,6 +79,8 @@ export default function VideoPlayer({
   onNext,
   onProgress,
   onFirstPlay,
+  markers = [],
+  seekRequest,
 }: {
   video: PlayerVideo;
   startAt?: number;
@@ -83,6 +91,11 @@ export default function VideoPlayer({
   onNext?: () => void;
   onProgress?: (position: number) => void;
   onFirstPlay?: () => void;
+  // Chapter markers, drawn on the seek bar and named in the scrub tooltip.
+  markers?: PlayerMarker[];
+  // A jump asked for from outside (a chapter chip). The nonce makes repeated
+  // requests for the SAME time still register.
+  seekRequest?: { time: number; nonce: number };
 }) {
   const shellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -398,6 +411,17 @@ export default function VideoPlayer({
     []
   );
 
+  // A chapter chip outside the player asks for a jump through this prop.
+  useEffect(() => {
+    if (!seekRequest) return;
+    const el = videoRef.current;
+    if (!el) return;
+    el.currentTime = Math.max(0, seekRequest.time);
+    setCurrent(el.currentTime);
+    if (el.paused) void el.play().catch(() => {});
+    showControls();
+  }, [seekRequest, showControls]);
+
   // --- seek bar -----------------------------------------------------------
 
   const timeFromClientX = useCallback(
@@ -682,6 +706,15 @@ export default function VideoPlayer({
                 background: "var(--accent, #3b82f6)",
               }}
             />
+            {duration > 0 &&
+              markers.map((m) => (
+                <span
+                  key={`${m.title}-${m.start}`}
+                  title={m.title}
+                  className="absolute top-1/2 h-2 w-0.5 -translate-y-1/2 rounded-full bg-amber-300/80"
+                  style={{ left: `${Math.min(100, (m.start / duration) * 100)}%` }}
+                />
+              ))}
             <div
               className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full opacity-0 transition-opacity group-hover/bar:opacity-100"
               style={{
@@ -705,7 +738,12 @@ export default function VideoPlayer({
                 />
               )}
               <div className="rounded bg-black/85 px-1.5 py-0.5 text-center text-[11px] font-medium text-white">
-                {formatTime(scrub.time)}
+                {(() => {
+                  const at = markers.find(
+                    (m) => scrub.time >= m.start && scrub.time <= (m.end ?? m.start + 30)
+                  );
+                  return at ? `${at.title} · ${formatTime(scrub.time)}` : formatTime(scrub.time);
+                })()}
               </div>
             </div>
           )}

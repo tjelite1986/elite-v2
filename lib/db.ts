@@ -667,6 +667,10 @@ function migrate(db: Database.Database) {
       meta_url TEXT,
       meta_status TEXT,                 -- NULL | 'auto' | 'manual' | 'none'
       meta_checked_at TEXT,
+      -- Scene extras that only the API has (a .nfo sidecar carries neither):
+      -- chapter markers [{title,start,end}] and the community rating.
+      meta_markers TEXT,
+      meta_rating REAL,
       views INTEGER NOT NULL DEFAULT 0,
       added_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE (channel, storage_key)
@@ -916,6 +920,8 @@ function migrate(db: Database.Database) {
       ["meta_url", "TEXT"],
       ["meta_status", "TEXT"],
       ["meta_checked_at", "TEXT"],
+      ["meta_markers", "TEXT"],
+      ["meta_rating", "REAL"],
     ] as const) {
       if (!cols.includes(name))
         db.exec(`ALTER TABLE videos ADD COLUMN ${name} ${type}`);
@@ -2005,6 +2011,8 @@ export interface VideoRow {
   meta_url: string | null;
   meta_status: "auto" | "manual" | "none" | null;
   meta_checked_at: string | null;
+  meta_markers: string | null;
+  meta_rating: number | null;
   views: number;
   added_at: string;
 }

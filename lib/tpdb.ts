@@ -15,6 +15,12 @@ const API_BASE = "https://api.theporndb.net";
 
 export type TpdbType = "movie" | "scene";
 
+export interface TpdbMarker {
+  title: string;
+  start: number;
+  end: number | null;
+}
+
 export interface TpdbResult {
   id: string;
   type: TpdbType;
@@ -27,6 +33,9 @@ export interface TpdbResult {
   performers: string[];
   tags: string[];
   url: string | null;
+  // Only the detail record carries these; a search hit leaves them empty.
+  markers: TpdbMarker[];
+  rating: number | null;
 }
 
 export interface ScoredResult extends TpdbResult {
@@ -94,6 +103,19 @@ function normalizeItem(item: any, type: TpdbType): TpdbResult {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tags: (item.tags || []).map((t: any) => t?.name).filter(Boolean),
     url: item.url || null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    markers: (Array.isArray(item.markers) ? item.markers : [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .filter((m: any) => m && typeof m.start_time === "number" && m.title)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((m: any) => ({
+        title: String(m.title),
+        start: m.start_time,
+        end: typeof m.end_time === "number" ? m.end_time : null,
+      }))
+      .sort((a: TpdbMarker, b: TpdbMarker) => a.start - b.start),
+    rating:
+      typeof item.rating === "number" && item.rating > 0 ? item.rating : null,
   };
 }
 

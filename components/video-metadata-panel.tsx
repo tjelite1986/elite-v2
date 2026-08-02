@@ -37,6 +37,22 @@ function performerSlug(name: string): string {
 // admins) a picker to correct it. Automatic matching handles the easy cases;
 // this is what makes the rest fixable by hand instead of permanently wrong.
 
+export interface SceneMarker {
+  title: string;
+  start: number;
+  end: number | null;
+}
+
+export interface ScenePerformer {
+  slug: string;
+  name: string;
+  gender: string | null;
+  nationality: string | null;
+  birthday: string | null;
+  rating: number | null;
+  hasImage: boolean;
+}
+
 export interface VideoMetadata {
   source: string | null;
   id: string | null;
@@ -50,6 +66,8 @@ export interface VideoMetadata {
   url: string | null;
   status: string | null;
   hasPoster: boolean;
+  markers: SceneMarker[];
+  rating: number | null;
 }
 
 interface Candidate {
@@ -71,16 +89,45 @@ function runtime(seconds: number | null): string | null {
   return `${m} min`;
 }
 
+function clock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+// Age the performer was on the day the scene was shot — what the source page
+// shows as "24 y/o in this scene".
+function ageInScene(birthday: string | null, sceneDate: string | null): number | null {
+  if (!birthday || !sceneDate) return null;
+  const born = new Date(birthday);
+  const shot = new Date(sceneDate);
+  if (Number.isNaN(born.getTime()) || Number.isNaN(shot.getTime())) return null;
+  let years = shot.getFullYear() - born.getFullYear();
+  const before =
+    shot.getMonth() < born.getMonth() ||
+    (shot.getMonth() === born.getMonth() && shot.getDate() < born.getDate());
+  if (before) years--;
+  return years > 0 && years < 120 ? years : null;
+}
+
 export default function VideoMetadataPanel({
   videoId,
   fallbackTitle,
   metadata: initial,
+  performers: cast = [],
   isAdmin,
+  onSeek,
 }: {
   videoId: number;
   fallbackTitle: string;
   metadata: VideoMetadata | null;
+  performers?: ScenePerformer[];
   isAdmin: boolean;
+  onSeek?: (seconds: number) => void;
 }) {
   const router = useRouter();
   const [meta, setMeta] = useState<VideoMetadata | null>(initial);
@@ -177,12 +224,22 @@ export default function VideoMetadataPanel({
             {matched ? (
               <>
                 <p className="font-medium text-white">{meta?.title}</p>
-                <p className="mt-0.5 text-xs text-white/50">
-                  {[meta?.studio, meta?.date?.slice(0, 4)]
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-white/50">
+                  {meta?.rating != null && (
+                    <span className="text-amber-300">
+                      {"★".repeat(Math.round(meta.rating))}
+                      <span className="ml-1 text-white/45">
+                        {meta.rating.toFixed(1)}
+                      </span>
+                    </span>
+                  )}
+                  <span>
+                  {[meta?.studio, meta?.date?.slice(0, 10)]
                     .filter(Boolean)
                     .join(" · ")}
                   {meta?.source === "nfo" ? " · from sidecar" : ""}
                   {meta?.source === "tpdb" ? " · ThePornDB" : ""}
+                  </span>
                 </p>
               </>
             ) : (
@@ -217,7 +274,51 @@ export default function VideoMetadataPanel({
           <p className="mt-2 whitespace-pre-wrap text-white/70">{meta.synopsis}</p>
         )}
 
-        {meta && meta.performers.length > 0 && (
+        {/* Cast cards: portrait, how old they were in this scene, and the name
+            linking on to the full profile. */}
+        {cast.length > 0 ? (
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {cast.map((c) => {
+              const years = ageInScene(c.birthday, meta?.date ?? null);
+              return (
+                <Link
+                  key={c.slug}
+                  href={`/videos18/performer/${c.slug}`}
+                  className="group w-28 shrink-0 overflow-hidden rounded-xl bg-white/5 transition hover:bg-white/10"
+                >
+                  <span className="relative block aspect-[3/4] w-full overflow-hidden bg-white/5">
+                    {c.hasImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={`/api/videos/performers/${c.slug}/image`}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                      />
+                    ) : (
+                      <span className="grid h-full w-full place-items-center text-white/20">
+                        <Users size={20} />
+                      </span>
+                    )}
+                    {c.rating !== null && (
+                      <span className="absolute right-1 top-1 rounded bg-black/70 px-1 py-0.5 text-[10px] font-semibold text-amber-300">
+                        {c.rating.toFixed(1)}
+                      </span>
+                    )}
+                    {years !== null && (
+                      <span className="absolute inset-x-0 bottom-0 bg-black/70 px-1.5 py-0.5 text-[10px] text-white/85">
+                        {years} y/o in this scene
+                      </span>
+                    )}
+                  </span>
+                  <span className="block truncate px-2 py-1.5 text-xs font-medium">
+                    {c.name}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        ) : meta && meta.performers.length > 0 ? (
           <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-white/60">
             <Users size={12} className="text-white/40" />
             {meta.performers.map((name, i) => (
@@ -232,6 +333,25 @@ export default function VideoMetadataPanel({
               </span>
             ))}
           </p>
+        ) : null}
+
+        {/* Chapters — tap one to jump the player there. */}
+        {meta && meta.markers.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {meta.markers.map((m) => (
+              <button
+                key={`${m.title}-${m.start}`}
+                onClick={() => onSeek?.(m.start)}
+                className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-2 py-1 text-xs transition hover:bg-white/15"
+              >
+                <span className="font-medium">{m.title}</span>
+                <span className="tabular-nums text-white/45">
+                  {clock(m.start)}
+                  {m.end ? ` – ${clock(m.end)}` : ""}
+                </span>
+              </button>
+            ))}
+          </div>
         )}
 
         {meta && meta.tags.length > 0 && (

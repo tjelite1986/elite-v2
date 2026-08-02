@@ -23,6 +23,7 @@ import VideoCard, {
 } from "@/components/video-card";
 import { useConfirm } from "@/components/confirm-dialog";
 import VideoMetadataPanel, {
+  type ScenePerformer,
   type VideoMetadata,
 } from "@/components/video-metadata-panel";
 
@@ -49,6 +50,7 @@ export interface WatchVideo extends VideoCardData {
   video_codec: string | null;
   audio_codec: string | null;
   metadata?: VideoMetadata | null;
+  cast?: ScenePerformer[];
 }
 
 function formatSize(bytes: number | null): string | null {
@@ -82,6 +84,9 @@ export default function VideoWatch({
   const [descDraft, setDescDraft] = useState(initial.description ?? "");
   const [saving, setSaving] = useState(false);
   const [playerKey, setPlayerKey] = useState(0);
+  // Chapter chips live in the metadata panel but drive the player; a nonce lets
+  // the same timestamp be requested twice in a row.
+  const [seekRequest, setSeekRequest] = useState<{ time: number; nonce: number }>();
   const [confirmDialog, confirmAsk] = useConfirm();
   const [resumeAt, setResumeAt] = useState(
     initial.percent < 95 ? initial.position : 0
@@ -269,6 +274,8 @@ export default function VideoWatch({
               onEnded={() => {
                 if (autoplay && next) goNext();
               }}
+              markers={video.metadata?.markers ?? []}
+              seekRequest={seekRequest}
             />
             )}
           </div>
@@ -411,7 +418,11 @@ export default function VideoWatch({
               videoId={video.id}
               fallbackTitle={video.title}
               metadata={video.metadata ?? null}
+              performers={video.cast ?? []}
               isAdmin={isAdmin}
+              onSeek={(time) =>
+                setSeekRequest({ time, nonce: Date.now() })
+              }
             />
           )}
 

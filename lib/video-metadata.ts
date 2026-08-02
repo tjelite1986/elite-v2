@@ -26,6 +26,12 @@ import {
 // matches, and a manual picker for everything else — a wrong auto-match is
 // worse than no match, because nobody goes back to check it.
 
+export interface SceneMarker {
+  title: string;
+  start: number;
+  end: number | null;
+}
+
 export interface VideoMetadata {
   source: string | null;
   id: string | null;
@@ -40,6 +46,8 @@ export interface VideoMetadata {
   status: string | null;
   checkedAt: string | null;
   hasPoster: boolean;
+  markers: SceneMarker[];
+  rating: number | null;
 }
 
 export function parseMetadata(row: VideoRow): VideoMetadata {
@@ -66,6 +74,16 @@ export function parseMetadata(row: VideoRow): VideoMetadata {
     status: row.meta_status,
     checkedAt: row.meta_checked_at,
     hasPoster: Boolean(row.meta_poster_key),
+    markers: (() => {
+      if (!row.meta_markers) return [];
+      try {
+        const parsed = JSON.parse(row.meta_markers);
+        return Array.isArray(parsed) ? (parsed as SceneMarker[]) : [];
+      } catch {
+        return [];
+      }
+    })(),
+    rating: row.meta_rating,
   };
 }
 
@@ -114,6 +132,7 @@ export async function applyMatch(
        meta_title = @title, meta_date = @date, meta_studio = @studio,
        meta_synopsis = @synopsis, meta_performers = @performers,
        meta_tags = @tags, meta_poster_key = @poster, meta_url = @url,
+       meta_markers = @markers, meta_rating = @rating,
        meta_status = @status, meta_checked_at = datetime('now')
      WHERE id = @videoId`
   ).run({
@@ -128,6 +147,8 @@ export async function applyMatch(
     tags: JSON.stringify(match.tags),
     poster: posterKey,
     url: safeHttpUrl(match.url),
+    markers: match.markers.length ? JSON.stringify(match.markers) : null,
+    rating: match.rating,
     status,
   });
   setVideoPerformers(row.id, match.performers);
@@ -252,7 +273,9 @@ async function runAutoMatch(budgetMs: number): Promise<MetadataRunSummary> {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
-  // Whatever budget is left goes on performer biographies and portraits.
+  // Chapter markers and ratings for films the sidecar identified but could not
+  // describe, then whatever budget is left goes on performer profiles.
+  const scenes = await enrichPendingScenes(deadline);
   const performers = await enrichPendingPerformers(deadline);
 
   return {
@@ -262,6 +285,7 @@ async function runAutoMatch(budgetMs: number): Promise<MetadataRunSummary> {
     message:
       `${matched} matched, ${unmatched} left without a match` +
       (backfilled ? `, ${backfilled} film${backfilled === 1 ? "" : "s"} linked to performers` : "") +
+      (scenes ? `, ${scenes} with chapter markers` : "") +
       (performers ? `, ${performers} performer profile${performers === 1 ? "" : "s"} filled in.` : "."),
   };
 }
@@ -354,6 +378,47 @@ export async function applyNfo(row: VideoRow): Promise<boolean> {
   setVideoPerformers(row.id, nfo.performers);
   await importLocalPortraits(row, nfo.performers);
   return true;
+}
+
+// A sidecar knows the film but not its chapter markers or community rating —
+// only the API record does. When the sidecar handed us an id, fetch that record
+// and fill in what it alone has, without touching the fields the sidecar owns.
+export async function enrichFromTpdbId(row: VideoRow): Promise<boolean> {
+  if (!row.meta_id || !row.meta_type) return false;
+  if (row.meta_markers !== null) return false; // already fetched
+  const detail = await getTpdb(row.meta_id, row.meta_type as TpdbType);
+  if (!detail) {
+    // Record an empty set so a record without markers is not re-fetched hourly.
+    db.prepare("UPDATE videos SET meta_markers = '[]' WHERE id = ?").run(row.id);
+    return false;
+  }
+  db.prepare(
+    "UPDATE videos SET meta_markers = @markers, meta_rating = COALESCE(@rating, meta_rating) WHERE id = @id"
+  ).run({
+    id: row.id,
+    markers: JSON.stringify(detail.markers),
+    rating: detail.rating,
+  });
+  return detail.markers.length > 0;
+}
+
+async function enrichPendingScenes(deadline: number): Promise<number> {
+  if (!tpdbConfigured()) return 0;
+  let filled = 0;
+  for (;;) {
+    if (Date.now() >= deadline) break;
+    const row = db
+      .prepare(
+        `SELECT * FROM videos
+          WHERE channel = 'adults' AND meta_id IS NOT NULL AND meta_markers IS NULL
+          ORDER BY id LIMIT 1`
+      )
+      .get() as VideoRow | undefined;
+    if (!row) break;
+    if (await enrichFromTpdbId(row)) filled++;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  return filled;
 }
 
 // Put a video back in the automatic queue (the Rematch button).
