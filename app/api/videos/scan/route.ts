@@ -2,6 +2,18 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { scanAllVideos, scanVideoChannel } from "@/lib/videos";
 import { parseVideoChannel } from "@/lib/videos-storage";
+import { startMetadataRun } from "@/lib/video-metadata";
+import type { ScanResult } from "@/lib/videos";
+
+// New 18+ files carry their own sidecar metadata, but performer biographies and
+// portraits come from ThePornDB — which only the metadata pass fetches. Without
+// this a fresh drop shows unknown performers until the next hourly run.
+// Fire-and-forget: it declines on its own if a run is already going.
+function matchNewAdultVideos(results: ScanResult[]) {
+  if (results.some((r) => r.channel === "adults" && r.added > 0)) {
+    startMetadataRun();
+  }
+}
 
 export const dynamic = "force-dynamic";
 // Probing + poster/storyboard generation is ffmpeg-bound and a first scan of a
@@ -26,11 +38,12 @@ export async function POST(request: Request) {
     if (!channel) {
       return NextResponse.json({ error: "Unknown channel" }, { status: 400 });
     }
-    return NextResponse.json({
-      ok: true,
-      results: [await scanVideoChannel(channel)],
-    });
+    const results = [await scanVideoChannel(channel)];
+    matchNewAdultVideos(results);
+    return NextResponse.json({ ok: true, results });
   }
 
-  return NextResponse.json({ ok: true, results: await scanAllVideos() });
+  const results = await scanAllVideos();
+  matchNewAdultVideos(results);
+  return NextResponse.json({ ok: true, results });
 }
