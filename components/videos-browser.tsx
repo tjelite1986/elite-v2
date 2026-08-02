@@ -119,19 +119,28 @@ export default function VideosBrowser({
       if (res.ok) {
         const data = await res.json();
         setPendingConversions(data.pending ?? 0);
-        setConverting(Boolean(data.running));
+        const running = Boolean(data.running);
+        setConverting((was) => {
+          // A run that just ended: report how it went and refresh the grid so
+          // the converted rows lose their badge.
+          if (was && !running) {
+            if (data.lastRun?.message) setScanResult(data.lastRun.message);
+            void load();
+          }
+          return running;
+        });
       }
     } catch {
       /* the button just stays hidden */
     }
-  }, [isAdmin]);
+  }, [isAdmin, load]);
 
   useEffect(() => {
     loadQueue();
-    // A conversion run is long; poll so the count drains without a reload.
-    const t = setInterval(loadQueue, 30000);
+    // Poll often enough to notice a finished file while a run is going.
+    const t = setInterval(loadQueue, converting ? 10000 : 30000);
     return () => clearInterval(t);
-  }, [loadQueue]);
+  }, [loadQueue, converting]);
 
   // Infinite scroll: fetch the next page when the sentinel comes into view.
   useEffect(() => {
@@ -183,18 +192,18 @@ export default function VideosBrowser({
     }
   };
 
-  // Kick the conversion queue by hand. The request runs for as long as the
-  // encoder needs, so the UI reports what came back rather than blocking.
+  // Start the conversion queue. The request returns as soon as the run begins —
+  // the encode itself outlives any HTTP request — so progress comes from the
+  // queue poll below.
   const convert = async () => {
-    setConverting(true);
-    setScanResult("Converting… this runs in the background and takes a while.");
     try {
       const res = await fetch("/api/videos/transcode", { method: "POST" });
       const data = await res.json().catch(() => ({}));
-      setScanResult(res.ok ? data.message || "Conversion done." : data.error || "Conversion failed.");
-      await load();
+      setScanResult(res.ok ? data.message || "Started." : data.error || "Could not start.");
+      if (data.started) setConverting(true);
+    } catch {
+      setScanResult("Could not reach the server.");
     } finally {
-      setConverting(false);
       await loadQueue();
     }
   };

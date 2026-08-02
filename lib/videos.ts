@@ -363,6 +363,16 @@ export async function scanVideoChannel(
     result.message = `A scan of "${channel}" is already running.`;
     return result;
   }
+  // A conversion renames files and rewrites storage keys underneath us. A scan
+  // crossing that would read a source that is about to vanish (inserting a
+  // metadata-less ghost row) and see the new .mp4 as an orphan to delete. The
+  // hourly scan and transcode jobs fire on the SAME tick, so this is the normal
+  // case, not a corner one — the scan simply waits for the next hour.
+  if (transcoding) {
+    result.skipped = true;
+    result.message = "A conversion run is in progress — skipping this scan.";
+    return result;
+  }
   scanning.add(channel);
 
   try {
@@ -592,8 +602,113 @@ export interface TranscodeResult {
 
 let transcoding = false;
 
+export interface TranscodeRunSummary {
+  finishedAt: string;
+  converted: number;
+  failed: number;
+  message: string;
+}
+
+let lastRun: TranscodeRunSummary | null = null;
+
 export function isTranscoding(): boolean {
   return transcoding;
+}
+
+export function transcodeState(): {
+  running: boolean;
+  pending: number;
+  lastRun: TranscodeRunSummary | null;
+} {
+  return { running: transcoding, pending: pendingTranscodes(), lastRun };
+}
+
+// Kick off a queue run WITHOUT waiting for it. A conversion is minutes to hours;
+// holding the HTTP request open that long fails regardless of route config,
+// because the fetch client gives up first (undici drops a response with no
+// headers after 5 minutes — the scheduler's job died there while ffmpeg kept
+// going). Callers poll transcodeState() instead.
+export function startTranscodeRun(budgetMs?: number): {
+  started: boolean;
+  message: string;
+  pending: number;
+} {
+  if (transcoding) {
+    return {
+      started: false,
+      message: "A conversion run is already in progress.",
+      pending: pendingTranscodes(),
+    };
+  }
+  if (isScanning()) {
+    return {
+      started: false,
+      message: "A library scan is in progress — try again once it finishes.",
+      pending: pendingTranscodes(),
+    };
+  }
+  const pending = pendingTranscodes();
+  if (pending === 0) {
+    return { started: false, message: "Nothing to convert.", pending: 0 };
+  }
+  // The synchronous prefix of transcodePendingVideos sets the lock before it
+  // awaits anything, so a second call lands on the guard above.
+  void transcodePendingVideos(budgetMs)
+    .then((r) => {
+      lastRun = {
+        finishedAt: new Date().toISOString(),
+        converted: r.converted,
+        failed: r.failed,
+        message: r.message,
+      };
+    })
+    .catch((err) => {
+      lastRun = {
+        finishedAt: new Date().toISOString(),
+        converted: 0,
+        failed: 0,
+        message: `Run aborted: ${String((err as Error)?.message || err)}`,
+      };
+    });
+  return {
+    started: true,
+    message: `Converting ${pending} video${pending === 1 ? "" : "s"} in the background.`,
+    pending,
+  };
+}
+
+// Same, for a single video (the per-video Convert button).
+export function startTranscodeOne(id: number): {
+  started: boolean;
+  message: string;
+} {
+  if (transcoding) {
+    return { started: false, message: "A conversion run is already in progress." };
+  }
+  if (isScanning()) {
+    return {
+      started: false,
+      message: "A library scan is in progress — try again once it finishes.",
+    };
+  }
+  void transcodeOne(id)
+    .then((r) => {
+      lastRun = {
+        finishedAt: new Date().toISOString(),
+        converted: r.converted,
+        failed: r.failed,
+        message: r.message,
+      };
+    })
+    .catch((err) => {
+      lastRun = {
+        finishedAt: new Date().toISOString(),
+        converted: 0,
+        failed: 1,
+        message: String((err as Error)?.message || err),
+      };
+    });
+  return { started: true, message: "Converting in the background." };
 }
 
 export function pendingTranscodes(): number {
@@ -747,6 +862,14 @@ export async function transcodePendingVideos(
       message: "A conversion run is already in progress.",
     };
   }
+  if (isScanning()) {
+    return {
+      converted: 0,
+      failed: 0,
+      remaining: pendingTranscodes(),
+      message: "A library scan is in progress — skipping this conversion run.",
+    };
+  }
   transcoding = true;
   const deadline = Date.now() + budgetMs;
   let converted = 0;
@@ -806,6 +929,14 @@ export async function transcodeOne(id: number): Promise<TranscodeResult> {
       failed: 0,
       remaining: pendingTranscodes(),
       message: "A conversion run is already in progress.",
+    };
+  }
+  if (isScanning()) {
+    return {
+      converted: 0,
+      failed: 0,
+      remaining: pendingTranscodes(),
+      message: "A library scan is in progress — try again once it finishes.",
     };
   }
   const row = db.prepare("SELECT * FROM videos WHERE id = ?").get(id) as

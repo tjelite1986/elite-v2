@@ -470,25 +470,53 @@ function PendingConversion({
   video: WatchVideo;
   isAdmin: boolean;
 }) {
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const failed = video.transcode_status === "failed";
 
+  // The request only starts the encode — it finishes long after any HTTP
+  // request would have timed out — so the page polls the queue and reloads
+  // itself once the run is done and this video has become playable.
   const convert = async () => {
     setBusy(true);
-    setNote("Converting — this runs in the background and can take a while.");
+    setNote("Starting…");
     try {
       const res = await fetch(`/api/videos/transcode?id=${video.id}`, {
         method: "POST",
       });
       const data = await res.json().catch(() => ({}));
-      setNote(res.ok ? data.message || "Done." : data.error || "Failed.");
+      if (!res.ok || !data.started) {
+        setBusy(false);
+        setNote(data.message || data.error || "Could not start.");
+        return;
+      }
+      setNote("Converting — this can take a while. The page updates when it's done.");
     } catch {
-      setNote("Could not reach the server.");
-    } finally {
       setBusy(false);
+      setNote("Could not reach the server.");
     }
   };
+
+  // While a run is going, watch the queue; when it stops, pull the fresh row.
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setInterval(async () => {
+      try {
+        const res = await fetch("/api/videos/transcode");
+        if (!res.ok) return;
+        const state = await res.json();
+        if (!state.running) {
+          setBusy(false);
+          setNote(state.lastRun?.message ?? null);
+          router.refresh();
+        }
+      } catch {
+        /* keep waiting */
+      }
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [busy, router]);
 
   const codecs = [video.video_codec, video.audio_codec].filter(Boolean).join(" + ");
 
