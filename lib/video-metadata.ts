@@ -5,6 +5,7 @@ import type { VideoRow } from "./db";
 import { artworkStem, posterFilePath, videoFilePath } from "./videos-storage";
 import { findLocalPoster, readNfo, type NfoData } from "./video-nfo";
 import {
+  backfillPerformerLinks,
   enrichPendingPerformers,
   importLocalPortraits,
   setVideoPerformers,
@@ -206,6 +207,10 @@ async function runAutoMatch(budgetMs: number): Promise<MetadataRunSummary> {
   let matched = 0;
   let unmatched = 0;
 
+  // Self-heal first: films matched before performer profiles existed are
+  // already 'auto', so the loop below would never look at them again.
+  const backfilled = await backfillPerformerLinks();
+
   for (;;) {
     if (Date.now() >= deadline) break;
     const row = db
@@ -255,6 +260,7 @@ async function runAutoMatch(budgetMs: number): Promise<MetadataRunSummary> {
     unmatched,
     message:
       `${matched} matched, ${unmatched} left without a match` +
+      (backfilled ? `, ${backfilled} film${backfilled === 1 ? "" : "s"} linked to performers` : "") +
       (performers ? `, ${performers} performer profile${performers === 1 ? "" : "s"} filled in.` : "."),
   };
 }

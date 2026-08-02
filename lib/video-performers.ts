@@ -122,6 +122,42 @@ export async function importLocalPortraits(
   }
 }
 
+// Rebuild links for videos whose metadata already lists performers but that
+// have none linked. Anything matched before this feature existed kept its
+// meta_performers and never got a profile — and since those rows are already
+// 'auto', the matcher skips them forever. Cheap enough to run every pass.
+export async function backfillPerformerLinks(): Promise<number> {
+  const rows = db
+    .prepare(
+      `SELECT v.* FROM videos v
+        WHERE v.channel = 'adults'
+          AND v.meta_performers IS NOT NULL
+          AND v.meta_performers <> '[]'
+          AND NOT EXISTS (
+            SELECT 1 FROM video_performer_links l WHERE l.video_id = v.id
+          )`
+    )
+    .all() as VideoRow[];
+
+  let linked = 0;
+  for (const row of rows) {
+    let names: string[] = [];
+    try {
+      const parsed = JSON.parse(row.meta_performers || "[]");
+      if (Array.isArray(parsed)) {
+        names = parsed.filter((n): n is string => typeof n === "string");
+      }
+    } catch {
+      continue;
+    }
+    if (!names.length) continue;
+    setVideoPerformers(row.id, names);
+    await importLocalPortraits(row, names);
+    linked++;
+  }
+  return linked;
+}
+
 // --- ThePornDB enrichment ---------------------------------------------------
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -140,7 +176,20 @@ async function tpdbPerformer(name: string): Promise<any | null> {
     // Only an exact name match counts: "Dee" must not become "Dee Williams".
     const wanted = performerSlug(name);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (data?.data || []).find((p: any) => performerSlug(p.name || "") === wanted) ?? null;
+    const exact = (data?.data || []).filter(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (p: any) => performerSlug(p.name || "") === wanted
+    );
+    // Several records share a popular stage name; the one with a portrait and a
+    // biography is the maintained entry.
+    return (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      exact.find((p: any) => p.image && p.bio) ??
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      exact.find((p: any) => p.image) ??
+      exact[0] ??
+      null
+    );
   } catch {
     return null;
   }
