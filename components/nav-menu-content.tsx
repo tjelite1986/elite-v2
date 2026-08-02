@@ -6,6 +6,7 @@ import {
   Bell,
   Camera,
   ChevronRight,
+  Film,
   Flame,
   Github,
   Globe,
@@ -182,6 +183,13 @@ export default function NavMenuContent({
         <MenuRow href="/posts" icon={<Newspaper size={18} />} label="InstaElite" />
         <MenuRow href="/shorts" icon={<Play size={18} />} label="Shorts" />
         <MenuRow href="/shorts18" icon={<Flame size={18} />} label="Shorts 18+" />
+        <MenuRow
+          href="/videos"
+          icon={<Film size={18} />}
+          label="Videos"
+          sub="Long-form video library"
+        />
+        <MenuRow href="/videos18" icon={<Film size={18} />} label="Videos 18+" />
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">

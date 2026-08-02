@@ -618,6 +618,59 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_book_state_user
       ON book_reading_state(user_id, last_read_at DESC);
 
+    -- Long-form video library (the /videos section). Shared, not per-user: the
+    -- files under VIDEOS_ROOT/<channel> are the source of truth and a scan
+    -- mirrors them here, so a row is always reproducible from disk. Separate
+    -- from the shorts table, which models short vertical clips with creators.
+    CREATE TABLE IF NOT EXISTS videos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL CHECK (channel IN ('main', 'adults')),
+      storage_key TEXT NOT NULL,         -- path within VIDEOS_ROOT/<channel>
+      folder TEXT NOT NULL DEFAULT '',   -- containing subfolder ('' = root)
+      title TEXT NOT NULL,
+      description TEXT,
+      poster_key TEXT,                   -- filename within VIDEOS_ROOT/.posters
+      -- Scrub-preview storyboard: one JPEG holding cols*rows frames sampled
+      -- every storyboard_interval seconds (YouTube-style hover thumbnails).
+      storyboard_key TEXT,
+      storyboard_cols INTEGER,
+      storyboard_rows INTEGER,
+      storyboard_interval REAL,
+      storyboard_tile_w INTEGER,
+      storyboard_tile_h INTEGER,
+      duration REAL,
+      width INTEGER,
+      height INTEGER,
+      size_bytes INTEGER,
+      file_mtime TEXT,
+      views INTEGER NOT NULL DEFAULT 0,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (channel, storage_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_videos_channel_added
+      ON videos(channel, added_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_videos_folder ON videos(channel, folder);
+
+    -- Per-user playback position, so a video resumes where it was left off.
+    CREATE TABLE IF NOT EXISTS video_progress (
+      video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      position REAL NOT NULL DEFAULT 0,  -- seconds
+      percent INTEGER NOT NULL DEFAULT 0,
+      finished_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (video_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_video_progress_user
+      ON video_progress(user_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS video_likes (
+      video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (video_id, user_id)
+    );
+
     -- Group channels (public chat rooms) alongside 1:1 DMs.
     CREATE TABLE IF NOT EXISTS channels (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1760,6 +1813,48 @@ export interface AppReviewRow {
   body: string | null;
   created_at: string;
   updated_at: string | null;
+}
+
+// --- Long-form video library (/videos) ---
+
+export type VideoChannel = "main" | "adults";
+
+export interface VideoRow {
+  id: number;
+  channel: VideoChannel;
+  storage_key: string;
+  folder: string;
+  title: string;
+  description: string | null;
+  poster_key: string | null;
+  storyboard_key: string | null;
+  storyboard_cols: number | null;
+  storyboard_rows: number | null;
+  storyboard_interval: number | null;
+  storyboard_tile_w: number | null;
+  storyboard_tile_h: number | null;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  size_bytes: number | null;
+  file_mtime: string | null;
+  views: number;
+  added_at: string;
+}
+
+export interface VideoProgressRow {
+  video_id: number;
+  user_id: number;
+  position: number;
+  percent: number;
+  finished_at: string | null;
+  updated_at: string;
+}
+
+export interface VideoLikeRow {
+  video_id: number;
+  user_id: number;
+  created_at: string;
 }
 
 export type NotificationType =

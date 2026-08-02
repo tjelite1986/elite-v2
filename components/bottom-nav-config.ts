@@ -6,6 +6,7 @@ import {
   Hash,
   Compass,
   Download,
+  Film,
   Flame,
   House,
   Images,
@@ -43,6 +44,23 @@ const SECTIONS: {
   prefix: string;
   items: (ctx: { username: string }) => BottomNavItem[];
 }[] = [
+  {
+    // Long-form 18+ videos. Cross-links stay inside the 18+ realm — never to
+    // the main video/shorts sections.
+    prefix: "/videos18",
+    items: () => [
+      { label: "Videos 18+", href: "/videos18", icon: Film },
+      { label: "Shorts 18+", href: "/shorts18", icon: Flame },
+    ],
+  },
+  {
+    prefix: "/videos",
+    items: () => [
+      { label: "Videos", href: "/videos", icon: Film },
+      { label: "Shorts", href: "/shorts", icon: Play },
+      { label: "Posts", href: "/posts", icon: Newspaper },
+    ],
+  },
   {
     prefix: "/shorts18",
     items: () => [

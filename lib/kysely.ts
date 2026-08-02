@@ -31,6 +31,9 @@ import {
   type AppScreenshotRow,
   type AppReviewRow,
   type NotificationRow,
+  type VideoRow,
+  type VideoProgressRow,
+  type VideoLikeRow,
 } from "./db";
 
 // --- Link / state tables that don't (yet) have a hand-written *Row interface
@@ -201,6 +204,9 @@ export interface DB {
   saved_apps: SavedAppRow;
   user_app_installs: UserAppInstallRow;
   app_import_review: AppImportReviewRow;
+  videos: VideoRow;
+  video_progress: VideoProgressRow;
+  video_likes: VideoLikeRow;
 }
 
 // Kysely is used ONLY to build and type-check queries. Execution stays
