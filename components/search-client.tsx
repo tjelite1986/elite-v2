@@ -9,6 +9,7 @@ import {
   Users,
   Image as ImageIcon,
   Clapperboard,
+  Film,
   BookOpen,
   Hash,
 } from "lucide-react";
@@ -21,12 +22,26 @@ interface Results {
   channelMessages: { id: number; snippet: string; channel: string; sender: string; created_at: string }[];
   gallery: { id: number; filename: string; snippet: string }[];
   shorts: { id: number; snippet: string; profile: string | null; channel: string }[];
+  videos: { id: number; snippet: string; folder: string; channel: string; duration: number | null }[];
   books: { slug: string; title: string; author: string | null }[];
 }
 
 const EMPTY: Results = {
-  people: [], posts: [], messages: [], channelMessages: [], gallery: [], shorts: [], books: [],
+  people: [], posts: [], messages: [], channelMessages: [], gallery: [], shorts: [], videos: [], books: [],
 };
+
+// mm:ss / h:mm:ss, matching the duration badge on a video card.
+function duration(seconds: number | null): string | null {
+  if (!seconds || !Number.isFinite(seconds)) return null;
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  return h > 0
+    ? `${h}:${mm}:${String(s).padStart(2, "0")}`
+    : `${mm}:${String(s).padStart(2, "0")}`;
+}
 
 // FTS snippet() marks matches as [term]; render those spans highlighted.
 function Snippet({ text }: { text: string }) {
@@ -98,7 +113,7 @@ export default function SearchClient() {
   const total =
     results.people.length + results.posts.length + results.messages.length +
     results.channelMessages.length + results.gallery.length + results.shorts.length +
-    results.books.length;
+    results.videos.length + results.books.length;
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-3xl px-4 pb-32 pt-20 text-white md:pt-24">
@@ -108,7 +123,7 @@ export default function SearchClient() {
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search posts, messages, photos, shorts, books, people"
+          placeholder="Search posts, messages, photos, shorts, videos, books, people"
           className="w-full bg-transparent text-sm text-white placeholder-white/40 focus:outline-none"
         />
       </div>
@@ -198,6 +213,20 @@ export default function SearchClient() {
                   href={s.channel === "main" ? "/shorts" : "/shorts18"}
                   primary={<Snippet text={s.snippet} />}
                   secondary={s.profile ? `@${s.profile}` : undefined}
+                />
+              ))}
+            </Section>
+          )}
+          {results.videos.length > 0 && (
+            <Section title="Videos" icon={<Film size={13} />}>
+              {results.videos.map((v) => (
+                <Row
+                  key={v.id}
+                  href={`${v.channel === "main" ? "/videos" : "/videos18"}/${v.id}`}
+                  primary={<Snippet text={v.snippet} />}
+                  secondary={[v.folder, duration(v.duration)]
+                    .filter(Boolean)
+                    .join(" · ")}
                 />
               ))}
             </Section>

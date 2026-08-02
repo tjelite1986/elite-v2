@@ -6,9 +6,9 @@ import { globalSearch } from "@/lib/search";
 export const dynamic = "force-dynamic";
 
 // Global search across everything the viewer is allowed to see: people, post
-// captions, own DMs, joined channels, own gallery, shorts and books. Privacy
-// scoping happens inside globalSearch (18+ gate, DM pair, channel membership,
-// gallery owner, shorts visibility).
+// captions, own DMs, joined channels, own gallery, shorts, videos and books.
+// Privacy scoping happens inside globalSearch (18+ gate, DM pair, channel
+// membership, gallery owner, shorts visibility).
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   if (q.length < 2) {
     return NextResponse.json({
       people: [], posts: [], messages: [], channelMessages: [],
-      gallery: [], shorts: [], books: [],
+      gallery: [], shorts: [], videos: [], books: [],
     });
   }
   const adult = await has18Access();

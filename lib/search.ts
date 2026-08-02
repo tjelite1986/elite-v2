@@ -15,6 +15,15 @@ export type SearchResults = {
   channelMessages: { id: number; snippet: string; channel: string; sender: string; created_at: string }[];
   gallery: { id: number; filename: string; snippet: string }[];
   shorts: { id: number; snippet: string; profile: string | null; channel: string }[];
+  // `snippet` is the video title, carrying [match] markers like the other
+  // sections so the client highlights it the same way.
+  videos: {
+    id: number;
+    snippet: string;
+    folder: string;
+    channel: string;
+    duration: number | null;
+  }[];
   books: { slug: string; title: string; author: string | null }[];
 };
 
@@ -220,6 +229,37 @@ function searchShorts(match: string | null, q: string, viewer: SearchViewer): Se
     .all({ q: likePattern(q), me: viewer.userId }) as SearchResults["shorts"];
 }
 
+// Long-form video library. Shared (no per-user scoping), but the adults channel
+// is only searchable once the 18+ gate is satisfied — otherwise a title would
+// leak through search even though the section itself is locked.
+function searchVideos(
+  match: string | null,
+  q: string,
+  viewer: SearchViewer
+): SearchResults["videos"] {
+  const adultFilter = viewer.adult ? "" : " AND v.channel = 'main'";
+  if (match && hasFts("videos_fts")) {
+    return db
+      .prepare(
+        `SELECT v.id, snippet(videos_fts, 0, '[', ']', '…', 12) AS snippet,
+                v.folder, v.channel, v.duration
+           FROM videos_fts JOIN videos v ON v.id = videos_fts.rowid
+          WHERE videos_fts MATCH ?${adultFilter}
+          ORDER BY rank LIMIT ?`
+      )
+      .all(match, LIMIT) as SearchResults["videos"];
+  }
+  const like = likePattern(q);
+  return db
+    .prepare(
+      `SELECT id, title AS snippet, folder, channel, duration
+         FROM videos v
+        WHERE (v.title LIKE ? OR v.description LIKE ? OR v.folder LIKE ?)${adultFilter}
+        ORDER BY v.added_at DESC LIMIT ?`
+    )
+    .all(like, like, like, LIMIT) as SearchResults["videos"];
+}
+
 function searchBooks(q: string): SearchResults["books"] {
   const like = likePattern(q.toLowerCase());
   return db
@@ -240,6 +280,7 @@ export function globalSearch(q: string, viewer: SearchViewer): SearchResults {
     channelMessages: searchChannelMessages(match, q, viewer),
     gallery: searchGallery(match, q, viewer),
     shorts: searchShorts(match, q, viewer),
+    videos: searchVideos(match, q, viewer),
     books: searchBooks(q),
   };
 }

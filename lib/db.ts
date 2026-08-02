@@ -1135,6 +1135,7 @@ function migrate(db: Database.Database) {
     { fts: "channel_messages_fts", src: "channel_messages", cols: ["body"] },
     { fts: "gallery_fts", src: "gallery_items", cols: ["filename", "description", "location_name"] },
     { fts: "shorts_fts", src: "shorts", cols: ["caption"] },
+    { fts: "videos_fts", src: "videos", cols: ["title", "description", "folder"] },
   ];
   for (const { fts, src, cols } of ftsSpecs) {
     try {
