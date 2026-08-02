@@ -704,9 +704,36 @@ function migrate(db: Database.Database) {
       hair_colour TEXT,
       eye_colour TEXT,
       career_start INTEGER,
+      career_end INTEGER,
+      gender TEXT,
+      ethnicity TEXT,
+      cupsize TEXT,
+      weight TEXT,
+      waist TEXT,
+      hips TEXT,
+      tattoos TEXT,
+      piercings TEXT,
+      fake_boobs INTEGER,
+      same_sex_only INTEGER,
+      astrology TEXT,
+      deathday TEXT,
+      full_name TEXT,
+      disambiguation TEXT,
+      rating REAL,
+      aliases TEXT,                     -- JSON array
+      links TEXT,                       -- JSON array of {key, value}
       image_key TEXT,                   -- filename within VIDEOS_ROOT/.posters
       checked_at TEXT,                  -- last TPDB enrichment attempt
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- The photo strip at the top of a profile. Stored locally because the app's
+    -- CSP is img-src 'self'; ordered as the source ordered them.
+    CREATE TABLE IF NOT EXISTS video_performer_images (
+      performer_slug TEXT NOT NULL REFERENCES video_performers(slug) ON DELETE CASCADE,
+      idx INTEGER NOT NULL,
+      image_key TEXT NOT NULL,
+      PRIMARY KEY (performer_slug, idx)
     );
 
     CREATE TABLE IF NOT EXISTS video_performer_links (
@@ -892,6 +919,36 @@ function migrate(db: Database.Database) {
     ] as const) {
       if (!cols.includes(name))
         db.exec(`ALTER TABLE videos ADD COLUMN ${name} ${type}`);
+    }
+  }
+
+  // Richer performer profiles (the TPDB page shape) on an existing table.
+  {
+    const cols = (
+      db.prepare("PRAGMA table_info(video_performers)").all() as { name: string }[]
+    ).map((c) => c.name);
+    for (const [name, type] of [
+      ["career_end", "INTEGER"],
+      ["gender", "TEXT"],
+      ["ethnicity", "TEXT"],
+      ["cupsize", "TEXT"],
+      ["weight", "TEXT"],
+      ["waist", "TEXT"],
+      ["hips", "TEXT"],
+      ["tattoos", "TEXT"],
+      ["piercings", "TEXT"],
+      ["fake_boobs", "INTEGER"],
+      ["same_sex_only", "INTEGER"],
+      ["astrology", "TEXT"],
+      ["deathday", "TEXT"],
+      ["full_name", "TEXT"],
+      ["disambiguation", "TEXT"],
+      ["rating", "REAL"],
+      ["aliases", "TEXT"],
+      ["links", "TEXT"],
+    ] as const) {
+      if (!cols.includes(name))
+        db.exec(`ALTER TABLE video_performers ADD COLUMN ${name} ${type}`);
     }
   }
 
@@ -1974,6 +2031,24 @@ export interface VideoPerformerRow {
   hair_colour: string | null;
   eye_colour: string | null;
   career_start: number | null;
+  career_end: number | null;
+  gender: string | null;
+  ethnicity: string | null;
+  cupsize: string | null;
+  weight: string | null;
+  waist: string | null;
+  hips: string | null;
+  tattoos: string | null;
+  piercings: string | null;
+  fake_boobs: number | null;
+  same_sex_only: number | null;
+  astrology: string | null;
+  deathday: string | null;
+  full_name: string | null;
+  disambiguation: string | null;
+  rating: number | null;
+  aliases: string | null;
+  links: string | null;
   image_key: string | null;
   checked_at: string | null;
   created_at: string;

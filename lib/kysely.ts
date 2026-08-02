@@ -209,6 +209,7 @@ export interface DB {
   video_progress: VideoProgressRow;
   video_likes: VideoLikeRow;
   video_performers: VideoPerformerRow;
+  video_performer_images: { performer_slug: string; idx: number; image_key: string };
   video_performer_links: { video_id: number; performer_slug: string };
 }
 

@@ -18,6 +18,12 @@ export interface PerformerWithCount extends VideoPerformerRow {
   video_count: number;
 }
 
+export interface PerformerDetail extends PerformerWithCount {
+  images: number[]; // gallery indices, in order
+}
+
+const GALLERY_LIMIT = 8;
+
 export function performerSlug(name: string): string {
   return (
     name
@@ -225,11 +231,42 @@ export async function enrichPerformer(slug: string): Promise<boolean> {
     }
   }
 
+  // extras.links arrives as an OBJECT map ({ IAFD: url, IMDb: url }), not the
+  // array its siblings use — checking for an array silently threw every link
+  // away. Accept both shapes.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const normalizeLinks = (raw: any): { key: string; value: string }[] => {
+    if (Array.isArray(raw)) {
+      return raw
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((l: any) => l && typeof l.value === "string")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((l: any) => ({ key: String(l.key ?? "Link"), value: l.value }));
+    }
+    if (raw && typeof raw === "object") {
+      return Object.entries(raw)
+        .filter(([, value]) => typeof value === "string" && value)
+        .map(([key, value]) => ({ key, value: value as string }));
+    }
+    return [];
+  };
+
+  const num = (v: unknown): number | null =>
+    Number.isFinite(Number(v)) && v !== null && v !== "" ? Number(v) : null;
+  const bool = (v: unknown): number | null =>
+    typeof v === "boolean" ? (v ? 1 : 0) : null;
+
   db.prepare(
     `UPDATE video_performers SET tpdb_id = @tpdbId, bio = @bio, birthday = @birthday,
        birthplace = @birthplace, nationality = @nationality, height = @height,
        measurements = @measurements, hair_colour = @hair, eye_colour = @eye,
-       career_start = @career, image_key = @image, checked_at = datetime('now')
+       career_start = @careerStart, career_end = @careerEnd, gender = @gender,
+       ethnicity = @ethnicity, cupsize = @cupsize, weight = @weight,
+       waist = @waist, hips = @hips, tattoos = @tattoos, piercings = @piercings,
+       fake_boobs = @fakeBoobs, same_sex_only = @sameSexOnly,
+       astrology = @astrology, deathday = @deathday, full_name = @fullName,
+       disambiguation = @disambiguation, rating = @rating, aliases = @aliases,
+       links = @links, image_key = @image, checked_at = datetime('now')
      WHERE slug = @slug`
   ).run({
     slug,
@@ -242,12 +279,90 @@ export async function enrichPerformer(slug: string): Promise<boolean> {
     measurements: extras.measurements || null,
     hair: extras.hair_colour || null,
     eye: extras.eye_colour || null,
-    career: Number.isFinite(Number(extras.career_start_year))
-      ? Number(extras.career_start_year)
-      : null,
+    careerStart: num(extras.career_start_year),
+    careerEnd: num(extras.career_end_year),
+    gender: extras.gender || null,
+    ethnicity: extras.ethnicity || null,
+    cupsize: extras.cupsize || null,
+    weight: extras.weight || null,
+    waist: extras.waist || null,
+    hips: extras.hips || null,
+    tattoos: extras.tattoos || null,
+    piercings: extras.piercings || null,
+    fakeBoobs: bool(extras.fake_boobs),
+    sameSexOnly: bool(extras.same_sex_only),
+    astrology: extras.astrology || null,
+    deathday: extras.deathday || null,
+    fullName: found.full_name || null,
+    disambiguation: found.disambiguation || null,
+    rating: num(found.rating),
+    aliases: Array.isArray(found.aliases) ? JSON.stringify(found.aliases) : null,
+    links: (() => {
+      const list = normalizeLinks(extras.links);
+      return list.length ? JSON.stringify(list) : null;
+    })(),
     image: imageKey,
   });
+
+  await importGallery(slug, found.posters);
   return true;
+}
+
+// The photo strip. Only the first few posters are kept: a popular performer has
+// dozens, and this is a header, not an archive.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function importGallery(slug: string, posters: any): Promise<void> {
+  if (!Array.isArray(posters) || posters.length === 0) return;
+  const existing = db
+    .prepare("SELECT COUNT(*) AS n FROM video_performer_images WHERE performer_slug = ?")
+    .get(slug) as { n: number };
+  if (existing.n > 0) return; // already imported; a refresh keeps what it has
+
+  const ordered = [...posters]
+    .filter((p) => p && typeof p.url === "string")
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .slice(0, GALLERY_LIMIT);
+
+  const insert = db.prepare(
+    "INSERT OR REPLACE INTO video_performer_images (performer_slug, idx, image_key) VALUES (?, ?, ?)"
+  );
+  let idx = 0;
+  for (const poster of ordered) {
+    try {
+      const res = await fetch(poster.url, { signal: AbortSignal.timeout(30_000) });
+      if (!res.ok) continue;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (!buf.length) continue;
+      const name = `performer_${slug}_${idx}.jpg`;
+      await sharp(buf)
+        .resize({ width: 700, withoutEnlargement: true })
+        .jpeg({ quality: 82 })
+        .toFile(posterFilePath(name));
+      insert.run(slug, idx, name);
+      idx++;
+    } catch {
+      /* one bad image must not abort the strip */
+    }
+  }
+}
+
+export function performerImage(slug: string, idx: number): string | null {
+  const row = db
+    .prepare(
+      "SELECT image_key FROM video_performer_images WHERE performer_slug = ? AND idx = ?"
+    )
+    .get(slug, idx) as { image_key: string } | undefined;
+  return row?.image_key ?? null;
+}
+
+export function performerImageIndices(slug: string): number[] {
+  return (
+    db
+      .prepare(
+        "SELECT idx FROM video_performer_images WHERE performer_slug = ? ORDER BY idx"
+      )
+      .all(slug) as { idx: number }[]
+  ).map((r) => r.idx);
 }
 
 // Enrich everyone who has never been looked up. Runs as part of the metadata
@@ -285,14 +400,16 @@ export function listPerformers(): PerformerWithCount[] {
     .all() as PerformerWithCount[];
 }
 
-export function getPerformer(slug: string): PerformerWithCount | undefined {
-  return db
+export function getPerformer(slug: string): PerformerDetail | undefined {
+  const row = db
     .prepare(
       `SELECT p.*, (SELECT COUNT(*) FROM video_performer_links l
                      WHERE l.performer_slug = p.slug) AS video_count
          FROM video_performers p WHERE p.slug = ?`
     )
     .get(slug) as PerformerWithCount | undefined;
+  if (!row) return undefined;
+  return { ...row, images: performerImageIndices(slug) };
 }
 
 export function performerVideos(slug: string, userId: number) {
