@@ -121,6 +121,37 @@ export function videoMime(filename: string): string {
   return VIDEO_MIME[path.extname(filename).slice(1).toLowerCase()] || "video/mp4";
 }
 
+// What a browser can actually play. Everything else (DVD rips with mpeg2video
+// + ac3, HEVC, DTS, an .avi container, …) has to be converted before the player
+// can touch it — the scan flags those and the transcode job rewrites them.
+// Deliberately conservative: mkv is excluded even with H.264 inside, because
+// Safari and Firefox refuse the container outright.
+const WEB_CONTAINERS = new Set(["mp4", "m4v", "webm"]);
+const WEB_VIDEO_CODECS = new Set(["h264", "vp8", "vp9", "av1"]);
+const WEB_AUDIO_CODECS = new Set(["aac", "mp3", "opus", "vorbis", "flac"]);
+
+export function isWebPlayable(
+  filename: string,
+  videoCodec: string | null,
+  audioCodec: string | null
+): boolean {
+  const ext = path.extname(filename).slice(1).toLowerCase();
+  if (!WEB_CONTAINERS.has(ext)) return false;
+  if (!videoCodec || !WEB_VIDEO_CODECS.has(videoCodec)) return false;
+  // A silent file is fine; an unsupported track is not.
+  return !audioCodec || WEB_AUDIO_CODECS.has(audioCodec);
+}
+
+// True when only the container is wrong (H.264/AAC inside an .mkv, say), so the
+// conversion is a stream copy — seconds instead of a full re-encode.
+export function canRemuxToMp4(
+  videoCodec: string | null,
+  audioCodec: string | null
+): boolean {
+  if (videoCodec !== "h264") return false;
+  return !audioCodec || audioCodec === "aac" || audioCodec === "mp3";
+}
+
 export type ScannedFile = {
   storageKey: string;
   folder: string;

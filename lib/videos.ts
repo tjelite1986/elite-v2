@@ -1,13 +1,17 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 import { db } from "./db";
 import type { VideoRow, VideoChannel } from "./db";
 import { has18Access } from "./shorts-gate";
 import {
   VIDEO_CHANNELS,
   artworkStem,
+  canRemuxToMp4,
   channelAvailable,
+  isWebPlayable,
   ensureVideoDirs,
   posterFilePath,
   videoFilePath,
@@ -37,18 +41,46 @@ export async function canAccessVideoChannel(
 
 // ---------------------------------------------------------------------------
 // Media probing / artwork
+//
+// Everything here shells out to ffmpeg/ffprobe ASYNCHRONOUSLY. A scan of a real
+// library is minutes of child processes; doing that with execFileSync would
+// block the Node event loop and freeze the whole app while it ran.
 // ---------------------------------------------------------------------------
+
+const execFile = promisify(execFileCb);
+
+// ffmpeg work is niced so a scan or transcode never starves the web app.
+async function run(
+  bin: string,
+  args: string[],
+  timeoutMs: number
+): Promise<void> {
+  await execFile("nice", ["-n", "19", bin, ...args], {
+    timeout: timeoutMs,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+}
 
 type Probe = {
   duration: number | null;
   width: number | null;
   height: number | null;
+  videoCodec: string | null;
+  audioCodec: string | null;
 };
 
-function probeVideo(filePath: string): Probe {
-  const probe: Probe = { duration: null, width: null, height: null };
+const EMPTY_PROBE: Probe = {
+  duration: null,
+  width: null,
+  height: null,
+  videoCodec: null,
+  audioCodec: null,
+};
+
+async function probeVideo(filePath: string): Promise<Probe> {
+  const probe: Probe = { ...EMPTY_PROBE };
   try {
-    const out = execFileSync(
+    const { stdout } = await execFile(
       "ffprobe",
       [
         "-v",
@@ -59,15 +91,21 @@ function probeVideo(filePath: string): Probe {
         "-show_streams",
         filePath,
       ],
-      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }
+      { maxBuffer: 16 * 1024 * 1024, timeout: 120_000 }
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = JSON.parse(out);
+    const data: any = JSON.parse(stdout);
     const duration = Number(data.format?.duration);
     if (Number.isFinite(duration) && duration > 0) probe.duration = duration;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const v = (data.streams || []).find((s: any) => s.codec_type === "video");
+    const streams: any[] = data.streams || [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const v = streams.find((s: any) => s.codec_type === "video");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const a = streams.find((s: any) => s.codec_type === "audio");
+    if (a?.codec_name) probe.audioCodec = String(a.codec_name).toLowerCase();
     if (v) {
+      if (v.codec_name) probe.videoCodec = String(v.codec_name).toLowerCase();
       if (typeof v.width === "number") probe.width = v.width;
       if (typeof v.height === "number") probe.height = v.height;
       const rot = Math.abs(
@@ -77,9 +115,17 @@ function probeVideo(filePath: string): Probe {
         [probe.width, probe.height] = [probe.height, probe.width];
       }
       if (probe.duration === null) {
+        // Matroska often carries no container duration; fall back to the stream
+        // and then to its DURATION tag before giving up.
         const streamDuration = Number(v.duration);
         if (Number.isFinite(streamDuration) && streamDuration > 0) {
           probe.duration = streamDuration;
+        } else if (typeof v.tags?.DURATION === "string") {
+          const m = /(\d+):(\d+):(\d+(?:\.\d+)?)/.exec(v.tags.DURATION);
+          if (m) {
+            probe.duration =
+              Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+          }
         }
       }
     }
@@ -90,21 +136,26 @@ function probeVideo(filePath: string): Probe {
 }
 
 // Poster frame, taken ~10% in (past title cards / black intros), scaled to a
-// 640px-wide grid thumbnail. Returns the poster filename or null.
-function makePoster(
+// 640px-wide grid thumbnail. Returns the poster filename or null. Input seeking
+// (-ss before -i) makes this a keyframe jump rather than a decode from zero.
+async function makePoster(
   filePath: string,
   stem: string,
   duration: number | null
-): string | null {
+): Promise<string | null> {
   const name = `${stem}.jpg`;
   const out = posterFilePath(name);
   const seek = duration && duration > 20 ? Math.floor(duration * 0.1) : 1;
-  const run = (at: number): boolean => {
+  const attempt = async (at: number): Promise<boolean> => {
     try {
-      execFileSync(
+      await run(
         "ffmpeg",
         [
           "-y",
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-nostdin",
           "-ss",
           String(at),
           "-i",
@@ -117,14 +168,17 @@ function makePoster(
           "3",
           out,
         ],
-        { stdio: "ignore", timeout: 120_000 }
+        120_000
       );
     } catch {
       /* checked via the output file below */
     }
     return fs.existsSync(out) && fs.statSync(out).size > 0;
   };
-  return run(seek) || run(1) || run(0) ? name : null;
+  for (const at of [seek, 1, 0]) {
+    if (await attempt(at)) return name;
+  }
+  return null;
 }
 
 export type Storyboard = {
@@ -138,15 +192,18 @@ export type Storyboard = {
 
 // Scrub-preview storyboard: a single JPEG tiling cols*rows evenly-spaced frames,
 // which the player slices with background-position while dragging the seek bar
-// (one request instead of hundreds of thumbnails). Best-effort — a video with no
-// storyboard simply falls back to a plain time tooltip.
-function makeStoryboard(
+// (one request instead of hundreds of thumbnails).
+//
+// Each frame is grabbed with its own input seek and the sheet is assembled from
+// the results. The obvious one-liner — fps=1/interval + tile — decodes the WHOLE
+// file, which is minutes per feature-length video; seeking is near-instant.
+async function makeStoryboard(
   filePath: string,
   stem: string,
   duration: number | null,
   height: number | null,
   width: number | null
-): Storyboard | null {
+): Promise<Storyboard | null> {
   if (!duration || duration < 30) return null;
   const cols = 10;
   const rows = duration < 300 ? 5 : 10;
@@ -158,26 +215,84 @@ function makeStoryboard(
   const tileH = Math.max(2, Math.round(tileW / aspect / 2) * 2);
   const name = `${stem}_sb.jpg`;
   const out = posterFilePath(name);
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "video-sb-"));
   try {
-    execFileSync(
+    let lastGood: string | null = null;
+    for (let i = 0; i < frames; i++) {
+      const at = Math.min(i * interval, Math.max(0, duration - 0.5));
+      const frame = path.join(tmpDir, `f${String(i).padStart(4, "0")}.jpg`);
+      try {
+        await run(
+          "ffmpeg",
+          [
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-ss",
+            at.toFixed(3),
+            "-i",
+            filePath,
+            "-frames:v",
+            "1",
+            "-vf",
+            `scale=${tileW}:${tileH}`,
+            "-q:v",
+            "6",
+            frame,
+          ],
+          60_000
+        );
+      } catch {
+        /* handled by the gap fill below */
+      }
+      if (fs.existsSync(frame) && fs.statSync(frame).size > 0) {
+        lastGood = frame;
+      } else if (lastGood) {
+        // The image-sequence demuxer stops at the first missing index, so a
+        // frame ffmpeg couldn't grab is filled with the previous one.
+        fs.copyFileSync(lastGood, frame);
+      } else {
+        return null; // nothing decodable at all
+      }
+    }
+
+    await run(
       "ffmpeg",
       [
         "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-framerate",
+        "1",
+        "-start_number",
+        "0",
         "-i",
-        filePath,
+        path.join(tmpDir, "f%04d.jpg"),
         "-vf",
-        `fps=${(1 / interval).toFixed(6)},scale=${tileW}:${tileH},tile=${cols}x${rows}`,
+        `tile=${cols}x${rows}`,
         "-frames:v",
         "1",
         "-q:v",
         "6",
         out,
       ],
-      { stdio: "ignore", timeout: 600_000 }
+      120_000
     );
   } catch {
     /* checked via the output file below */
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
   }
+
   if (!fs.existsSync(out) || fs.statSync(out).size === 0) return null;
   return { key: name, cols, rows, interval, tileW, tileH };
 }
@@ -210,15 +325,27 @@ export interface ScanResult {
   updated: number;
   removed: number;
   artwork: number;
+  needTranscode: number;
   skipped: boolean;
   message: string;
 }
 
+// One scan per channel at a time. A scan is long (ffmpeg per file) and a second
+// concurrent pass would race the same rows and regenerate the same artwork —
+// the admin button and the hourly job can easily overlap on a big library.
+const scanning = new Set<VideoChannel>();
+
+export function isScanning(channel?: VideoChannel): boolean {
+  return channel ? scanning.has(channel) : scanning.size > 0;
+}
+
 // Mirror one channel directory into the DB. New files are inserted (with a
 // probe + poster + storyboard), files whose size/mtime changed are re-probed,
-// and rows whose file is gone are deleted — but ONLY when the directory looks
-// mounted, so an unmounted volume can never wipe the library.
-export function scanVideoChannel(channel: VideoChannel): ScanResult {
+// and rows whose file is gone are deleted — but ONLY when the mount looks
+// healthy, so an unmounted volume can never wipe the library.
+export async function scanVideoChannel(
+  channel: VideoChannel
+): Promise<ScanResult> {
   ensureVideoDirs();
   const result: ScanResult = {
     channel,
@@ -226,157 +353,214 @@ export function scanVideoChannel(channel: VideoChannel): ScanResult {
     updated: 0,
     removed: 0,
     artwork: 0,
+    needTranscode: 0,
     skipped: false,
     message: "",
   };
 
-  const files = walkChannel(channel);
-  const existing = db
-    .prepare("SELECT * FROM videos WHERE channel = ?")
-    .all(channel) as VideoRow[];
-  const byKey = new Map(existing.map((row) => [row.storage_key, row]));
+  if (scanning.has(channel)) {
+    result.skipped = true;
+    result.message = `A scan of "${channel}" is already running.`;
+    return result;
+  }
+  scanning.add(channel);
 
-  const insert = db.prepare(
-    `INSERT INTO videos (channel, storage_key, folder, title, poster_key,
-       storyboard_key, storyboard_cols, storyboard_rows, storyboard_interval,
-       storyboard_tile_w, storyboard_tile_h, duration, width, height,
-       size_bytes, file_mtime)
-     VALUES (@channel, @storage_key, @folder, @title, @poster_key,
-       @storyboard_key, @storyboard_cols, @storyboard_rows, @storyboard_interval,
-       @storyboard_tile_w, @storyboard_tile_h, @duration, @width, @height,
-       @size_bytes, @file_mtime)`
-  );
-  const updateMeta = db.prepare(
-    `UPDATE videos SET folder = @folder, duration = @duration, width = @width,
-       height = @height, size_bytes = @size_bytes, file_mtime = @file_mtime,
-       poster_key = @poster_key, storyboard_key = @storyboard_key,
-       storyboard_cols = @storyboard_cols, storyboard_rows = @storyboard_rows,
-       storyboard_interval = @storyboard_interval,
-       storyboard_tile_w = @storyboard_tile_w,
-       storyboard_tile_h = @storyboard_tile_h
-     WHERE id = @id`
-  );
+  try {
+    const files = walkChannel(channel);
+    const existing = db
+      .prepare("SELECT * FROM videos WHERE channel = ?")
+      .all(channel) as VideoRow[];
+    const byKey = new Map(existing.map((row) => [row.storage_key, row]));
 
-  for (const file of files) {
-    const row = byKey.get(file.storageKey);
-    const filePath = videoFilePath(channel, file.storageKey);
-    const stem = artworkStem(channel, file.storageKey);
+    const insert = db.prepare(
+      `INSERT INTO videos (channel, storage_key, folder, title, poster_key,
+         storyboard_key, storyboard_cols, storyboard_rows, storyboard_interval,
+         storyboard_tile_w, storyboard_tile_h, duration, width, height,
+         size_bytes, file_mtime, video_codec, audio_codec, playable,
+         transcode_status)
+       VALUES (@channel, @storage_key, @folder, @title, @poster_key,
+         @storyboard_key, @storyboard_cols, @storyboard_rows, @storyboard_interval,
+         @storyboard_tile_w, @storyboard_tile_h, @duration, @width, @height,
+         @size_bytes, @file_mtime, @video_codec, @audio_codec, @playable,
+         @transcode_status)`
+    );
+    const updateMeta = db.prepare(
+      `UPDATE videos SET folder = @folder, duration = @duration, width = @width,
+         height = @height, size_bytes = @size_bytes, file_mtime = @file_mtime,
+         poster_key = @poster_key, storyboard_key = @storyboard_key,
+         storyboard_cols = @storyboard_cols, storyboard_rows = @storyboard_rows,
+         storyboard_interval = @storyboard_interval,
+         storyboard_tile_w = @storyboard_tile_w,
+         storyboard_tile_h = @storyboard_tile_h,
+         video_codec = @video_codec, audio_codec = @audio_codec,
+         playable = @playable, transcode_status = @transcode_status
+       WHERE id = @id`
+    );
 
-    if (!row) {
-      const probe = probeVideo(filePath);
-      const poster = makePoster(filePath, stem, probe.duration);
-      const sb = makeStoryboard(
-        filePath,
-        stem,
-        probe.duration,
-        probe.height,
-        probe.width
+    for (const file of files) {
+      const row = byKey.get(file.storageKey);
+      const filePath = videoFilePath(channel, file.storageKey);
+      const stem = artworkStem(channel, file.storageKey);
+
+      if (!row) {
+        const probe = await probeVideo(filePath);
+        const playable = isWebPlayable(
+          file.storageKey,
+          probe.videoCodec,
+          probe.audioCodec
+        );
+        const poster = await makePoster(filePath, stem, probe.duration);
+        // No storyboard for a file that is about to be rewritten: the transcode
+        // changes the storage key (and therefore the artwork names), so the
+        // work would be thrown away. The post-transcode scan builds it.
+        const sb = playable
+          ? await makeStoryboard(
+              filePath,
+              stem,
+              probe.duration,
+              probe.height,
+              probe.width
+            )
+          : null;
+        insert.run({
+          channel,
+          storage_key: file.storageKey,
+          folder: file.folder,
+          title: titleFromFilename(file.storageKey),
+          poster_key: poster,
+          storyboard_key: sb?.key ?? null,
+          storyboard_cols: sb?.cols ?? null,
+          storyboard_rows: sb?.rows ?? null,
+          storyboard_interval: sb?.interval ?? null,
+          storyboard_tile_w: sb?.tileW ?? null,
+          storyboard_tile_h: sb?.tileH ?? null,
+          duration: probe.duration,
+          width: probe.width,
+          height: probe.height,
+          size_bytes: file.size,
+          file_mtime: file.mtime,
+          video_codec: probe.videoCodec,
+          audio_codec: probe.audioCodec,
+          playable: playable ? 1 : 0,
+          transcode_status: playable ? null : "pending",
+        });
+        result.added++;
+        if (poster) result.artwork++;
+        if (!playable) result.needTranscode++;
+        continue;
+      }
+
+      byKey.delete(file.storageKey);
+
+      // Re-probe only when the file actually changed, or when a previous scan
+      // failed to produce artwork (e.g. ffmpeg was busy / the file was still
+      // being copied). Rows the user edited keep their title/description.
+      const changed =
+        row.size_bytes !== file.size || row.file_mtime !== file.mtime;
+      const posterMissing =
+        !row.poster_key || !fs.existsSync(posterFilePath(row.poster_key));
+      if (!changed && !posterMissing) continue;
+
+      const probe = changed
+        ? await probeVideo(filePath)
+        : {
+            duration: row.duration,
+            width: row.width,
+            height: row.height,
+            videoCodec: row.video_codec,
+            audioCodec: row.audio_codec,
+          };
+      const playable = isWebPlayable(
+        file.storageKey,
+        probe.videoCodec,
+        probe.audioCodec
       );
-      insert.run({
-        channel,
-        storage_key: file.storageKey,
+      const poster =
+        changed || posterMissing
+          ? await makePoster(filePath, stem, probe.duration)
+          : row.poster_key;
+      const sb =
+        playable && (changed || !row.storyboard_key)
+          ? await makeStoryboard(
+              filePath,
+              stem,
+              probe.duration,
+              probe.height,
+              probe.width
+            )
+          : null;
+      updateMeta.run({
+        id: row.id,
         folder: file.folder,
-        title: titleFromFilename(file.storageKey),
-        poster_key: poster,
-        storyboard_key: sb?.key ?? null,
-        storyboard_cols: sb?.cols ?? null,
-        storyboard_rows: sb?.rows ?? null,
-        storyboard_interval: sb?.interval ?? null,
-        storyboard_tile_w: sb?.tileW ?? null,
-        storyboard_tile_h: sb?.tileH ?? null,
         duration: probe.duration,
         width: probe.width,
         height: probe.height,
         size_bytes: file.size,
         file_mtime: file.mtime,
+        poster_key: poster,
+        storyboard_key: sb?.key ?? row.storyboard_key,
+        storyboard_cols: sb?.cols ?? row.storyboard_cols,
+        storyboard_rows: sb?.rows ?? row.storyboard_rows,
+        storyboard_interval: sb?.interval ?? row.storyboard_interval,
+        storyboard_tile_w: sb?.tileW ?? row.storyboard_tile_w,
+        storyboard_tile_h: sb?.tileH ?? row.storyboard_tile_h,
+        video_codec: probe.videoCodec,
+        audio_codec: probe.audioCodec,
+        playable: playable ? 1 : 0,
+        // Never re-queue a file that already failed conversion; a changed file
+        // gets a fresh chance.
+        transcode_status: playable
+          ? null
+          : changed
+            ? "pending"
+            : (row.transcode_status ?? "pending"),
       });
-      result.added++;
-      if (poster) result.artwork++;
-      continue;
+      result.updated++;
+      if (poster && poster !== row.poster_key) result.artwork++;
+      if (!playable) result.needTranscode++;
     }
 
-    byKey.delete(file.storageKey);
-
-    // Re-probe only when the file actually changed, or when a previous scan
-    // failed to produce artwork (e.g. ffmpeg was busy / the file was still
-    // being copied). Rows the user edited keep their title/description.
-    const changed =
-      row.size_bytes !== file.size || row.file_mtime !== file.mtime;
-    const posterMissing =
-      !row.poster_key || !fs.existsSync(posterFilePath(row.poster_key));
-    if (!changed && !posterMissing) continue;
-
-    const probe = changed
-      ? probeVideo(filePath)
-      : {
-          duration: row.duration,
-          width: row.width,
-          height: row.height,
-        };
-    const poster =
-      changed || posterMissing
-        ? makePoster(filePath, stem, probe.duration)
-        : row.poster_key;
-    const sb =
-      changed || !row.storyboard_key
-        ? makeStoryboard(
-            filePath,
-            stem,
-            probe.duration,
-            probe.height,
-            probe.width
-          )
-        : null;
-    updateMeta.run({
-      id: row.id,
-      folder: file.folder,
-      duration: probe.duration,
-      width: probe.width,
-      height: probe.height,
-      size_bytes: file.size,
-      file_mtime: file.mtime,
-      poster_key: poster,
-      storyboard_key: sb?.key ?? row.storyboard_key,
-      storyboard_cols: sb?.cols ?? row.storyboard_cols,
-      storyboard_rows: sb?.rows ?? row.storyboard_rows,
-      storyboard_interval: sb?.interval ?? row.storyboard_interval,
-      storyboard_tile_w: sb?.tileW ?? row.storyboard_tile_w,
-      storyboard_tile_h: sb?.tileH ?? row.storyboard_tile_h,
-    });
-    result.updated++;
-    if (poster && poster !== row.poster_key) result.artwork++;
-  }
-
-  // Anything still in byKey has no file on disk. Pruning is only safe when the
-  // media mount is clearly present: either this channel still has files, or the
-  // OTHER channel does (so an emptied channel can legitimately drop to zero).
-  // If the whole root reads empty, treat it as an unmounted volume and keep the
-  // rows — otherwise one failed mount would wipe the entire library.
-  if (byKey.size > 0) {
-    const mountLooksHealthy =
-      files.length > 0 ||
-      VIDEO_CHANNELS.some((c) => c !== channel && channelAvailable(c));
-    if (!mountLooksHealthy) {
-      result.skipped = true;
-      result.message = `No video files found under VIDEOS_ROOT — the volume looks unmounted, so ${byKey.size} row(s) were kept instead of deleted.`;
-    } else {
-      const del = db.prepare("DELETE FROM videos WHERE id = ?");
-      for (const row of byKey.values()) {
-        del.run(row.id);
-        deleteArtwork(row);
-        result.removed++;
+    // Anything still in byKey has no file on disk. Pruning is only safe when the
+    // media mount is clearly present: either this channel still has files, or the
+    // OTHER channel does (so an emptied channel can legitimately drop to zero).
+    // If the whole root reads empty, treat it as an unmounted volume and keep the
+    // rows — otherwise one failed mount would wipe the entire library.
+    if (byKey.size > 0) {
+      const mountLooksHealthy =
+        files.length > 0 ||
+        VIDEO_CHANNELS.some((c) => c !== channel && channelAvailable(c));
+      if (!mountLooksHealthy) {
+        result.skipped = true;
+        result.message = `No video files found under VIDEOS_ROOT — the volume looks unmounted, so ${byKey.size} row(s) were kept instead of deleted.`;
+      } else {
+        const del = db.prepare("DELETE FROM videos WHERE id = ?");
+        for (const row of byKey.values()) {
+          del.run(row.id);
+          deleteArtwork(row);
+          result.removed++;
+        }
       }
     }
-  }
 
-  if (!result.message) {
-    result.message = `${result.added} added, ${result.updated} updated, ${result.removed} removed.`;
+    if (!result.message) {
+      result.message =
+        `${result.added} added, ${result.updated} updated, ${result.removed} removed.` +
+        (result.needTranscode
+          ? ` ${result.needTranscode} need converting before they can play.`
+          : "");
+    }
+    return result;
+  } finally {
+    scanning.delete(channel);
   }
-  return result;
 }
 
-export function scanAllVideos(): ScanResult[] {
-  return VIDEO_CHANNELS.map(scanVideoChannel);
+export async function scanAllVideos(): Promise<ScanResult[]> {
+  const results: ScanResult[] = [];
+  for (const channel of VIDEO_CHANNELS) {
+    results.push(await scanVideoChannel(channel));
+  }
+  return results;
 }
 
 function deleteArtwork(row: Pick<VideoRow, "poster_key" | "storyboard_key">) {
@@ -387,6 +571,277 @@ function deleteArtwork(row: Pick<VideoRow, "poster_key" | "storyboard_key">) {
     } catch {
       /* best effort */
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Transcoding
+//
+// Anything a browser can't play (DVD rips, HEVC, AC-3 audio, an .avi container)
+// is converted to H.264/AAC in MP4. Where only the container is wrong the
+// streams are copied, which takes seconds; otherwise it is a real encode, which
+// on a Pi runs at roughly 3-4x realtime for SD material.
+// ---------------------------------------------------------------------------
+
+export interface TranscodeResult {
+  converted: number;
+  failed: number;
+  remaining: number;
+  message: string;
+}
+
+let transcoding = false;
+
+export function isTranscoding(): boolean {
+  return transcoding;
+}
+
+export function pendingTranscodes(): number {
+  const row = db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM videos WHERE playable = 0 AND (transcode_status IS NULL OR transcode_status = 'pending')"
+    )
+    .get() as { n: number };
+  return row.n;
+}
+
+async function convertOne(row: VideoRow): Promise<void> {
+  const src = videoFilePath(row.channel, row.storage_key);
+  if (!fs.existsSync(src)) throw new Error("source file is gone");
+
+  // Same folder, same basename, .mp4 — so the library keeps its structure and
+  // the file stays where its owner put it.
+  const dstKey = `${row.storage_key.replace(/\.[^./]+$/, "")}.mp4`;
+  if (dstKey === row.storage_key) throw new Error("source is already .mp4");
+  const dst = videoFilePath(row.channel, dstKey);
+  const tmp = `${dst}.converting.mp4`;
+  fs.rmSync(tmp, { force: true });
+
+  const remuxable = canRemuxToMp4(row.video_codec, row.audio_codec);
+  const base = ["-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", src];
+  // Long encodes need a generous ceiling: a 45-minute SD film is ~15 minutes.
+  const budgetMs = Math.max(
+    30 * 60_000,
+    Math.ceil(((row.duration ?? 3600) / 2) * 1000)
+  );
+
+  if (remuxable) {
+    await run("ffmpeg", [...base, "-c", "copy", "-movflags", "+faststart", tmp], 30 * 60_000);
+  } else {
+    await run(
+      "ffmpeg",
+      [
+        ...base,
+        "-c:v",
+        "libx264",
+        "-profile:v",
+        "main",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        // Cap at 1080p — anything larger is wasted on this library and slow.
+        "-vf",
+        "scale='min(1920,iw)':-2",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-ac",
+        "2",
+        // Two threads leaves the Pi cores for the app while a long encode runs.
+        "-threads",
+        "2",
+        "-movflags",
+        "+faststart",
+        tmp,
+      ],
+      budgetMs
+    );
+  }
+
+  if (!fs.existsSync(tmp) || fs.statSync(tmp).size === 0) {
+    throw new Error("ffmpeg produced no output");
+  }
+
+  // Verify before anything is deleted: the result must be playable and must
+  // cover the source's running time (a truncated encode is the failure mode
+  // that would otherwise silently destroy the original).
+  const probe = await probeVideo(tmp);
+  if (!isWebPlayable(dstKey, probe.videoCodec, probe.audioCodec)) {
+    throw new Error(
+      `converted file is still not web-playable (${probe.videoCodec}/${probe.audioCodec})`
+    );
+  }
+  if (row.duration && probe.duration && probe.duration < row.duration * 0.98) {
+    throw new Error(
+      `converted file is short: ${Math.round(probe.duration)}s vs ${Math.round(row.duration)}s`
+    );
+  }
+
+  fs.renameSync(tmp, dst);
+
+  // Artwork is named from the storage key, so the old sheet/poster belong to a
+  // key that no longer exists — drop them and build fresh ones from the MP4.
+  deleteArtwork(row);
+  const stem = artworkStem(row.channel, dstKey);
+  const poster = await makePoster(dst, stem, probe.duration);
+  const sb = await makeStoryboard(
+    dst,
+    stem,
+    probe.duration,
+    probe.height,
+    probe.width
+  );
+
+  db.prepare(
+    `UPDATE videos SET storage_key = @storage_key, duration = @duration,
+       width = @width, height = @height, size_bytes = @size_bytes,
+       file_mtime = @file_mtime, video_codec = @video_codec,
+       audio_codec = @audio_codec, playable = 1, transcode_status = 'done',
+       transcode_error = NULL, poster_key = @poster_key,
+       storyboard_key = @storyboard_key, storyboard_cols = @storyboard_cols,
+       storyboard_rows = @storyboard_rows,
+       storyboard_interval = @storyboard_interval,
+       storyboard_tile_w = @storyboard_tile_w,
+       storyboard_tile_h = @storyboard_tile_h
+     WHERE id = @id`
+  ).run({
+    id: row.id,
+    storage_key: dstKey,
+    duration: probe.duration,
+    width: probe.width,
+    height: probe.height,
+    size_bytes: fs.statSync(dst).size,
+    file_mtime: new Date(fs.statSync(dst).mtimeMs).toISOString(),
+    video_codec: probe.videoCodec,
+    audio_codec: probe.audioCodec,
+    poster_key: poster,
+    storyboard_key: sb?.key ?? null,
+    storyboard_cols: sb?.cols ?? null,
+    storyboard_rows: sb?.rows ?? null,
+    storyboard_interval: sb?.interval ?? null,
+    storyboard_tile_w: sb?.tileW ?? null,
+    storyboard_tile_h: sb?.tileH ?? null,
+  });
+
+  // The row now points at the MP4, so the source is redundant. Removed only
+  // after the checks above passed. Set VIDEOS_KEEP_ORIGINALS=1 to keep it (the
+  // scan then re-adds it as its own unplayable row, so this is off by default).
+  if (process.env.VIDEOS_KEEP_ORIGINALS !== "1") {
+    fs.rmSync(src, { force: true });
+  }
+}
+
+// Work the conversion queue until the time budget runs out, so an hourly job
+// chews through a big library across several runs instead of hitting the
+// scheduler's one-hour ceiling mid-file.
+export async function transcodePendingVideos(
+  budgetMs = 45 * 60_000
+): Promise<TranscodeResult> {
+  if (transcoding) {
+    return {
+      converted: 0,
+      failed: 0,
+      remaining: pendingTranscodes(),
+      message: "A conversion run is already in progress.",
+    };
+  }
+  transcoding = true;
+  const deadline = Date.now() + budgetMs;
+  let converted = 0;
+  let failed = 0;
+
+  try {
+    for (;;) {
+      if (Date.now() >= deadline) break;
+      const row = db
+        .prepare(
+          `SELECT * FROM videos
+            WHERE playable = 0
+              AND (transcode_status IS NULL OR transcode_status = 'pending')
+            ORDER BY size_bytes ASC
+            LIMIT 1`
+        )
+        .get() as VideoRow | undefined;
+      if (!row) break;
+
+      try {
+        await convertOne(row);
+        converted++;
+      } catch (err) {
+        failed++;
+        db.prepare(
+          "UPDATE videos SET transcode_status = 'failed', transcode_error = ? WHERE id = ?"
+        ).run(String((err as Error)?.message || err).slice(0, 500), row.id);
+      }
+    }
+  } finally {
+    transcoding = false;
+  }
+
+  const remaining = pendingTranscodes();
+  return {
+    converted,
+    failed,
+    remaining,
+    message: `${converted} converted, ${failed} failed, ${remaining} still queued.`,
+  };
+}
+
+// Put a failed conversion back in the queue (the Retry button).
+export function requeueTranscode(id: number): void {
+  db.prepare(
+    "UPDATE videos SET transcode_status = 'pending', transcode_error = NULL WHERE id = ? AND playable = 0"
+  ).run(id);
+}
+
+// Convert exactly one video. The per-video "Convert now" button uses this —
+// running the whole queue from a single video's page would kick off hours of
+// encoding nobody asked for.
+export async function transcodeOne(id: number): Promise<TranscodeResult> {
+  if (transcoding) {
+    return {
+      converted: 0,
+      failed: 0,
+      remaining: pendingTranscodes(),
+      message: "A conversion run is already in progress.",
+    };
+  }
+  const row = db.prepare("SELECT * FROM videos WHERE id = ?").get(id) as
+    | VideoRow
+    | undefined;
+  if (!row || row.playable === 1) {
+    return {
+      converted: 0,
+      failed: 0,
+      remaining: pendingTranscodes(),
+      message: "Nothing to convert for that video.",
+    };
+  }
+
+  transcoding = true;
+  try {
+    await convertOne(row);
+    return {
+      converted: 1,
+      failed: 0,
+      remaining: pendingTranscodes(),
+      message: "Converted.",
+    };
+  } catch (err) {
+    const message = String((err as Error)?.message || err).slice(0, 500);
+    db.prepare(
+      "UPDATE videos SET transcode_status = 'failed', transcode_error = ? WHERE id = ?"
+    ).run(message, row.id);
+    return {
+      converted: 0,
+      failed: 1,
+      remaining: pendingTranscodes(),
+      message: `Conversion failed: ${message}`,
+    };
+  } finally {
+    transcoding = false;
   }
 }
 

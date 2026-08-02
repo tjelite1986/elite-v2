@@ -15,6 +15,10 @@ export interface VideoCardData {
   added_at: string;
   percent?: number;
   position?: number;
+  // 0 while the source codec/container can't be played in a browser; the
+  // transcode job rewrites it to MP4 and flips this.
+  playable?: number;
+  transcode_status?: "pending" | "done" | "failed" | null;
 }
 
 export function relativeDate(iso: string): string {
@@ -69,6 +73,12 @@ export default function VideoCard({
         <div className="grid h-full w-full place-items-center text-white/20">
           <Play size={layout === "grid" ? 28 : 20} />
         </div>
+      )}
+
+      {video.playable === 0 && (
+        <span className="absolute left-1 top-1 rounded bg-amber-500/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-black">
+          {video.transcode_status === "failed" ? "Failed" : "Converting"}
+        </span>
       )}
 
       {video.duration ? (

@@ -5,6 +5,7 @@ import {
   FolderOpen,
   Loader2,
   RefreshCw,
+  Wand2,
   Search,
   Video as VideoIcon,
 } from "lucide-react";
@@ -63,6 +64,8 @@ export default function VideosBrowser({
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
+  const [pendingConversions, setPendingConversions] = useState(0);
+  const [converting, setConverting] = useState(false);
   const [exhausted, setExhausted] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -108,6 +111,28 @@ export default function VideosBrowser({
     load();
   }, [load]);
 
+  // Size of the conversion backlog (admins only — it drives the Convert button).
+  const loadQueue = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const res = await fetch("/api/videos/transcode");
+      if (res.ok) {
+        const data = await res.json();
+        setPendingConversions(data.pending ?? 0);
+        setConverting(Boolean(data.running));
+      }
+    } catch {
+      /* the button just stays hidden */
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    loadQueue();
+    // A conversion run is long; poll so the count drains without a reload.
+    const t = setInterval(loadQueue, 30000);
+    return () => clearInterval(t);
+  }, [loadQueue]);
+
   // Infinite scroll: fetch the next page when the sentinel comes into view.
   useEffect(() => {
     const el = sentinel.current;
@@ -151,9 +176,26 @@ export default function VideosBrowser({
       } else {
         setScanResult(data.results?.[0]?.message || "Scan complete.");
         await load();
+        await loadQueue();
       }
     } finally {
       setScanning(false);
+    }
+  };
+
+  // Kick the conversion queue by hand. The request runs for as long as the
+  // encoder needs, so the UI reports what came back rather than blocking.
+  const convert = async () => {
+    setConverting(true);
+    setScanResult("Converting… this runs in the background and takes a while.");
+    try {
+      const res = await fetch("/api/videos/transcode", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      setScanResult(res.ok ? data.message || "Conversion done." : data.error || "Conversion failed.");
+      await load();
+    } finally {
+      setConverting(false);
+      await loadQueue();
     }
   };
 
@@ -183,6 +225,23 @@ export default function VideosBrowser({
               <RefreshCw size={14} />
             )}
             {scanning ? "Scanning…" : "Rescan library"}
+          </button>
+        )}
+        {isAdmin && pendingConversions > 0 && (
+          <button
+            onClick={convert}
+            disabled={converting}
+            title="Convert files a browser cannot play to MP4"
+            className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-400/10 disabled:opacity-50"
+          >
+            {converting ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Wand2 size={14} />
+            )}
+            {converting
+              ? "Converting…"
+              : `Convert ${pendingConversions}`}
           </button>
         )}
       </div>

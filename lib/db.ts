@@ -643,6 +643,14 @@ function migrate(db: Database.Database) {
       height INTEGER,
       size_bytes INTEGER,
       file_mtime TEXT,
+      -- Codecs decide whether a browser can play the file at all. A DVD rip
+      -- (mpeg2video + ac3 in mkv) is unplayable everywhere, so the scan flags
+      -- it and the transcode job converts it to H.264/AAC in MP4.
+      video_codec TEXT,
+      audio_codec TEXT,
+      playable INTEGER NOT NULL DEFAULT 1,
+      transcode_status TEXT,            -- NULL | 'pending' | 'done' | 'failed'
+      transcode_error TEXT,
       views INTEGER NOT NULL DEFAULT 0,
       added_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE (channel, storage_key)
@@ -803,6 +811,26 @@ function migrate(db: Database.Database) {
       PRIMARY KEY (user_id, permission)
     );
   `);
+
+  // Playability + transcode bookkeeping on videos, for databases created before
+  // the transcode pipeline shipped. Existing rows default to playable so a
+  // library that already works is not queued for conversion; the next scan
+  // re-probes them and flips the ones that actually need it.
+  {
+    const cols = (
+      db.prepare("PRAGMA table_info(videos)").all() as { name: string }[]
+    ).map((c) => c.name);
+    if (!cols.includes("video_codec"))
+      db.exec("ALTER TABLE videos ADD COLUMN video_codec TEXT");
+    if (!cols.includes("audio_codec"))
+      db.exec("ALTER TABLE videos ADD COLUMN audio_codec TEXT");
+    if (!cols.includes("playable"))
+      db.exec("ALTER TABLE videos ADD COLUMN playable INTEGER NOT NULL DEFAULT 1");
+    if (!cols.includes("transcode_status"))
+      db.exec("ALTER TABLE videos ADD COLUMN transcode_status TEXT");
+    if (!cols.includes("transcode_error"))
+      db.exec("ALTER TABLE videos ADD COLUMN transcode_error TEXT");
+  }
 
   // Backfill match_type on import_review for databases created before the
   // perceptual (dHash+SSIM) import check shipped.
@@ -1839,6 +1867,11 @@ export interface VideoRow {
   height: number | null;
   size_bytes: number | null;
   file_mtime: string | null;
+  video_codec: string | null;
+  audio_codec: string | null;
+  playable: number;
+  transcode_status: "pending" | "done" | "failed" | null;
+  transcode_error: string | null;
   views: number;
   added_at: string;
 }

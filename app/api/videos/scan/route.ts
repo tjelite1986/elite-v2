@@ -26,8 +26,11 @@ export async function POST(request: Request) {
     if (!channel) {
       return NextResponse.json({ error: "Unknown channel" }, { status: 400 });
     }
-    return NextResponse.json({ ok: true, results: [scanVideoChannel(channel)] });
+    return NextResponse.json({
+      ok: true,
+      results: [await scanVideoChannel(channel)],
+    });
   }
 
-  return NextResponse.json({ ok: true, results: scanAllVideos() });
+  return NextResponse.json({ ok: true, results: await scanAllVideos() });
 }

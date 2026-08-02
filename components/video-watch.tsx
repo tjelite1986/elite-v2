@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   Check,
   Download,
+  FileVideo2,
   FolderOpen,
   Loader2,
   Pencil,
@@ -39,6 +40,11 @@ export interface WatchVideo extends VideoCardData {
   percent: number;
   likes: number;
   liked: number;
+  playable: number;
+  transcode_status: "pending" | "done" | "failed" | null;
+  transcode_error: string | null;
+  video_codec: string | null;
+  audio_codec: string | null;
 }
 
 function formatSize(bytes: number | null): string | null {
@@ -243,6 +249,9 @@ export default function VideoWatch({
               !theater && "lg:mx-0 lg:overflow-hidden lg:rounded-xl"
             )}
           >
+            {video.playable === 0 ? (
+              <PendingConversion video={video} isAdmin={isAdmin} />
+            ) : (
             <VideoPlayer
               key={`${video.id}:${playerKey}`}
               video={video}
@@ -257,6 +266,7 @@ export default function VideoWatch({
                 if (autoplay && next) goNext();
               }}
             />
+            )}
           </div>
 
           {editing ? (
@@ -446,6 +456,69 @@ export default function VideoWatch({
       </div>
 
       {confirmDialog}
+    </div>
+  );
+}
+
+// A source no browser can decode (DVD rip, HEVC, AC-3, .mkv/.avi container).
+// Showing why — and letting an admin start the conversion — beats handing the
+// player a file it can only fail on.
+function PendingConversion({
+  video,
+  isAdmin,
+}: {
+  video: WatchVideo;
+  isAdmin: boolean;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const failed = video.transcode_status === "failed";
+
+  const convert = async () => {
+    setBusy(true);
+    setNote("Converting — this runs in the background and can take a while.");
+    try {
+      const res = await fetch(`/api/videos/transcode?id=${video.id}`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      setNote(res.ok ? data.message || "Done." : data.error || "Failed.");
+    } catch {
+      setNote("Could not reach the server.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const codecs = [video.video_codec, video.audio_codec].filter(Boolean).join(" + ");
+
+  return (
+    <div className="flex aspect-video w-full flex-col items-center justify-center gap-2 px-6 text-center">
+      <FileVideo2 size={30} className="text-white/30" />
+      <p className="text-sm font-medium text-white">
+        {failed ? "Conversion failed" : "Waiting to be converted"}
+      </p>
+      <p className="max-w-md text-xs text-white/50">
+        {codecs ? `This file is ${codecs}, which ` : "This file's format "}
+        no browser can play. It is queued for conversion to MP4; the hourly job
+        picks it up.
+      </p>
+      {failed && video.transcode_error && (
+        <p className="max-w-md truncate text-xs text-red-300/80">
+          {video.transcode_error}
+        </p>
+      )}
+      {isAdmin && (
+        <button
+          onClick={convert}
+          disabled={busy}
+          className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/20 px-4 py-1.5 text-sm transition hover:bg-white/10 disabled:opacity-50"
+        >
+          {busy ? <Loader2 size={14} className="animate-spin" /> : null}
+          {failed ? "Retry now" : "Convert now"}
+        </button>
+      )}
+      {note && <p className="text-xs text-white/40">{note}</p>}
     </div>
   );
 }
