@@ -5,6 +5,11 @@ import type { VideoRow } from "./db";
 import { artworkStem, posterFilePath, videoFilePath } from "./videos-storage";
 import { findLocalPoster, readNfo, type NfoData } from "./video-nfo";
 import {
+  enrichPendingPerformers,
+  importLocalPortraits,
+  setVideoPerformers,
+} from "./video-performers";
+import {
   findMatches,
   getTpdb,
   isConfident,
@@ -123,10 +128,13 @@ export async function applyMatch(
     url: match.url,
     status,
   });
+  setVideoPerformers(row.id, match.performers);
+  await importLocalPortraits(row, match.performers);
 }
 
 export function clearMetadata(row: VideoRow): void {
   deleteMetaPoster(row);
+  setVideoPerformers(row.id, []);
   db.prepare(
     `UPDATE videos SET meta_source = NULL, meta_id = NULL, meta_type = NULL,
        meta_title = NULL, meta_date = NULL, meta_studio = NULL,
@@ -238,11 +246,16 @@ async function runAutoMatch(budgetMs: number): Promise<MetadataRunSummary> {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
+  // Whatever budget is left goes on performer biographies and portraits.
+  const performers = await enrichPendingPerformers(deadline);
+
   return {
     finishedAt: new Date().toISOString(),
     matched,
     unmatched,
-    message: `${matched} matched, ${unmatched} left without a match.`,
+    message:
+      `${matched} matched, ${unmatched} left without a match` +
+      (performers ? `, ${performers} performer profile${performers === 1 ? "" : "s"} filled in.` : "."),
   };
 }
 
@@ -331,6 +344,8 @@ export async function applyNfo(row: VideoRow): Promise<boolean> {
     poster: posterKey,
     url: nfo.sourceUrl,
   });
+  setVideoPerformers(row.id, nfo.performers);
+  await importLocalPortraits(row, nfo.performers);
   return true;
 }
 

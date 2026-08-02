@@ -50,6 +50,7 @@ const SECTIONS: {
     prefix: "/videos18",
     items: () => [
       { label: "Videos 18+", href: "/videos18", icon: Film },
+      { label: "Performers", href: "/videos18/performers", icon: Users },
       { label: "Shorts 18+", href: "/shorts18", icon: Flame },
     ],
   },

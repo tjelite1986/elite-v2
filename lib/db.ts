@@ -688,6 +688,35 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_video_progress_user
       ON video_progress(user_id, updated_at DESC);
 
+    -- Performers in the 18+ video library. Their own table (not users, not
+    -- post_creators): these are people a film credits, with no account and no
+    -- content of their own beyond the videos they appear in.
+    CREATE TABLE IF NOT EXISTS video_performers (
+      slug TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      tpdb_id TEXT,
+      bio TEXT,
+      birthday TEXT,
+      birthplace TEXT,
+      nationality TEXT,
+      height TEXT,
+      measurements TEXT,
+      hair_colour TEXT,
+      eye_colour TEXT,
+      career_start INTEGER,
+      image_key TEXT,                   -- filename within VIDEOS_ROOT/.posters
+      checked_at TEXT,                  -- last TPDB enrichment attempt
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS video_performer_links (
+      video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+      performer_slug TEXT NOT NULL REFERENCES video_performers(slug) ON DELETE CASCADE,
+      PRIMARY KEY (video_id, performer_slug)
+    );
+    CREATE INDEX IF NOT EXISTS idx_video_performer_links_slug
+      ON video_performer_links(performer_slug);
+
     CREATE TABLE IF NOT EXISTS video_likes (
       video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1930,6 +1959,24 @@ export interface VideoProgressRow {
   percent: number;
   finished_at: string | null;
   updated_at: string;
+}
+
+export interface VideoPerformerRow {
+  slug: string;
+  name: string;
+  tpdb_id: string | null;
+  bio: string | null;
+  birthday: string | null;
+  birthplace: string | null;
+  nationality: string | null;
+  height: string | null;
+  measurements: string | null;
+  hair_colour: string | null;
+  eye_colour: string | null;
+  career_start: number | null;
+  image_key: string | null;
+  checked_at: string | null;
+  created_at: string;
 }
 
 export interface VideoLikeRow {

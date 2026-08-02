@@ -34,6 +34,7 @@ import {
   type VideoRow,
   type VideoProgressRow,
   type VideoLikeRow,
+  type VideoPerformerRow,
 } from "./db";
 
 // --- Link / state tables that don't (yet) have a hand-written *Row interface
@@ -207,6 +208,8 @@ export interface DB {
   videos: VideoRow;
   video_progress: VideoProgressRow;
   video_likes: VideoLikeRow;
+  video_performers: VideoPerformerRow;
+  video_performer_links: { video_id: number; performer_slug: string };
 }
 
 // Kysely is used ONLY to build and type-check queries. Execution stays

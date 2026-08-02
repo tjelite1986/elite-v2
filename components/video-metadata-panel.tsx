@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -15,6 +16,21 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
+
+// Same slug rule as lib/video-performers.ts — kept in sync by hand because the
+// server module pulls in better-sqlite3 and cannot be imported from a client
+// component.
+function performerSlug(name: string): string {
+  return (
+    name
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "unknown"
+  );
+}
 
 // Metadata block on an 18+ watch page: what is known about the film, and (for
 // admins) a picker to correct it. Automatic matching handles the easy cases;
@@ -198,9 +214,19 @@ export default function VideoMetadataPanel({
         )}
 
         {meta && meta.performers.length > 0 && (
-          <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-white/60">
+          <p className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-white/60">
             <Users size={12} className="text-white/40" />
-            {meta.performers.join(", ")}
+            {meta.performers.map((name, i) => (
+              <span key={name}>
+                <Link
+                  href={`/videos18/performer/${performerSlug(name)}`}
+                  className="underline-offset-2 transition hover:text-white hover:underline"
+                >
+                  {name}
+                </Link>
+                {i < meta.performers.length - 1 ? "," : ""}
+              </span>
+            ))}
           </p>
         )}
 
