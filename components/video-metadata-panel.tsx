@@ -142,6 +142,12 @@ export default function VideoMetadataPanel({
   };
 
   const matched = Boolean(meta?.title || meta?.studio);
+  // Both the uuid and the numeric id resolve on the site; the path just needs
+  // the plural of the record type.
+  const tpdbUrl =
+    meta?.id && meta?.type
+      ? `https://theporndb.net/${meta.type === "movie" ? "movies" : "scenes"}/${meta.id}`
+      : null;
 
   return (
     <>
@@ -212,16 +218,31 @@ export default function VideoMetadataPanel({
           </div>
         )}
 
-        {meta?.url && (
-          <a
-            href={meta.url}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-2 inline-flex items-center gap-1 text-xs text-white/40 transition hover:text-white"
-          >
-            <ExternalLink size={12} />
-            Source page
-          </a>
+        {(meta?.url || tpdbUrl) && (
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            {tpdbUrl && (
+              <a
+                href={tpdbUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-white/40 transition hover:text-white"
+              >
+                <ExternalLink size={12} />
+                ThePornDB
+              </a>
+            )}
+            {meta?.url && (
+              <a
+                href={meta.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-white/40 transition hover:text-white"
+              >
+                <ExternalLink size={12} />
+                Studio page
+              </a>
+            )}
+          </div>
         )}
       </div>
 

@@ -107,6 +107,10 @@ export default function VideoPlayer({
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTap = useRef<{ at: number; side: "back" | "forward" } | null>(null);
+  // Set from the pointer event itself (pointerType), not from a media query:
+  // matchMedia("(pointer: coarse)") can report a fine pointer on a real touch
+  // device, and one wrong reading turns every tap into a pause.
+  const coarsePointer = useRef(false);
   const viewCounted = useRef(false);
   const resumeApplied = useRef(false);
   // Last known playback position, mirrored outside React state: on unmount the
@@ -237,7 +241,15 @@ export default function VideoPlayer({
     } catch {
       /* keep the default volume */
     }
-  }, []);
+    // With autoPlay the play event can fire before React attaches its handler,
+    // so onPlay never runs: the state stays "paused" and — because the auto-hide
+    // countdown only starts there — the controls sit on top of the picture for
+    // the whole video. Sync from the element instead of trusting the event.
+    if (!el.paused) {
+      setPlaying(true);
+      showControls();
+    }
+  }, [showControls]);
 
   // A new video in the same mounted player (autoplay-next) must not inherit the
   // previous one's resume position or view flag.
@@ -462,25 +474,43 @@ export default function VideoPlayer({
 
   // --- surface gestures ---------------------------------------------------
 
-  // Tap toggles play; a second tap on the same half within 300 ms seeks ±10 s
-  // (the mobile YouTube gesture) instead of pausing.
-  const onSurfaceClick = (e: React.MouseEvent) => {
+  // Touch and mouse behave differently here, exactly as they do on YouTube:
+  //
+  //   touch — a tap reveals or hides the controls and NEVER pauses. Pausing by
+  //           touching the picture is what made a double-tap seek also stop
+  //           playback; play/pause is the centre button.
+  //   mouse — a click toggles play immediately (no delay waiting to see whether
+  //           a second click arrives), a double-click goes fullscreen and undoes
+  //           that first toggle so the playing state survives.
+  const onSurfacePointerUp = (e: React.PointerEvent) => {
+    if (e.button !== 0) return; // right/middle click is not a play toggle
+    // Anything that is not explicitly a mouse is treated as touch: erring that
+    // way costs a tap, erring the other way pauses the video by accident.
+    coarsePointer.current = e.pointerType !== "mouse";
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const side: "back" | "forward" =
       e.clientX - rect.left < rect.width / 2 ? "back" : "forward";
     const now = Date.now();
-    if (lastTap.current && now - lastTap.current.at < 300) {
+    const isSecondTap = lastTap.current !== null && now - lastTap.current.at < 300;
+
+    if (isSecondTap) {
       lastTap.current = null;
-      seekBy(side === "back" ? -10 : 10);
+      if (coarsePointer.current) {
+        seekBy(side === "back" ? -10 : 10);
+      } else {
+        togglePlay(); // revert the toggle the first click just did
+        toggleFullscreen();
+      }
       return;
     }
+
     lastTap.current = { at: now, side };
-    setTimeout(() => {
-      if (lastTap.current && Date.now() - lastTap.current.at >= 290) {
-        lastTap.current = null;
-        togglePlay();
-      }
-    }, 300);
+    if (coarsePointer.current) {
+      if (controlsVisible) setControlsVisible(false);
+      else showControls();
+    } else {
+      togglePlay();
+    }
   };
 
   const played = duration ? (current / duration) * 100 : 0;
@@ -563,8 +593,10 @@ export default function VideoPlayer({
         }}
       />
 
-      {/* Click/tap surface. Sits under the controls so buttons still work. */}
-      <div className="absolute inset-0" onClick={onSurfaceClick} />
+      {/* Click/tap surface. Sits under the controls so buttons still work.
+          pointerup rather than click, so the handler knows whether the gesture
+          came from a finger or a mouse. */}
+      <div className="absolute inset-0" onPointerUp={onSurfacePointerUp} />
 
       {/* Buffering spinner */}
       {waiting && !failed && (
@@ -573,14 +605,20 @@ export default function VideoPlayer({
         </div>
       )}
 
-      {/* Big center play button while paused */}
-      {!playing && !waiting && !failed && (
+      {/* Centre play/pause. Visible while paused, and also whenever the controls
+          are up — on a touch screen tapping the picture no longer pauses, so
+          this is the primary target for it. */}
+      {(!playing || controlsVisible) && !waiting && !failed && (
         <button
           onClick={togglePlay}
-          aria-label="Play"
+          aria-label={playing ? "Pause" : "Play"}
           className="absolute left-1/2 top-1/2 grid size-16 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/55 text-white ring-1 ring-white/15 backdrop-blur transition hover:bg-black/75 sm:size-20"
         >
-          <Play size={30} className="ml-1 fill-white" />
+          {playing ? (
+            <Pause size={30} className="fill-white" />
+          ) : (
+            <Play size={30} className="ml-1 fill-white" />
+          )}
         </button>
       )}
 

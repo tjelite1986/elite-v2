@@ -177,7 +177,33 @@ export function readNfo(videoPath: string): NfoData | null {
     }
   }
   const data = mergeNfo(parts);
-  return data && (data.title || data.tpdbId) ? data : null;
+  if (!data || !(data.title || data.tpdbId)) return null;
+  if (!data.performers.length) {
+    data.performers = performersFromArtwork(videoPath);
+  }
+  return data;
+}
+
+// Performer names from the artwork filenames, e.g.
+//   "<release>-Performer-Dee-Williams-image.png" -> "Dee Williams"
+// Some releases ship only the per-scene .nfo, which carries no <actor> blocks
+// at all — there the images are the one local record of who is in the film.
+export function performersFromArtwork(videoPath: string): string[] {
+  const dir = path.dirname(videoPath);
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const names = new Set<string>();
+  for (const entry of entries) {
+    const m = /-Performer-(.+?)-image\.[a-z0-9]+$/i.exec(entry);
+    if (!m) continue;
+    const name = m[1].replace(/-/g, " ").replace(/\s+/g, " ").trim();
+    if (name) names.add(name);
+  }
+  return [...names];
 }
 
 // Cover art shipped next to the video. The paths inside <art> point at the
