@@ -5,13 +5,10 @@ import { db } from "./db";
 import type { VideoRow, VideoChannel } from "./db";
 import { has18Access } from "./shorts-gate";
 import {
-  VIDEOS_ROOT,
   VIDEO_CHANNELS,
   artworkStem,
   channelAvailable,
-  channelDir,
   ensureVideoDirs,
-  postersDir,
   posterFilePath,
   videoFilePath,
   walkChannel,
@@ -643,22 +640,3 @@ export function toggleLike(
     .get(id) as { n: number };
   return { liked: !existing, likes: row.n };
 }
-
-// Library size on disk, for the Settings storage view.
-export function videoLibraryStats(): {
-  channel: VideoChannel;
-  count: number;
-  bytes: number;
-  hostDir: string;
-}[] {
-  return VIDEO_CHANNELS.map((channel) => {
-    const row = db
-      .prepare(
-        "SELECT COUNT(*) AS count, COALESCE(SUM(size_bytes), 0) AS bytes FROM videos WHERE channel = ?"
-      )
-      .get(channel) as { count: number; bytes: number };
-    return { channel, ...row, hostDir: channelDir(channel) };
-  });
-}
-
-export const VIDEO_PATHS = { root: VIDEOS_ROOT, posters: postersDir() };
