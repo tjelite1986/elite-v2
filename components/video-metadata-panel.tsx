@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
+import { safeHttpUrl } from "@/lib/safe-url";
 
 // Same slug rule as lib/video-performers.ts — kept in sync by hand because the
 // server module pulls in better-sqlite3 and cannot be imported from a client
@@ -158,6 +159,9 @@ export default function VideoMetadataPanel({
   };
 
   const matched = Boolean(meta?.title || meta?.studio);
+  // <sourceid> comes from a sidecar that anyone dropping a release folder
+  // controls, so it is never trusted as an href unmodified.
+  const studioUrl = safeHttpUrl(meta?.url);
   // Both the uuid and the numeric id resolve on the site; the path just needs
   // the plural of the record type.
   const tpdbUrl =
@@ -244,7 +248,7 @@ export default function VideoMetadataPanel({
           </div>
         )}
 
-        {(meta?.url || tpdbUrl) && (
+        {(studioUrl || tpdbUrl) && (
           <div className="mt-2 flex flex-wrap items-center gap-3">
             {tpdbUrl && (
               <a
@@ -257,9 +261,9 @@ export default function VideoMetadataPanel({
                 ThePornDB
               </a>
             )}
-            {meta?.url && (
+            {studioUrl && (
               <a
-                href={meta.url}
+                href={studioUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-white/40 transition hover:text-white"

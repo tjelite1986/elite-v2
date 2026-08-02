@@ -11,6 +11,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { safeHttpUrl } from "@/lib/safe-url";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import VideoCard, { type VideoCardData } from "@/components/video-card";
 
@@ -153,7 +154,11 @@ export default function PerformerProfile({
 
   const years = age(performer.birthday, performer.deathday);
   const aliases = parseList<string>(performer.aliases);
-  const links = parseList<{ key: string; value: string }>(performer.links);
+  // Only http(s) survives: these URLs come from a third-party record and a
+  // javascript: value would execute on click.
+  const links = parseList<{ key: string; value: string }>(performer.links)
+    .map((l) => ({ key: l.key, value: safeHttpUrl(l.value) }))
+    .filter((l): l is { key: string; value: string } => l.value !== null);
   const shownLinks = allLinks ? links : links.slice(0, 6);
 
   const born = performer.birthday

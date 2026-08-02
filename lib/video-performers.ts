@@ -5,6 +5,7 @@ import { db } from "./db";
 import type { VideoPerformerRow, VideoRow } from "./db";
 import { posterFilePath, videoFilePath } from "./videos-storage";
 import { tpdbConfigured } from "./tpdb";
+import { safeHttpUrl } from "./safe-url";
 
 // Performer profiles for the 18+ video library. Deliberately its own table
 // rather than users or post_creators: these are people a film credits, with no
@@ -236,19 +237,15 @@ export async function enrichPerformer(slug: string): Promise<boolean> {
   // away. Accept both shapes.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const normalizeLinks = (raw: any): { key: string; value: string }[] => {
-    if (Array.isArray(raw)) {
-      return raw
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((l: any) => l && typeof l.value === "string")
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((l: any) => ({ key: String(l.key ?? "Link"), value: l.value }));
-    }
-    if (raw && typeof raw === "object") {
-      return Object.entries(raw)
-        .filter(([, value]) => typeof value === "string" && value)
-        .map(([key, value]) => ({ key, value: value as string }));
-    }
-    return [];
+    const pairs: { key: string; value: unknown }[] = Array.isArray(raw)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? raw.map((l: any) => ({ key: String(l?.key ?? "Link"), value: l?.value }))
+      : raw && typeof raw === "object"
+        ? Object.entries(raw).map(([key, value]) => ({ key, value }))
+        : [];
+    return pairs
+      .map(({ key, value }) => ({ key, value: safeHttpUrl(value) }))
+      .filter((l): l is { key: string; value: string } => l.value !== null);
   };
 
   const num = (v: unknown): number | null =>

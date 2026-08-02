@@ -4,6 +4,7 @@ import { db } from "./db";
 import type { VideoRow } from "./db";
 import { artworkStem, posterFilePath, videoFilePath } from "./videos-storage";
 import { findLocalPoster, readNfo, type NfoData } from "./video-nfo";
+import { safeHttpUrl } from "./safe-url";
 import {
   backfillPerformerLinks,
   enrichPendingPerformers,
@@ -126,7 +127,7 @@ export async function applyMatch(
     performers: JSON.stringify(match.performers),
     tags: JSON.stringify(match.tags),
     poster: posterKey,
-    url: match.url,
+    url: safeHttpUrl(match.url),
     status,
   });
   setVideoPerformers(row.id, match.performers);
@@ -348,7 +349,7 @@ export async function applyNfo(row: VideoRow): Promise<boolean> {
     performers: JSON.stringify(nfo.performers),
     tags: JSON.stringify(nfo.tags),
     poster: posterKey,
-    url: nfo.sourceUrl,
+    url: safeHttpUrl(nfo.sourceUrl),
   });
   setVideoPerformers(row.id, nfo.performers);
   await importLocalPortraits(row, nfo.performers);
