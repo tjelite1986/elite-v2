@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { canAccessVideoChannel, getVideoWithState, relatedVideos } from "@/lib/videos";
+import { parseMetadata } from "@/lib/video-metadata";
 import VideoWatch from "@/components/video-watch";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export default async function Watch18Page(props: {
 
   return (
     <VideoWatch
-      video={video}
+      video={{ ...video, metadata: parseMetadata(video) }}
       related={relatedVideos(video, userId)}
       basePath="/videos18"
       isAdmin={session.role === "admin"}

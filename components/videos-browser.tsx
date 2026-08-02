@@ -5,6 +5,7 @@ import {
   FolderOpen,
   Loader2,
   RefreshCw,
+  Sparkles,
   Wand2,
   Search,
   Video as VideoIcon,
@@ -66,6 +67,8 @@ export default function VideosBrowser({
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [pendingConversions, setPendingConversions] = useState(0);
   const [converting, setConverting] = useState(false);
+  const [pendingMeta, setPendingMeta] = useState(0);
+  const [matching, setMatching] = useState(false);
   const [exhausted, setExhausted] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const sentinel = useRef<HTMLDivElement>(null);
@@ -133,14 +136,33 @@ export default function VideosBrowser({
     } catch {
       /* the button just stays hidden */
     }
-  }, [isAdmin, load]);
+    // Metadata backlog (18+ only — there is no source for the main library).
+    if (channel !== "adults") return;
+    try {
+      const res = await fetch("/api/videos/metadata");
+      if (res.ok) {
+        const data = await res.json();
+        setPendingMeta(data.configured ? (data.pending ?? 0) : 0);
+        const running = Boolean(data.running);
+        setMatching((was) => {
+          if (was && !running) {
+            if (data.lastRun?.message) setScanResult(data.lastRun.message);
+            void load();
+          }
+          return running;
+        });
+      }
+    } catch {
+      /* the button just stays hidden */
+    }
+  }, [isAdmin, load, channel]);
 
   useEffect(() => {
     loadQueue();
     // Poll often enough to notice a finished file while a run is going.
-    const t = setInterval(loadQueue, converting ? 10000 : 30000);
+    const t = setInterval(loadQueue, converting || matching ? 10000 : 30000);
     return () => clearInterval(t);
-  }, [loadQueue, converting]);
+  }, [loadQueue, converting, matching]);
 
   // Infinite scroll: fetch the next page when the sentinel comes into view.
   useEffect(() => {
@@ -208,6 +230,20 @@ export default function VideosBrowser({
     }
   };
 
+  // Start the automatic metadata pass (sidecars first, then ThePornDB).
+  const matchMetadata = async () => {
+    try {
+      const res = await fetch("/api/videos/metadata", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      setScanResult(res.ok ? data.message || "Started." : data.error || "Could not start.");
+      if (data.started) setMatching(true);
+    } catch {
+      setScanResult("Could not reach the server.");
+    } finally {
+      await loadQueue();
+    }
+  };
+
   const hasFilters = Boolean(debounced || folder);
   const heading = useMemo(() => {
     if (debounced) return `Results for “${debounced}”`;
@@ -234,6 +270,21 @@ export default function VideosBrowser({
               <RefreshCw size={14} />
             )}
             {scanning ? "Scanning…" : "Rescan library"}
+          </button>
+        )}
+        {isAdmin && pendingMeta > 0 && (
+          <button
+            onClick={matchMetadata}
+            disabled={matching}
+            title="Look up title, studio, performers and cover art"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium transition hover:bg-white/10 disabled:opacity-50"
+          >
+            {matching ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Sparkles size={14} />
+            )}
+            {matching ? "Matching…" : `Match ${pendingMeta}`}
           </button>
         )}
         {isAdmin && pendingConversions > 0 && (

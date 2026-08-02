@@ -17,6 +17,7 @@ import {
   videoFilePath,
   walkChannel,
 } from "./videos-storage";
+import { applyNfo } from "./video-metadata";
 
 export type { VideoChannel } from "./db";
 
@@ -432,7 +433,7 @@ export async function scanVideoChannel(
               probe.width
             )
           : null;
-        insert.run({
+        const info = insert.run({
           channel,
           storage_key: file.storageKey,
           folder: file.folder,
@@ -457,6 +458,19 @@ export async function scanVideoChannel(
         result.added++;
         if (poster) result.artwork++;
         if (!playable) result.needTranscode++;
+        // A .nfo sidecar next to the file is authoritative and free to read, so
+        // a Whisparr-style drop is fully described the moment it is scanned —
+        // no waiting for the metadata pass, no third-party call.
+        if (channel === "adults") {
+          const inserted = getVideo(Number(info.lastInsertRowid));
+          if (inserted) {
+            try {
+              await applyNfo(inserted);
+            } catch {
+              /* metadata is best-effort; the matcher retries later */
+            }
+          }
+        }
         continue;
       }
 
@@ -1066,14 +1080,23 @@ export function continueWatching(
 export function listFolders(
   channel: VideoChannel
 ): { folder: string; count: number }[] {
-  return db
+  // Group on the TOP-level segment only. A Whisparr layout nests one folder per
+  // scene ("Watch Your Mom/Watch Your Mom - 2019-05-05 - … [WEBDL-400]"), which
+  // would otherwise produce one unreadable chip per file. Filtering on the
+  // segment still matches everything beneath it (see listVideos).
+  const rows = db
     .prepare(
-      `SELECT folder, COUNT(*) AS count FROM videos
-        WHERE channel = ? AND folder <> ''
-        GROUP BY folder
-        ORDER BY folder COLLATE NOCASE ASC`
+      `SELECT folder FROM videos WHERE channel = ? AND folder <> ''`
     )
-    .all(channel) as { folder: string; count: number }[];
+    .all(channel) as { folder: string }[];
+  const counts = new Map<string, number>();
+  for (const { folder } of rows) {
+    const top = folder.split("/")[0];
+    counts.set(top, (counts.get(top) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([folder, count]) => ({ folder, count }))
+    .sort((a, b) => a.folder.localeCompare(b.folder, undefined, { sensitivity: "base" }));
 }
 
 export function getVideo(id: number): VideoRow | undefined {

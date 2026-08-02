@@ -22,9 +22,14 @@ export async function GET(
     return new NextResponse("Forbidden", { status: 403 });
   }
 
-  const wantStoryboard =
-    new URL(request.url).searchParams.get("storyboard") === "1";
-  const key = wantStoryboard ? video.storyboard_key : video.poster_key;
+  const params = new URL(request.url).searchParams;
+  const wantStoryboard = params.get("storyboard") === "1";
+  // Matched artwork (from a .nfo sidecar or ThePornDB) is the real cover, so it
+  // wins over the ffmpeg frame. ?frame=1 asks for the generated one explicitly.
+  const preferFrame = params.get("frame") === "1";
+  const key = wantStoryboard
+    ? video.storyboard_key
+    : (!preferFrame && video.meta_poster_key) || video.poster_key;
   if (!key) return new NextResponse("Not found", { status: 404 });
 
   const filePath = posterFilePath(key);

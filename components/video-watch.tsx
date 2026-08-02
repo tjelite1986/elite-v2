@@ -22,6 +22,9 @@ import VideoCard, {
   type VideoCardData,
 } from "@/components/video-card";
 import { useConfirm } from "@/components/confirm-dialog";
+import VideoMetadataPanel, {
+  type VideoMetadata,
+} from "@/components/video-metadata-panel";
 
 export interface WatchVideo extends VideoCardData {
   channel: "main" | "adults";
@@ -45,6 +48,7 @@ export interface WatchVideo extends VideoCardData {
   transcode_error: string | null;
   video_codec: string | null;
   audio_codec: string | null;
+  metadata?: VideoMetadata | null;
 }
 
 function formatSize(bytes: number | null): string | null {
@@ -399,6 +403,16 @@ export default function VideoWatch({
                 Start over
               </button>
             </p>
+          )}
+
+          {/* Metadata (18+ library only — the main channel has no such source) */}
+          {video.channel === "adults" && !editing && (
+            <VideoMetadataPanel
+              videoId={video.id}
+              fallbackTitle={video.title}
+              metadata={video.metadata ?? null}
+              isAdmin={isAdmin}
+            />
           )}
 
           {/* Description */}

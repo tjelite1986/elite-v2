@@ -651,6 +651,22 @@ function migrate(db: Database.Database) {
       playable INTEGER NOT NULL DEFAULT 1,
       transcode_status TEXT,            -- NULL | 'pending' | 'done' | 'failed'
       transcode_error TEXT,
+      -- ThePornDB metadata (18+ channel only). meta_status distinguishes an
+      -- automatic match from one a human picked, so a rerun never overwrites
+      -- a manual correction.
+      meta_source TEXT,                 -- NULL | 'tpdb'
+      meta_id TEXT,
+      meta_type TEXT,                   -- 'movie' | 'scene'
+      meta_title TEXT,
+      meta_date TEXT,
+      meta_studio TEXT,
+      meta_synopsis TEXT,
+      meta_performers TEXT,             -- JSON array of names
+      meta_tags TEXT,                   -- JSON array of names
+      meta_poster_key TEXT,             -- filename within VIDEOS_ROOT/.posters
+      meta_url TEXT,
+      meta_status TEXT,                 -- NULL | 'auto' | 'manual' | 'none'
+      meta_checked_at TEXT,
       views INTEGER NOT NULL DEFAULT 0,
       added_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE (channel, storage_key)
@@ -830,6 +846,24 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE videos ADD COLUMN transcode_status TEXT");
     if (!cols.includes("transcode_error"))
       db.exec("ALTER TABLE videos ADD COLUMN transcode_error TEXT");
+    for (const [name, type] of [
+      ["meta_source", "TEXT"],
+      ["meta_id", "TEXT"],
+      ["meta_type", "TEXT"],
+      ["meta_title", "TEXT"],
+      ["meta_date", "TEXT"],
+      ["meta_studio", "TEXT"],
+      ["meta_synopsis", "TEXT"],
+      ["meta_performers", "TEXT"],
+      ["meta_tags", "TEXT"],
+      ["meta_poster_key", "TEXT"],
+      ["meta_url", "TEXT"],
+      ["meta_status", "TEXT"],
+      ["meta_checked_at", "TEXT"],
+    ] as const) {
+      if (!cols.includes(name))
+        db.exec(`ALTER TABLE videos ADD COLUMN ${name} ${type}`);
+    }
   }
 
   // Backfill match_type on import_review for databases created before the
@@ -1872,6 +1906,19 @@ export interface VideoRow {
   playable: number;
   transcode_status: "pending" | "done" | "failed" | null;
   transcode_error: string | null;
+  meta_source: string | null;
+  meta_id: string | null;
+  meta_type: "movie" | "scene" | null;
+  meta_title: string | null;
+  meta_date: string | null;
+  meta_studio: string | null;
+  meta_synopsis: string | null;
+  meta_performers: string | null;
+  meta_tags: string | null;
+  meta_poster_key: string | null;
+  meta_url: string | null;
+  meta_status: "auto" | "manual" | "none" | null;
+  meta_checked_at: string | null;
   views: number;
   added_at: string;
 }
