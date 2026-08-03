@@ -11,6 +11,9 @@
 //   2. Mislabeled downloads (JPEG/PNG/WebP/GIF bytes behind a .heic/.heif
 //      extension — gallery-dl does this for Instagram photos) -> renamed to the
 //      extension matching their bytes. Feeding them to heif-convert fails.
+//   3. TIFF images -> converted to JPEG via sharp, original deleted. TIFF is
+//      not an importable extension (and no browser renders it), so a dropped
+//      .tiff would otherwise sit in the tree forever, skipped without a word.
 //
 // Optional relocation (--relocate-photos): photos sitting in a shorts/ section
 // are video-only territory — the shorts importer skips images silently, so they
@@ -43,8 +46,8 @@ const HEIF_BRANDS = new Set([
 ]);
 
 // Sniff the real format from the first bytes. Returns the canonical extension
-// ("jpg" | "png" | "webp" | "gif" | "heif") or null for anything else (videos,
-// markdown sidecars, unknown blobs) which the script must not touch.
+// ("jpg" | "png" | "webp" | "gif" | "heif" | "tiff") or null for anything else
+// (videos, markdown sidecars, unknown blobs) which the script must not touch.
 function sniffKind(absPath) {
   let fd;
   try {
@@ -57,6 +60,8 @@ function sniffKind(absPath) {
     if (buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP") return "webp";
     if (buf.toString("latin1", 0, 4) === "GIF8") return "gif";
     if (buf.toString("latin1", 4, 8) === "ftyp" && HEIF_BRANDS.has(buf.toString("latin1", 8, 12))) return "heif";
+    // TIFF: "II*\0" (little-endian) or "MM\0*" (big-endian).
+    if (buf.readUInt32BE(0) === 0x49492a00 || buf.readUInt32BE(0) === 0x4d4d002a) return "tiff";
     return null;
   } catch {
     return null;
@@ -109,6 +114,51 @@ function convertHeif(absPath, res) {
       /* best effort */
     }
     res.errors.push(`${absPath}: heif-convert failed (${String(err.message || err).slice(0, 120)})`);
+    return absPath;
+  }
+}
+
+// sharp is only needed for TIFF — load it lazily so a run with no TIFF in the
+// tree still works where sharp is unavailable (e.g. a bare host checkout).
+let sharpModule;
+async function loadSharp() {
+  if (sharpModule === undefined) {
+    sharpModule = await import("sharp").then((m) => m.default).catch(() => null);
+  }
+  return sharpModule;
+}
+
+async function convertTiff(absPath, res) {
+  const dir = path.dirname(absPath);
+  const stem = path.basename(absPath, path.extname(absPath));
+  const dest = uniquePath(dir, stem, ".jpg");
+  if (DRY_RUN) {
+    log(`would convert: ${absPath} -> ${path.basename(dest)}`);
+    res.converted++;
+    return absPath;
+  }
+  const sharp = await loadSharp();
+  if (!sharp) {
+    res.errors.push(`${absPath}: TIFF conversion needs sharp, which is not installed`);
+    return absPath;
+  }
+  // Same temp-then-rename dance as HEIF: a concurrent import sweep must never
+  // see a half-written JPEG under its final name.
+  const tmp = path.join(dir, `.tiffconv-${process.pid}-${Date.now()}.jpg`);
+  try {
+    await sharp(absPath).jpeg({ quality: 92 }).toFile(tmp);
+    fs.renameSync(tmp, dest);
+    fs.unlinkSync(absPath);
+    log(`converted: ${absPath} -> ${path.basename(dest)}`);
+    res.converted++;
+    return dest;
+  } catch (err) {
+    try {
+      if (fs.existsSync(tmp)) fs.unlinkSync(tmp);
+    } catch {
+      /* best effort */
+    }
+    res.errors.push(`${absPath}: tiff convert failed (${String(err.message || err).slice(0, 120)})`);
     return absPath;
   }
 }
@@ -231,6 +281,9 @@ for (const userDir of userDirs) {
       let current = item.abs;
       if (kind === "heif") {
         current = convertHeif(current, res);
+        if (current === item.abs && !DRY_RUN) continue; // conversion failed
+      } else if (kind === "tiff") {
+        current = await convertTiff(current, res);
         if (current === item.abs && !DRY_RUN) continue; // conversion failed
       } else if (OK_EXTS[kind] && !OK_EXTS[kind].has(path.extname(current).toLowerCase())) {
         current = fixExtension(current, kind, res);

@@ -190,6 +190,7 @@ export function StoriesTab({ myUsername }: { myUsername: string }) {
 interface NotificationItem {
   id: string;
   user: string;
+  handle: string | null;
   action: string;
   timestamp: string;
   href: string;
@@ -202,9 +203,13 @@ function NotificationRow({ n }: { n: NotificationItem }) {
       href={n.href}
       className="flex items-center gap-3 px-4 py-3 transition hover:bg-white/5"
     >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
-        {initials(n.user)}
-      </span>
+      {n.handle ? (
+        <PostAvatar username={n.handle} size={44} />
+      ) : (
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
+          {initials(n.user)}
+        </span>
+      )}
       <span className="min-w-0 flex-1 text-sm">
         <span data-pii className={cn("font-semibold", n.read && "text-white/70")}>
           {n.user.split("@")[0]}
@@ -319,6 +324,7 @@ export function NotificationsTab({
 interface MessageRequest {
   id: number;
   email: string;
+  username: string | null;
   message_count: number;
   last_body: string | null;
   last_at: string | null;
@@ -385,9 +391,13 @@ export function RequestsView({
       <div className="mt-2 pb-4">
         {requests.map((r) => (
           <div key={r.id} className="flex items-center gap-3 px-4 py-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
-              {initials(r.email)}
-            </span>
+            {r.username ? (
+              <PostAvatar username={r.username} size={44} />
+            ) : (
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
+                {initials(r.email)}
+              </span>
+            )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <span data-pii className="truncate text-sm font-semibold">

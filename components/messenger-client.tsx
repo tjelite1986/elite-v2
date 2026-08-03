@@ -24,10 +24,12 @@ import {
   type ReplyInfo,
 } from "@/components/message-extras";
 import { useWs } from "@/components/ws-provider";
+import PostAvatar from "@/components/post-avatar";
 
 interface ConversationUser {
   id: number;
   email: string;
+  username: string | null;
   last_seen: string | null;
   last_body: string | null;
   last_attachment: string | null;
@@ -158,12 +160,24 @@ function formatLastSeen(value: string | null): string {
   })}`;
 }
 
-function Avatar({ email, online }: { email: string; online?: boolean }) {
+function Avatar({
+  email,
+  username,
+  online,
+}: {
+  email: string;
+  username: string | null;
+  online?: boolean;
+}) {
   return (
     <div className="relative shrink-0">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
-        {getInitials(email)}
-      </div>
+      {username ? (
+        <PostAvatar username={username} size={40} />
+      ) : (
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
+          {getInitials(email)}
+        </div>
+      )}
       {online && (
         <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[#121212] bg-green-500" />
       )}
@@ -431,9 +445,13 @@ export default function MessengerClient({
                 className="flex w-14 shrink-0 flex-col items-center gap-1"
               >
                 <div className="relative">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
-                    {getInitials(u.email)}
-                  </div>
+                  {u.username ? (
+                    <PostAvatar username={u.username} size={48} />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-semibold">
+                      {getInitials(u.email)}
+                    </div>
+                  )}
                   <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#121212] bg-green-500" />
                 </div>
                 <span
@@ -466,7 +484,11 @@ export default function MessengerClient({
               selectedId === u.id && "bg-white/10"
             )}
           >
-            <Avatar email={u.email} online={onlineIds.has(u.id)} />
+            <Avatar
+              email={u.email}
+              username={u.username}
+              online={onlineIds.has(u.id)}
+            />
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <span
@@ -534,7 +556,11 @@ export default function MessengerClient({
 
           {selectedUser ? (
             <div className="flex items-center gap-3">
-              <Avatar email={selectedUser.email} online={selectedOnline} />
+              <Avatar
+                email={selectedUser.email}
+                username={selectedUser.username}
+                online={selectedOnline}
+              />
               <div className="min-w-0">
                 <div data-pii className="truncate font-medium">{selectedUser.email}</div>
                 <div className="text-xs">
@@ -605,9 +631,16 @@ export default function MessengerClient({
                   >
                     {!mine &&
                       (lastOfGroup ? (
-                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-[11px] font-semibold">
-                          {getInitials(selectedUser.email)}
-                        </span>
+                        selectedUser.username ? (
+                          <PostAvatar
+                            username={selectedUser.username}
+                            size={28}
+                          />
+                        ) : (
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-[11px] font-semibold">
+                            {getInitials(selectedUser.email)}
+                          </span>
+                        )
                       ) : (
                         <span className="h-7 w-7 shrink-0" />
                       ))}

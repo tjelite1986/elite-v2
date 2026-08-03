@@ -8,6 +8,7 @@ import { useBackDismiss } from "@/lib/use-back-dismiss";
 import LinkifyText, { firstUrl } from "@/components/linkify-text";
 import LinkPreview from "@/components/link-preview";
 import MentionInput from "@/components/mention-input";
+import PostAvatar from "@/components/post-avatar";
 import {
   MessageMenu,
   ReactionChips,
@@ -39,11 +40,6 @@ interface ChannelMsg {
   deleted_at: string | null;
   reply: ReplyInfo | null;
   reactions: Reaction[];
-}
-
-function initials(name: string): string {
-  const letters = name.replace(/[^a-zA-Z]/g, "");
-  return (letters.slice(0, 2) || name.slice(0, 2)).toUpperCase();
 }
 
 function formatTime(value: string): string {
@@ -323,14 +319,11 @@ export default function ChannelsClient({ meId }: { meId: number }) {
                       )}
                     >
                       {!mine && (
-                        <span
-                          className={cn(
-                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-[11px] font-semibold",
-                            firstOfGroup ? "visible" : "invisible"
-                          )}
-                        >
-                          {initials(m.sender_name)}
-                        </span>
+                        <PostAvatar
+                          username={m.sender_name}
+                          size={28}
+                          className={firstOfGroup ? "visible" : "invisible"}
+                        />
                       )}
                       {mine && !deleted && (
                         <MessageMenu

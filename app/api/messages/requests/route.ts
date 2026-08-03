@@ -7,6 +7,7 @@ import { getSession, getUserById } from "@/lib/auth";
 interface RequestRow {
   id: number;
   email: string;
+  username: string | null;
   message_count: number;
   last_body: string | null;
   last_at: string | null;
@@ -25,9 +26,12 @@ export async function GET() {
   const requests = getAll<RequestRow>(
     qb
       .selectFrom("users as u")
+      // The profile handle drives the avatar URL (/api/profiles/<username>/avatar).
+      .leftJoin("user_profiles as up", "up.user_id", "u.id")
       .select([
         "u.id",
         "u.email",
+        "up.username",
         sql<number>`(SELECT COUNT(*) FROM messages m WHERE m.sender_id = u.id AND m.recipient_id = ${meId})`.as(
           "message_count"
         ),

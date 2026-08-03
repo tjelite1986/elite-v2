@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth";
 interface ConversationRow {
   id: number;
   email: string;
+  username: string | null;
   last_seen: string | null;
   last_body: string | null;
   last_attachment: string | null;
@@ -25,9 +26,12 @@ export async function GET() {
   const rows = getAll<ConversationRow>(
     qb
       .selectFrom("users as u")
+      // The profile handle drives the avatar URL (/api/profiles/<username>/avatar).
+      .leftJoin("user_profiles as up", "up.user_id", "u.id")
       .select([
         "u.id",
         "u.email",
+        "up.username",
         // users.last_seen is never written; presence comes from the sessions
         // table, which getSession touches on every authenticated request.
         sql<string | null>`(SELECT MAX(s.last_seen_at) FROM sessions s WHERE s.user_id = u.id)`.as(

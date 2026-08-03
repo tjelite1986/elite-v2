@@ -7,6 +7,8 @@ import { getSession } from "@/lib/auth";
 interface Notification {
   id: string;
   user: string;
+  /** Profile handle for the avatar, when the actor is a known profile. */
+  handle: string | null;
   action: string;
   timestamp: string;
   href: string;
@@ -30,15 +32,18 @@ export async function GET() {
   const unreadMessages = getAll<{
     senderId: number;
     email: string;
+    handle: string | null;
     cnt: number;
     lastAt: string;
   }>(
     qb
       .selectFrom("messages as m")
       .innerJoin("users as u", "u.id", "m.sender_id")
+      .leftJoin("user_profiles as up", "up.user_id", "m.sender_id")
       .select((eb) => [
         "m.sender_id as senderId",
         "u.email as email",
+        "up.username as handle",
         eb.fn.countAll<number>().as("cnt"),
         eb.fn.max("m.created_at").as("lastAt"),
       ])
@@ -59,6 +64,7 @@ export async function GET() {
     notifications.push({
       id: `msg-${m.senderId}`,
       user: m.email,
+      handle: m.handle,
       action: m.cnt > 1 ? `sent you ${m.cnt} messages` : "sent you a message",
       timestamp: m.lastAt,
       href: "/messages",
@@ -79,6 +85,7 @@ export async function GET() {
       notifications.push({
         id: `inv-${r.id}`,
         user: r.email,
+        handle: null,
         action: "requested an invite",
         timestamp: r.createdAt,
         href: "/admin",
@@ -131,6 +138,7 @@ export async function GET() {
       notifications.push({
         id: `post-${n.id}`,
         user: "Elite",
+        handle: null,
         action: n.message ?? "has news for you",
         timestamp: n.createdAt,
         href: n.href || "/messages",
@@ -142,6 +150,7 @@ export async function GET() {
     notifications.push({
       id: `post-${n.id}`,
       user: actor,
+      handle: n.actor,
       action: POST_ACTION[n.type] ?? "interacted with you",
       timestamp: n.createdAt,
       href: n.type === "follow" ? `/posts/u/${actor}` : `/posts/p/${n.postId ?? ""}`,
