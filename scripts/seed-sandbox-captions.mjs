@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Give every post, gallery item and short a randomly generated caption with a
-// few random hashtags.
+// Fill every library's free-text field with generated content: captions with
+// random hashtags for posts, gallery items, shorts and videos; a bio for each
+// user profile; an author name for each book.
 //
 // This exists for the SANDBOX instance (elitev2-test), where imported
 // placeholder photos otherwise sit there captionless and the feed, the search
@@ -12,6 +13,8 @@
 //   node scripts/seed-sandbox-captions.mjs --yes      # write
 //   node scripts/seed-sandbox-captions.mjs --yes --only-empty
 //   node scripts/seed-sandbox-captions.mjs --yes --gallery   # one section only
+//
+// Sections: posts, gallery, shorts, videos, books, profiles (all by default).
 //
 // posts_fts and gallery_fts are kept in sync by triggers; post_hashtags and
 // gallery_tags are rewritten here. Shorts have no tag table at all — their
@@ -26,7 +29,7 @@ const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, "elitev2.db");
 const WRITE = process.argv.includes("--yes");
 const ONLY_EMPTY = process.argv.includes("--only-empty");
 // Default is every section; naming one or more limits the run to those.
-const NAMES = ["posts", "gallery", "shorts"];
+const NAMES = ["posts", "gallery", "shorts", "videos", "books", "profiles"];
 const picked = NAMES.filter((n) => process.argv.includes(`--${n}`));
 const wanted = picked.length ? picked : NAMES;
 
@@ -71,16 +74,44 @@ function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-function randomCaption() {
+function randomTags() {
   const count = 2 + Math.floor(Math.random() * 3); // 2-4 tags
   const tags = [];
   while (tags.length < count) {
     const t = pick(TAGS);
     if (!tags.includes(t)) tags.push(t);
   }
+  return tags;
+}
+
+function randomCaption() {
+  const tags = randomTags();
   const closer = pick(CLOSERS);
   const text = closer ? `${pick(OPENERS)}. ${closer}` : `${pick(OPENERS)}.`;
   return { caption: `${text} ${tags.map((t) => `#${t}`).join(" ")}`, tags };
+}
+
+const BIOS = [
+  "Shoots more than she posts",
+  "Two cameras, no plan",
+  "Collecting light on the way to work",
+  "Mostly film, occasionally patient",
+  "Here for the quiet frames",
+  "Rolls developed when the fridge is full",
+];
+
+function randomBio() {
+  const tags = randomTags().slice(0, 2);
+  return { caption: `${pick(BIOS)}. ${tags.map((t) => `#${t}`).join(" ")}`, tags };
+}
+
+const FIRST = ["Alex", "Mira", "Jonas", "Petra", "Sam", "Ida", "Nils", "Rosa"];
+const LAST = ["Lindqvist", "Hartmann", "Okafor", "Beaumont", "Vasquez", "Sund", "Iyer"];
+
+// Books have no free-text field a hashtag belongs in — the only blank worth
+// filling is the author a CBZ/PDF drop never carries.
+function randomAuthor() {
+  return { caption: `${pick(FIRST)} ${pick(LAST)}`, tags: [] };
 }
 
 const db = new Database(DB_PATH);
@@ -111,12 +142,39 @@ const SECTIONS = {
     clearTags: null,
     addTag: null,
   },
+  videos: {
+    select: `SELECT id FROM videos` +
+      (ONLY_EMPTY ? ` WHERE (description IS NULL OR description = '')` : ""),
+    setText: "UPDATE videos SET description = ? WHERE id = ?",
+    clearTags: null,
+    addTag: null,
+  },
+  books: {
+    // Books carry no caption — `author` is the blank a CBZ/PDF drop leaves.
+    select: `SELECT slug AS id FROM books` +
+      (ONLY_EMPTY ? ` WHERE (author IS NULL OR author = '')` : ""),
+    setText: "UPDATE books SET author = ? WHERE slug = ?",
+    clearTags: null,
+    addTag: null,
+    text: randomAuthor,
+  },
+  profiles: {
+    // The bio the profile page renders lives in profile_extras (handle-scoped),
+    // NOT in the legacy user_profiles.bio column, which nothing reads.
+    select: `SELECT handle AS id FROM profile_extras` +
+      (ONLY_EMPTY ? ` WHERE (bio IS NULL OR bio = '')` : ""),
+    setText: "UPDATE profile_extras SET bio = ? WHERE handle = ?",
+    clearTags: null,
+    addTag: null,
+    text: randomBio,
+  },
 };
 
 const result = {};
 
 for (const name of wanted) {
   const s = SECTIONS[name];
+  const makeText = s.text ?? randomCaption;
   const rows = db.prepare(s.select).all();
   result[name] = rows.length;
   console.log(
@@ -125,7 +183,7 @@ for (const name of wanted) {
 
   if (!WRITE) {
     for (const r of rows.slice(0, 3)) {
-      console.log(`  ${name} #${r.id}: ${randomCaption().caption}`);
+      console.log(`  ${name} #${r.id}: ${makeText().caption}`);
     }
     continue;
   }
@@ -136,7 +194,7 @@ for (const name of wanted) {
 
   db.transaction((items) => {
     for (const r of items) {
-      const { caption, tags } = randomCaption();
+      const { caption, tags } = makeText();
       setText.run(caption, r.id);
       if (clearTags && addTag) {
         clearTags.run(r.id);
