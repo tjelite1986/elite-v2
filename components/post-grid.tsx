@@ -12,14 +12,6 @@ import type { FeedPost } from "@/lib/posts";
 // so an uncropped tile has to ask the media route for ?size=fit instead).
 const COLS_KEY = "post-grid-cols";
 
-// A post is laid out uncropped when the grid is one-per-row, or when its first
-// image is wider than tall — a landscape photo squeezed into a square tile
-// loses its sides, so it takes a row of its own instead.
-function isLandscapeMedia(p: FeedPost): boolean {
-  const m = p.media[0];
-  return Boolean(m?.width && m?.height && m.width > m.height);
-}
-
 // Square-thumbnail grid (Explore, profile pages, hashtags). Tapping a tile opens
 // the shared PostLightbox: full display resolution with like/comment/delete and
 // vertical stepping through the feed (paginating as it goes).
@@ -234,9 +226,11 @@ export default function PostGrid({
       <GridDensity cols={cols} onChange={switchCols} className="mb-2 justify-end px-1" />
       <div className={cn("grid gap-1", GRID_COL_CLASS[cols])}>
         {items.map((p) => {
-          // One-per-row shows everything uncropped; in the denser grids only a
-          // landscape post breaks out, taking a full row of its own.
-          const uncropped = cols === 1 || isLandscapeMedia(p);
+          // One-per-row shows everything uncropped. The denser grids are square
+          // tiles for EVERY post: letting landscape photos break out to a full
+          // row made 2- and 3-per-row look identical in a landscape-heavy
+          // library, so the density control appeared to do nothing.
+          const uncropped = cols === 1;
           const m = p.media[0];
           const ratio =
             uncropped && m?.width && m?.height ? `${m.width} / ${m.height}` : undefined;
