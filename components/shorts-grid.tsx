@@ -353,20 +353,26 @@ export default function ShortsGrid({
   return (
     <>
       {controls}
-      {/* Dense flow keeps the tiles packed; a wide clip takes a whole row of its
-          own, so there is no column left over beside it to fill. */}
+      {/* Dense flow keeps the tiles packed. Only one-per-row lets a wide clip
+          take the whole row at its own ratio — in the denser grids every tile
+          is the same portrait shape, or the chosen density would not change
+          the layout at all for a landscape-heavy channel. */}
       <div className={`grid grid-flow-row-dense gap-1 ${GRID_COL_CLASS[cols]}`}>
         {items.map((s) => (
           <div
             key={s.id}
             className={
-              isLandscape(s)
+              cols === 1 && isLandscape(s)
                 ? "group relative col-span-full overflow-hidden rounded-md bg-white/5"
                 : "group relative aspect-[9/16] overflow-hidden rounded-md bg-white/5"
             }
             // The tile takes the clip's own ratio (16:9, 4:3, …), so the wide
             // poster fills it edge to edge without a crop.
-            style={isLandscape(s) ? { aspectRatio: `${s.width} / ${s.height}` } : undefined}
+            style={
+              cols === 1 && isLandscape(s)
+                ? { aspectRatio: `${s.width} / ${s.height}` }
+                : undefined
+            }
           >
             {(() => {
               const poster = s.has_poster ? (
