@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Give every post a randomly generated caption with a few random hashtags.
+// Give every post and every gallery item a randomly generated caption with a
+// few random hashtags.
 //
 // This exists for the SANDBOX instance (elitev2-test), where imported
 // placeholder photos otherwise sit there captionless and the feed, the search
@@ -10,8 +11,10 @@
 //   node scripts/seed-sandbox-captions.mjs            # report only
 //   node scripts/seed-sandbox-captions.mjs --yes      # write
 //   node scripts/seed-sandbox-captions.mjs --yes --only-empty
+//   node scripts/seed-sandbox-captions.mjs --yes --gallery   # one section only
 //
-// posts_fts is kept in sync by triggers; post_hashtags is rewritten here.
+// posts_fts and gallery_fts are kept in sync by triggers; post_hashtags and
+// gallery_tags are rewritten here.
 
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -21,6 +24,9 @@ const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, "elitev2.db");
 
 const WRITE = process.argv.includes("--yes");
 const ONLY_EMPTY = process.argv.includes("--only-empty");
+// Default is both sections; naming one limits the run to it.
+const WANT_POSTS = process.argv.includes("--posts") || !process.argv.includes("--gallery");
+const WANT_GALLERY = process.argv.includes("--gallery") || !process.argv.includes("--posts");
 
 const OPENERS = [
   "Caught this one on the way home",
@@ -78,36 +84,64 @@ function randomCaption() {
 const db = new Database(DB_PATH);
 db.pragma("busy_timeout = 5000");
 
-const rows = db
-  .prepare(
-    `SELECT id, caption FROM posts WHERE is_deleted = 0` +
-      (ONLY_EMPTY ? ` AND (caption IS NULL OR caption = '')` : "")
-  )
-  .all();
+// Both sections work the same way: a text column on the row, plus a tag table
+// keyed by that row's id.
+const SECTIONS = {
+  posts: {
+    select: `SELECT id FROM posts WHERE is_deleted = 0` +
+      (ONLY_EMPTY ? ` AND (caption IS NULL OR caption = '')` : ""),
+    setText: "UPDATE posts SET caption = ? WHERE id = ?",
+    clearTags: "DELETE FROM post_hashtags WHERE post_id = ?",
+    addTag: "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)",
+  },
+  gallery: {
+    select: `SELECT id FROM gallery_items WHERE is_deleted = 0` +
+      (ONLY_EMPTY ? ` AND (description IS NULL OR description = '')` : ""),
+    setText: "UPDATE gallery_items SET description = ? WHERE id = ?",
+    clearTags: "DELETE FROM gallery_tags WHERE item_id = ?",
+    addTag: "INSERT OR IGNORE INTO gallery_tags (item_id, tag) VALUES (?, ?)",
+  },
+};
 
-console.log(`[seed-captions] db=${DB_PATH} posts=${rows.length}${WRITE ? "" : " (dry run)"}`);
+const wanted = [
+  ...(WANT_POSTS ? ["posts"] : []),
+  ...(WANT_GALLERY ? ["gallery"] : []),
+];
 
-if (!WRITE) {
-  for (const r of rows.slice(0, 5)) {
-    console.log(`  #${r.id}: ${randomCaption().caption}`);
+const result = {};
+
+for (const name of wanted) {
+  const s = SECTIONS[name];
+  const rows = db.prepare(s.select).all();
+  result[name] = rows.length;
+  console.log(
+    `[seed-captions] db=${DB_PATH} ${name}=${rows.length}${WRITE ? "" : " (dry run)"}`
+  );
+
+  if (!WRITE) {
+    for (const r of rows.slice(0, 3)) {
+      console.log(`  ${name} #${r.id}: ${randomCaption().caption}`);
+    }
+    continue;
   }
-  console.log("[seed-captions] nothing written — pass --yes to apply");
-  process.exit(0);
+
+  const setText = db.prepare(s.setText);
+  const clearTags = db.prepare(s.clearTags);
+  const addTag = db.prepare(s.addTag);
+
+  db.transaction((items) => {
+    for (const r of items) {
+      const { caption, tags } = randomCaption();
+      setText.run(caption, r.id);
+      clearTags.run(r.id);
+      for (const t of tags) addTag.run(r.id, t);
+    }
+  })(rows);
+
+  console.log(`[seed-captions] done: ${rows.length} ${name} captions written`);
 }
 
-const setCaption = db.prepare("UPDATE posts SET caption = ? WHERE id = ?");
-const clearTags = db.prepare("DELETE FROM post_hashtags WHERE post_id = ?");
-const addTag = db.prepare("INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)");
-
-const apply = db.transaction((items) => {
-  for (const r of items) {
-    const { caption, tags } = randomCaption();
-    setCaption.run(caption, r.id);
-    clearTags.run(r.id);
-    for (const t of tags) addTag.run(r.id, t);
-  }
-});
-
-apply(rows);
-console.log(`[seed-captions] done: ${rows.length} captions written`);
-console.log(`RESULT ${JSON.stringify({ posts: rows.length })}`);
+if (!WRITE) {
+  console.log("[seed-captions] nothing written — pass --yes to apply");
+}
+console.log(`RESULT ${JSON.stringify(result)}`);
