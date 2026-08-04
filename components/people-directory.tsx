@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Search, Image as ImageIcon, Clapperboard } from "lucide-react";
+import { Search, Image as ImageIcon, Clapperboard, UserRound } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
 import type { PersonEntry, PeopleSort, PeopleFilter } from "@/lib/directory";
 
@@ -395,6 +395,13 @@ function PersonRow({ person: p }: { person: PersonEntry }) {
               icon={<Clapperboard size={12} />}
               label={`${p.shorts18} 18+`}
             />
+          )}
+          {/* A profile saved from the phone before any of its media arrived.
+              Listed so the saving shows, marked so the empty page is expected. */}
+          {p.hasProfileOnly && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-white/40 ring-1 ring-white/10">
+              <UserRound size={11} /> Profile only
+            </span>
           )}
         </div>
       </div>

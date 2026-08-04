@@ -34,6 +34,12 @@ export interface PersonEntry {
   shorts18: number;
   shorts18Id: number | null;
   hasAvatar: boolean; // any avatar set (handle_avatars or legacy columns)
+  /**
+   * A creator with a picture or a bio but nothing to show yet — a profile that
+   * was saved from the phone before any of its media arrived. Listed, so the
+   * saving was not for nothing, but marked so the empty page is expected.
+   */
+  hasProfileOnly: boolean;
   createdAt: string | null; // when this identity was added (earliest source)
   hasInstagram: boolean; // an Instagram handle is linked (profile_extras)
   hasTiktok: boolean; // a TikTok handle is linked (profile_extras)
@@ -91,6 +97,7 @@ function blank(handle: string): PersonEntry {
     shorts18: 0,
     shorts18Id: null,
     hasAvatar: false,
+    hasProfileOnly: false,
     createdAt: null,
     hasInstagram: false,
     hasTiktok: false,
@@ -473,6 +480,7 @@ export function getPeople(
     username: string;
     display_name: string | null;
     avatar_key: string | null;
+    bio: string | null;
     created_at: string | null;
     photos: number;
   }>(
@@ -505,6 +513,7 @@ export function getPeople(
     username: string;
     display_name: string | null;
     avatar_key: string | null;
+    bio: string | null;
     created_at: string | null;
     photos: number;
   }>(
@@ -514,6 +523,7 @@ export function getPeople(
         "pc.username",
         "pc.display_name",
         "pc.avatar_key",
+        "pc.bio",
         "pc.created_at",
         sql<number>`(SELECT COUNT(*) FROM posts p WHERE p.author_creator_id = pc.id AND p.is_deleted = 0${adultFilter})`.as(
           "photos"
@@ -523,6 +533,7 @@ export function getPeople(
   for (const c of creators) {
     const p = get(handleOf(c.username));
     if (c.avatar_key) p.hasAvatar = true;
+    if (c.bio && c.bio.trim()) p.hasProfileOnly = true;
     p.createdAt = earliest(p.createdAt, c.created_at);
     if (!p.userId) {
       if (!p.displayName) p.displayName = c.display_name;
@@ -610,12 +621,18 @@ export function getPeople(
     people.delete(key);
   }
 
-  // Filter: keep real users always; mirrored creators only when they have
-  // visible content in some section.
+  // Filter: keep real users always; a mirrored creator when it has visible
+  // content — or when someone deliberately gave it a face or a bio. A profile
+  // saved from the phone before its media arrived is exactly that case, and
+  // hiding it made the saving look like it had failed. `hasProfileOnly` is left
+  // set only while there is nothing to show, so the mark disappears by itself
+  // once the first post lands.
   let list = Array.from(people.values()).filter((p) => {
     const visible =
       p.photos > 0 || p.shortsMain > 0 || (include18 && p.shorts18 > 0);
-    return p.userId !== null || visible;
+    if (visible) p.hasProfileOnly = false;
+    else if (p.hasAvatar) p.hasProfileOnly = true;
+    return p.userId !== null || visible || p.hasProfileOnly;
   });
 
   const q = (opts.q || "").trim().toLowerCase();
