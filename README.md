@@ -15,7 +15,7 @@ Think of it as a self-hosted mix of Google Photos, Instagram, TikTok, Messenger
 and an app store — running on your own hardware, for a closed circle of people
 you invite.
 
-![Elite v2 dashboard with weather, server and Docker widgets](screenshots/2026-07/dashboard.jpg)
+![Elite v2 dashboard with clock, weather, storage, server and Docker widgets](screenshots/2026-08/dashboard.jpg)
 
 **New here?** Jump to [Getting started](#getting-started) — it assumes no prior
 experience. **Here for the internals?** See
@@ -31,41 +31,38 @@ experience. **Here for the internals?** See
 
 ## Demo
 
-> Media in these recordings is blurred by the app's built-in privacy mode.
+> Captured on a sandbox instance seeded with placeholder media. Thumbnails in
+> the 18+ section are additionally obscured.
 
-| Home dashboard | Posts feed | Explore |
-| -------------- | ---------- | ------- |
-| ![Home dashboard with weather, server and Docker widgets](screenshots/gif/dashboard.gif) | ![Instagram-style posts feed and profile](screenshots/gif/posts.gif) | ![Explore grid and profiles](screenshots/gif/explore.gif) |
+| Profile | App Store | Shorts |
+| ------- | --------- | ------ |
+| ![Unified profile with editor, custom fields and photo/shorts tabs](screenshots/gif/profile.gif) | ![In-app App Store: discover, search, app detail, installed, saved and admin management](screenshots/gif/app-store.gif) | ![Shorts explore grid, vertical player, in-player actions and the 18+ section](screenshots/gif/shorts.gif) |
 
-| Shorts | People | App Store |
-| ------ | ------ | --------- |
-| ![Vertical short-video player and creator profiles](screenshots/gif/shorts.gif) | ![People directory with search and filters](screenshots/gif/people.gif) | ![In-app App Store with APK archive](screenshots/gif/app-store.gif) |
+| Settings | Library tools | Admin tools |
+| -------- | ------------- | ----------- |
+| ![Account, appearance themes, notifications, device sessions and 18+ access](screenshots/gif/settings.gif) | ![Shorts, photos, gallery, profile linking and bulk rename tools](screenshots/gif/settings-library.gif) | ![Member management, per-section permissions and broadcast announcements](screenshots/gif/settings-admin.gif) |
 
-| Settings | Library tools |
-| -------- | ------------- |
-| ![Unified settings with appearance themes and 18+ access](screenshots/gif/settings.gif) | ![Import, duplicate scanner and profile tools](screenshots/gif/settings-tools.gif) |
+| Background jobs |
+| --------------- |
+| ![In-app job scheduler with per-job intervals and run history](screenshots/gif/background-jobs.gif) |
 
 ## Screenshots
 
 | Dashboard | Menu | Notifications |
 | --------- | ---- | ------------- |
-| ![Dashboard with weather, server stats and Docker widgets](screenshots/2026-07/dashboard.jpg) | ![Bottom-sheet menu with account switcher and all sections](screenshots/2026-07/menu.jpg) | ![Notification center with history](screenshots/2026-07/notifications.jpg) |
+| ![Dashboard with clock, weather, storage, server stats and Docker widgets](screenshots/2026-08/dashboard.jpg) | ![Side drawer with every section](screenshots/2026-08/menu.jpg) | ![Notification center with history](screenshots/2026-08/notifications.jpg) |
 
-| Messages | New post | Ask AI |
-| -------- | -------- | ------ |
-| ![Messenger-style chat list](screenshots/2026-07/chats.jpg) | ![Post composer with hashtags, mentions and visibility options](screenshots/2026-07/create-post.jpg) | ![AI search with cited web sources](screenshots/2026-07/ask-ai.jpg) |
+| Messages | Channels | Stories |
+| -------- | -------- | ------- |
+| ![Messenger-style direct chat list](screenshots/2026-08/messages.jpg) | ![Group channels with real-time messaging](screenshots/2026-08/channels.jpg) | ![Story tray with 24h stories](screenshots/2026-08/stories.jpg) |
 
-| Shorts player | Profile shorts | Gallery |
-| ------------- | -------------- | ------- |
-| ![Vertical short-video player with in-player management actions](screenshots/2026-07/shorts-player.jpg) | ![Shorts grid on a person profile](screenshots/2026-07/profile-shorts.jpg) | ![Photo library with albums, map and smart albums](screenshots/2026-07/gallery.jpg) |
+| Posts feed | Explore | Ask AI |
+| ---------- | ------- | ------ |
+| ![Instagram-style posts feed with stories, captions and hashtags](screenshots/2026-08/posts-feed.jpg) | ![Explore grid with density switcher and tag search](screenshots/2026-08/posts-explore.jpg) | ![AI search with cited web sources](screenshots/2026-08/ask-ai.jpg) |
 
-| Bookshelf | App Store | Announcements |
-| --------- | --------- | ------------- |
-| ![Shared EPUB/PDF/comics library with reading progress](screenshots/2026-07/books.jpg) | ![App detail page with versions, APK download and reviews](screenshots/2026-07/app-store.jpg) | ![Admin broadcast announcements](screenshots/2026-07/announce.jpg) |
-
-| Sessions | Shorts import | Background jobs |
-| -------- | ------------- | --------------- |
-| ![Active device sessions with remote sign-out](screenshots/2026-07/settings-sessions.jpg) | ![Drop-folder import with filename grammar](screenshots/2026-07/shorts-import.jpg) | ![In-app job scheduler with per-job intervals](screenshots/2026-07/background-jobs.jpg) |
+| Videos | Video player | People |
+| ------ | ------------ | ------ |
+| ![Video library with folders, search and view counts](screenshots/2026-08/videos.jpg) | ![Custom video player with resume support](screenshots/2026-08/videos-player.jpg) | ![People directory with search and link filters](screenshots/2026-08/people.jpg) |
 
 ## Features
 
