@@ -8,12 +8,13 @@
 ![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ed?logo=docker&logoColor=white)
 
 A private, invite-only personal hub: a shared photo/video gallery, short-video
-and post feeds, a shared bookshelf, an in-app app store, real-time messaging,
-and account management behind a glassmorphic, macOS menu-bar style interface.
+and post feeds, a long-form video library, a shared bookshelf, an in-app app
+store, real-time messaging, and account management behind a dark, mobile-first
+interface built around a single bottom navigation bar.
 
-Think of it as a self-hosted mix of Google Photos, Instagram, TikTok, Messenger
-and an app store — running on your own hardware, for a closed circle of people
-you invite.
+Think of it as a self-hosted mix of Google Photos, Instagram, TikTok, YouTube,
+Messenger and an app store — running on your own hardware, for a closed circle
+of people you invite.
 
 ![Elite v2 dashboard with clock, weather, storage, server and Docker widgets](screenshots/2026-08/dashboard.jpg)
 
@@ -74,10 +75,12 @@ experience. **Here for the internals?** See
   (CPU / RAM / disk), Docker container status, a clock, and recently added
   media.
 - **Gallery** — upload and browse photos and videos with EXIF parsing
-  (`exifr` / `exif-reader`), `sharp` thumbnails, tags, a map view (`leaflet`)
-  for geotagged media, trash, and client-side smart collections
-  (Videos / Places / Years). Per-user storage with album sharing via public
-  links.
+  (`exifr` / `exif-reader`), `sharp` thumbnails and BlurHash placeholders,
+  tags, a map view (`leaflet`) for geotagged media, trash, and client-side
+  smart collections (Videos / Places / Years). Per-user storage; albums can be
+  shared as a public `/share/<token>` link or downloaded as a ZIP.
+- **Memories** — an "On this day" view that resurfaces media from the same
+  date in previous years.
 - **Shorts** — a TikTok-style vertical video feed with an immersive player,
   per-user public/private clips, playlists, and a PIN-gated 18+ section
   (`/shorts18`). Explore and every profile offer a **grid / feed view toggle**,
@@ -86,15 +89,31 @@ experience. **Here for the internals?** See
   deduplicated. An optional "Grab from web" button appears if you point
   `GRABBIT_URL` at a
   [grabbit](https://github.com/tjelite1986/grabbit) media-grabber instance.
-- **Posts & Videos** — an Instagram-style feed with likes, comments, follows,
-  stories, search, rich markdown composing (`react-markdown` + `remark-gfm`),
-  `@mention` autocomplete, and link-preview cards. Photos open in a shared
-  lightbox; a dedicated **Videos** tab plays video posts in the same immersive
-  swipe view as Shorts, with its own grid / feed toggle. Captions are editable
-  from any surface.
+- **Posts** — an Instagram-style feed with likes, comments, follows, stories,
+  rich markdown composing (`react-markdown` + `remark-gfm`), `@mention`
+  autocomplete, and link-preview cards. Photos open in a shared lightbox; a
+  **Videos** tab inside Posts plays video posts in the same immersive swipe
+  view as Shorts, with its own grid / feed toggle. Captions are editable from
+  any surface.
+- **Video library** — a separate long-form library (`/videos`, plus a PIN-gated
+  `/videos18`) that mirrors `VIDEOS_ROOT` from disk rather than importing:
+  a scan job picks up new files, generates posters and storyboards, and drops
+  rows whose file is gone, leaving your folder structure untouched. Playback
+  uses a custom YouTube-style player that remembers where you stopped. Files a
+  browser can't play (HEVC, AC-3, `.mkv`/`.avi`) are transcoded in the
+  background, and 18+ titles can be matched to metadata from a `.nfo` sidecar
+  or ThePornDB.
+- **Search & Ask AI** — a global `/search` across posts, shorts, videos, people
+  and books (SQLite FTS5, with a LIKE fallback for builds without it), and an
+  `/ask` page that answers questions with cited web sources via the Perplexity
+  API.
 - **Return where you left off** — every feed and grid (Shorts, 18+, Explore,
   posts, Videos, profiles) restores your exact scroll position or the clip you
   were on when you open a profile and press Back, rather than jumping to the top.
+- **One navigation bar** — a global bottom nav whose entries change per section,
+  with a right-hand drawer behind **Menu** for everything else. There is no
+  second row of tabs anywhere, and the device Back button closes the topmost
+  overlay before it navigates.
 - **People & profiles** — a unified `/people/<username>` directory; each profile
   has custom fields with per-field visibility, badges, an avatar with crop, and
   member stats. Profiles can carry **alternate @handles (aliases)** so a clip or
@@ -118,19 +137,23 @@ experience. **Here for the internals?** See
   (Shorts / 18+ videos / Photos / Gallery with Import, Duplicates and Cleaning
   tabs), and library tools — profile **Link / Merge / Auto-connect**, and a
   batch **Rename** that re-titles media and renames the file on disk to match.
-- **Duplicate detection** — two-stage scanners for posts and gallery:
+- **Duplicate detection** — two-stage scanners for shorts, posts and gallery:
   perceptual-hash (dHash) candidates confirmed by SSIM pixel comparison, with
-  keep/delete review UI and dismissable false matches.
+  keep/delete review UI and dismissable false matches. A scan never deletes
+  anything on its own.
 - **PWA & Web Push** — installable progressive web app (manifest, service
   worker, icons) with `web-push` (VAPID) notifications.
 - **Appearance** — per-user accent color and dark background themes, applied
   without a flash on load.
-- **Admin** — generate and manage registration codes, review invite requests,
-  manage members, manage the store catalog, content-owner "act-as"
-  impersonation, per-user **Permissions** (grant individual users access to
-  specific settings sections), and a **Background jobs** panel to
-  enable/schedule/run the import, polling, transcoding and cleanup jobs (an
-  in-app scheduler that replaces the host systemd timers).
+- **Admin** — an Admin group inside the same `/settings` page: **Members**
+  (registration codes, invite requests, content-owner "act-as" impersonation),
+  **Permissions** (grant individual users access to specific settings
+  sections), **Announce** (broadcast messages), and **Background jobs** — an
+  in-app scheduler for the import, polling, transcoding, backup and cleanup
+  jobs that replaces the host systemd timers.
+- **Backups & maintenance** — scheduled jobs run `VACUUM INTO` nightly
+  snapshots into a backup mount (keeping the newest 14) and checkpoint the WAL;
+  duplicate scans hash on a worker thread so they never block the scheduler.
 - **Account** — profile, settings, password change, and account deletion.
 
 ## Tech stack
@@ -142,8 +165,14 @@ experience. **Here for the internals?** See
 - **ws** for the WebSocket layer, run from a custom server (`server.mjs`)
 - **nodemailer** for invite/notification email
 - **web-push** for push notifications
-- `sharp`, `exifr` / `exif-reader`, `leaflet`, `epubjs`, `pdfjs-dist`,
-  `react-markdown`
+- `sharp`, `blurhash`, `exifr` / `exif-reader`, `leaflet`, `epubjs`,
+  `pdfjs-dist`, `react-markdown`, `archiver` (album ZIP),
+  `google-play-scraper` + `semver` (App Store)
+- The image also carries the media toolchain: `ffmpeg`/`ffprobe`, `libheif`
+  (HEIC decoding `sharp` can't do), `poppler-utils`, `gallery-dl` and
+  `instaloader`. `yt-dlp` is deliberately **not** baked in — bind-mount a
+  current binary and point `YT_DLP_BIN` at it, so a yt-dlp bump doesn't mean a
+  rebuild
 - Packaged as a multi-stage **Docker** image, run behind **Traefik**
 
 ## Architecture — how it works under the hood
@@ -155,7 +184,7 @@ flowchart LR
   B[Browser / PWA] -->|HTTPS| T[Traefik]
   T --> S["server.mjs — one Node process<br/>Next.js 15 · ws WebSocket · job scheduler"]
   S --> D[("SQLite WAL<br/>better-sqlite3")]
-  S --> F["storage roots<br/>gallery · posts · shorts · books · appstore"]
+  S --> F["storage roots<br/>gallery · posts · shorts · videos · books · appstore"]
   S -->|"yt-dlp / gallery-dl"| X[(external sites)]
   S -.->|optional| G[grabbit media grabber]
 ```
@@ -203,6 +232,18 @@ interval, run-now, view output). The scheduler ticks inside the production
 server — no cron or systemd needed for the common case; only jobs that need
 host-level access (file ownership fixes) ship as optional systemd units.
 
+**Two kinds of library.** Posts, shorts and gallery media are *imported*: files
+move out of a drop tree into per-user served storage and the DB owns the layout.
+The long-form video library is the opposite — `VIDEOS_ROOT` stays exactly as you
+arranged it on disk and a scan job mirrors it into the DB, so adding a film is a
+file copy and removing one is a delete. Nothing there is ever moved or renamed.
+
+**Locked-down front end.** A CSP allows `'self'` only, with two deliberate
+exceptions: OpenStreetMap tiles for the gallery map, and `blob:` for the EPUB
+iframe and PDF worker. Any external image therefore has to be fetched through
+`/api/image-proxy` — pointing an `<img>` straight at a CDN renders broken, by
+design.
+
 **PWA & updates.** A service worker makes the app installable; `web-push`
 (VAPID) delivers notifications when the app is closed. The client polls
 `/api/version` and auto-reloads when a new build is deployed, so stale PWA
@@ -210,15 +251,15 @@ JavaScript doesn't linger.
 
 ## Guides
 
-In-depth documentation lives in [`docs/`](docs/):
+In-depth documentation lives in [`guides/`](guides/):
 
-- **[Full setup guide](docs/SETUP.md)** — zero to a running server stack: the
+- **[Full setup guide](guides/SETUP.md)** — zero to a running server stack: the
   app, storage roots, the optional grabbit grabber, background jobs, and a
   first-run checklist.
-- **[Cookies guide](docs/COOKIES.md)** — exporting and installing the
+- **[Cookies guide](guides/COOKIES.md)** — exporting and installing the
   `cookies.txt` the Instagram / TikTok sync needs, including an Android
   (phone/tablet) route.
-- **[Scripts reference](docs/SCRIPTS.md)** — every script in `scripts/`, what
+- **[Scripts reference](guides/SCRIPTS.md)** — every script in `scripts/`, what
   it does, and how it's triggered.
 
 The sections below are the quick local start and the full configuration
@@ -339,9 +380,9 @@ without them.
 
 #### The easy way: the admin panel (recommended)
 
-The simplest option needs no terminal or config. Log in as an admin, open the
-account menu (top-right avatar) and choose **Admin**, then find the **Background
-jobs** section. There you can, per job:
+The simplest option needs no terminal or config. Log in as an admin, open
+**Menu** in the bottom bar, choose **Settings**, and pick **Background jobs**
+under Admin. There you can, per job:
 
 - **Enable / disable** it — when enabled, the app runs it automatically on a
   schedule.
@@ -356,11 +397,10 @@ the recommended way for most setups.
 > server (`npm start` / the Docker image). In `npm run dev` the panel still works
 > and "Run now" still runs, but jobs won't fire automatically.
 
-A couple of jobs are intentionally **not** in the panel because they need
-host-level access the app process doesn't have — notably the per-user folder
-import (it has to fix file ownership on the host first). Those stay on systemd
-(below). You can still trigger user-folder import from **Admin → Per-user folder
-import**.
+Every recurring job lives here, including the per-user folder import. A few can
+also be started by hand: the drop-folder import has a **Per-user folder import →
+Import now** card on each library section's Import tab, and the App Store has
+its own scan buttons.
 
 #### The advanced way: systemd timers
 
@@ -428,13 +468,13 @@ library, attributed to you). Two ways to group and tag a file:
   - `[id_n]` — the app's DB id; set automatically on stored files and used to
     skip duplicates on re-import.
 
-  e.g. `vi äter på macdonalds [h_macdonalds][h_mat][f_foodtruck].mp4`
+  e.g. `street food tour [h_streetfood][h_lunch][f_foodtruck].mp4`
 
 A `<stem>.md` sidecar next to a file supplies its caption. Imported files are
 renamed to this canonical, self-describing form and moved into the account's
 served storage, so they round-trip — re-dropping a stored file is de-duplicated
-by its `[id_]`. Trigger a run from **Admin → Per-user folder import**, or let the
-`elitev2-user-import` timer do it.
+by its `[id_]`. The `user-import` background job does this on a schedule; to run
+it once, use **Settings → Photos → Import → Per-user folder import**.
 
 ## Configuration
 
@@ -446,9 +486,10 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | ----------------------------- | ---------------------------------------------------- |
 | `JWT_SECRET`                  | **Required.** Secret used to sign session JWTs.      |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Seed the initial admin account on first run.       |
-| `DATA_DIR`                    | Data directory (default: `./data`). Holds the SQLite DB. |
+| `DATA_DIR`                    | Data directory (default: `./data`). Holds the SQLite DB (`elitev2.db`). |
 | `APP_URL`                     | Public base URL, used in outgoing email/push links.  |
 | `PORT` / `HOSTNAME`           | Bind address for the production server (default `0.0.0.0:3000`). |
+| `BACKUP_DIR` / `BACKUP_KEEP`  | Where the nightly `VACUUM INTO` snapshot lands (default `/backup`) and how many to keep (default 14). |
 
 ### Storage roots
 
@@ -459,6 +500,7 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | `GALLERY_ROOT`  | Legacy central gallery root — read-only fallback for pre-per-user media. |
 | `POSTS_ROOT`    | Posts media for mirrored creators + avatars/banners (legacy bulk-import drop). |
 | `SHORTS_ROOT`   | Shorts media for mirrored creators / auto-poll (legacy bulk-import drop). |
+| `VIDEOS_ROOT`   | **Scanned, not imported.** Long-form video library: `main/` feeds `/videos`, `adults/` feeds `/videos18`. Your folder structure is preserved as-is. |
 | `BOOKS_ROOT`    | **Shared** bookshelf storage (EPUB / PDF / CBZ) — one library for all users. |
 | `APPSTORE_ROOT` / `STORE_DIR` | App Store catalog / APK archive storage.|
 
@@ -481,12 +523,25 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | --------------------- | --------------------------------------------------- |
 | `IMPORT_DIR` / `POSTS_IMPORT_DIR` / `SHORTS_IMPORT_DIR` | Legacy *creator* bulk-import drop dirs (distinct from the per-user `IMPORT_ROOT` tree). |
 | `IMPORT_CRON_SECRET`  | Shared secret for import trigger endpoints.         |
-| `GRABBIT_URL`         | URL of an optional external media-grabber service, e.g. [grabbit](https://github.com/tjelite1986/grabbit); enables the shorts "Grab from web" button. (`LADDA_URL` is honored as a legacy alias.) |
-| `IG_COOKIES_PATH` / `IG_SRC` | Instagram cookie file and source for sync.   |
-| `GALLERY_DL_BIN` / `YT_DLP_BIN` / `CURL_IMPERSONATE_BIN` | Paths to external download tools. |
+| `GRABBIT_URL` / `GRABBIT_INTERNAL_TOKEN` | URL and shared token of an optional external media-grabber service, e.g. [grabbit](https://github.com/tjelite1986/grabbit); enables the shorts "Grab from web" button. The token authenticates container-to-container calls — without it any container on the shared network could use grabbit. (`LADDA_URL` is honored as a legacy alias.) |
+| `IG_COOKIES_ROOT` / `IG_COOKIES_PATH` / `IG_SRC` | Instagram cookie pool folder, the default cookie file, and the sync source. See the [cookies guide](guides/COOKIES.md). |
+| `IG_MAX_PER_RUN` / `IG_MAX_PER_COOKIE_PER_RUN` / `IG_RETRIES` / `IG_SLEEP_REQUEST` / `IG_PROFILE_SLEEP_SECONDS` / `IG_COOLDOWN_MINUTES` | Instagram rate-limit pacing: batch caps, retries, per-request and per-profile delays, and how long a blocked cookie is benched (default 60 min). |
+| `TIKTOK_COOKIES_ROOT` / `TIKTOK_COOKIES_PATH` | TikTok cookies (optional — public profiles download anonymously). |
+| `TT_MAX_PER_RUN` / `TT_RETRIES` / `TT_PROFILE_SLEEP_SECONDS` | TikTok sync pacing. |
+| `GALLERY_DL_BIN` / `YT_DLP_BIN` / `CURL_IMPERSONATE_BIN` | Paths to external download tools. `yt-dlp` is not in the image — bind-mount one and point this at it. |
+| `TPDB_API_KEY`        | ThePornDB key for the 18+ video metadata job. Optional: `.nfo` sidecars are matched without it. |
 | `GITHUB_TOKEN` / `FDROID_REPO_URL` | App Store import sources.             |
-| `APP_UPDATE_URL` / `APP_UPDATE_SOURCE` / `APP_UPDATE_SECRET` / `APP_UPDATE_PULL` | App auto-update wiring. |
+| `APP_UPDATE_URL` / `APP_UPDATE_SOURCE` / `APP_UPDATE_SECRET` / `APP_UPDATE_PULL` / `APP_IMPORT_HOST_DIR` | App auto-update and APK drop-folder wiring. |
 | `ADULTS_EMAIL` / `PUBLIC_EMAIL` | Seeded content-owner accounts.            |
+| `VIDEOS_KEEP_ORIGINALS` | Keep the source file when the transcode job rewrites a video (default: replace). |
+
+### Widgets & AI
+
+| Variable              | Description                                          |
+| --------------------- | --------------------------------------------------- |
+| `WEATHER_PLACE` / `WEATHER_LAT` / `WEATHER_LON` | Location for the dashboard weather widget (Open-Meteo, no API key needed). |
+| `PERPLEXITY_API_KEY`  | Enables the `/ask` AI search page. Without it the page reports the feature as unconfigured. |
+| `PERPLEXITY_MODEL` / `PERPLEXITY_SYSTEM_PROMPT` | Override the model and system prompt used for `/ask`. |
 
 > The app uses a custom server (`server.mjs`) rather than Next's `standalone`
 > output, because the WebSocket endpoint (`/api/ws`) is hosted in the same
@@ -629,6 +684,22 @@ image. Rebuild the image without cache so it compiles against the right runtime:
 The container writes as a non-root user. Make sure the host folders mounted as
 storage roots (gallery, posts, shorts, etc.) are writable — e.g.
 `chmod -R 777 /path/to/storage` for a quick local fix.
+
+**Downloading a video or polling a creator fails with "yt-dlp not found".**
+`yt-dlp` is not baked into the image on purpose — it changes too often. Put a
+current binary on the host, bind-mount it into the container, and point
+`YT_DLP_BIN` at that path. `gallery-dl`, `instaloader` and `ffmpeg` *are* in the
+image and need no setup.
+
+**An external image renders as a broken icon.**
+The Content-Security-Policy is `img-src 'self'` (plus OpenStreetMap tiles), so
+a remote URL in an `<img src>` is blocked by the browser. Route it through
+`/api/image-proxy` instead — that's how link previews and store icons load.
+
+**Videos I copied into `VIDEOS_ROOT` don't show up.**
+That library is scanned, not imported, so nothing appears until the
+`videos-scan` job runs. Enable it under **Settings → Background jobs**, or hit
+**Rescan library** on the Videos page.
 
 ## CI
 

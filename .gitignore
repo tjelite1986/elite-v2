@@ -35,9 +35,7 @@ npm-debug.log*
 # Python (Instaloader sidecar bytecode)
 __pycache__/
 *.pyc
-/screenshots/gif/messages.gif
 
-# Local screenshots (never publish — public repo)
-docs/Screenshot_*.jpg
-docs/Screenshot_*.png
+# Local working notes and screenshots (never publish — public repo).
+# Reader-facing guides live in guides/ and ARE published.
 docs/
