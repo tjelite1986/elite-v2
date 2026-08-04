@@ -376,12 +376,13 @@ export default function ShortsGrid({
               cols === 1 && isLandscape(s)
                 ? "group relative col-span-full max-h-[calc(100dvh-11rem)] overflow-hidden rounded-xl bg-white/5"
                 : asCards
-                  ? // One per row is sized by HEIGHT, not width: a 9/16 clip as
-                    // wide as the screen stands ~1.8 screens tall, so the player
-                    // ran far past the bottom edge. Same idea as the feed — fit
-                    // the viewport — minus this page's own chrome and the
-                    // caption row under the clip.
-                    "group relative mx-auto aspect-[9/16] h-[calc(100dvh-11rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] w-auto overflow-hidden rounded-xl bg-white/5"
+                  ? // One per row is bounded by the SCREEN, not by the column: a
+                    // 9/16 clip as wide as the screen stands ~1.8 screens tall,
+                    // so the player ran far past the bottom edge. The width cap
+                    // is the height budget converted back through the ratio, so
+                    // the clip fits the viewport without being cropped — width
+                    // still wins on a narrow screen.
+                    "group relative mx-auto aspect-[9/16] w-full max-w-[calc((100dvh-11rem)*9/16)] overflow-hidden rounded-xl bg-white/5"
                   : "group relative aspect-[9/16] overflow-hidden rounded-xl bg-white/5"
             }
             // The tile takes the clip's own ratio (16:9, 4:3, …), so the wide
