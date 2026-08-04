@@ -10,6 +10,23 @@ type ImportedMap = { main: string | null; "18plus": string | null };
 type ProfileItem = { id: string; title: string | null; filename: string; thumbnail: string | null; imported?: ImportedMap };
 type Site = { domain: string; profiles: boolean | "limited" };
 
+// A response is not always JSON. A proxy or CDN error page, or a login
+// redirect, arrives as HTML, and res.json() then throws "Unexpected token '<'"
+// — an error that says nothing about what actually went wrong. Read the body
+// once and report the status instead.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readJson(res: Response): Promise<any> {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return {
+      ok: false,
+      error: `The server answered ${res.status} without JSON — the grabber may be down.`,
+    };
+  }
+}
+
 type Single = { creator: string; title: string | null; thumbnail: string | null; imported?: ImportedMap };
 type Profile = { creator: string; count: number; items: ProfileItem[] };
 
@@ -66,7 +83,7 @@ export default function ShortsGrab() {
     try {
       // Profile first; fall back to single-video resolve.
       const pr = await fetch(`/api/shorts/grab/profile?url=${encodeURIComponent(u)}`);
-      const pd = await pr.json();
+      const pd = await readJson(pr);
       if (pd.ok && pd.isProfile) {
         setProfile({ creator: pd.creator, count: pd.count, items: pd.items || [] });
         setCreator(pd.creator || "");
@@ -75,7 +92,7 @@ export default function ShortsGrab() {
         return;
       }
       const r = await fetch(`/api/shorts/grab/resolve?url=${encodeURIComponent(u)}`);
-      const d = await r.json();
+      const d = await readJson(r);
       if (!d.ok) throw new Error(d.error || "Could not resolve link");
       setSingle({ creator: d.creator, title: d.title, thumbnail: d.thumbnail, imported: d.imported });
       setCreator(d.creator || "");
@@ -94,7 +111,7 @@ export default function ShortsGrab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ channel: ch }),
       });
-      const d = await r.json().catch(() => ({}));
+      const d = await readJson(r);
       router.refresh();
       return typeof d.imported === "number" ? d.imported : null;
     } catch {
@@ -113,7 +130,7 @@ export default function ShortsGrab() {
       if (web) qs.set("web", "1");
       if (quality) qs.set("quality", quality);
       const r = await fetch(`/api/shorts/grab/download?${qs.toString()}`);
-      const d = await r.json();
+      const d = await readJson(r);
       if (!d.ok) throw new Error(d.error || "Download failed");
       setProgress("Importing…");
       const n = await runImport(channel);

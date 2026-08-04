@@ -16,6 +16,9 @@ export async function GET() {
     const r = await fetch(`${GRABBIT}/api/sites`, { headers: GRABBIT_HEADERS });
     return NextResponse.json(await r.json(), { status: r.status });
   } catch {
-    return NextResponse.json({ ok: false, error: "Grabber unreachable" }, { status: 502 });
+    // 200, not 502: Cloudflare swallows a 5xx body and serves its own HTML
+    // error page, so the client would parse "<!DOCTYPE" instead of this.
+    // The failure is reported in the payload, which every caller reads.
+    return NextResponse.json({ ok: false, error: "Grabber unreachable" });
   }
 }
