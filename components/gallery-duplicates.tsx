@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
+import DuplicateCompare, {
+  type CompareItem,
+} from "@/components/duplicate-compare";
 import {
   Copy,
   Loader2,
@@ -12,6 +15,7 @@ import {
   Ban,
   Maximize2,
   Minimize2,
+  Columns2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +28,7 @@ interface Member {
   width: number | null;
   height: number | null;
   owner_name: string | null;
+  storage_key: string;
   filename: string;
   size_bytes: number;
   taken_at: string;
@@ -66,6 +71,13 @@ function fmtSimilarity(similarity: number): string {
   return `${Math.max(0, Math.min(100, Math.round(similarity)))}% match`;
 }
 
+// Gallery originals are stored in whatever format was uploaded, and no browser
+// renders HEIC/HEIF — those fall back to the generated JPEG preview.
+function browserRenderable(storageKey: string): boolean {
+  const ext = storageKey.split(".").pop()?.toLowerCase() ?? "";
+  return ["jpg", "jpeg", "png", "webp", "gif", "avif", "bmp"].includes(ext);
+}
+
 // Lowest non-best similarity in a group — how confident the whole group is a
 // duplicate set. Drives the "100% only" filter.
 function groupMinSimilarity(members: Member[]): number {
@@ -101,6 +113,12 @@ export default function GalleryDuplicates() {
   // so identical-looking copies can actually be told apart.
   const [minSim, setMinSim] = useState(0);
   const [large, setLarge] = useState(false);
+  // Before/after slider for one group, so near-identical copies can be told
+  // apart before anything is trashed.
+  const [compare, setCompare] = useState<{
+    groupKey: string;
+    focusId: number;
+  } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Groups passing the current similarity filter, and the set of image ids they
@@ -262,6 +280,30 @@ export default function GalleryDuplicates() {
     visibleIds.has(id)
   ).length;
 
+  // Read the group back out of state so the compare view closes by itself once
+  // a rescan, a trash or the similarity filter makes the group go away.
+  const compareGroup = compare
+    ? visibleGroups.find((g) => g.group_key === compare.groupKey)
+    : null;
+  const compareItems: CompareItem[] = (compareGroup?.members ?? []).map((m) => ({
+    id: m.item_id,
+    // The original is only usable if the browser can decode it — a HEIC/HEIF
+    // upload is stored as-is, so those compare via the generated JPEG preview.
+    src: `/api/gallery/${m.item_id}/media?variant=${
+      browserRenderable(m.storage_key) ? "original" : "preview"
+    }`,
+    isBest: m.is_best,
+    headline: `${fmtRes(m.width, m.height)}${m.is_best ? "" : ` · ${fmtSimilarity(m.similarity)}`}`,
+    lines: [
+      `Added ${fmtAdded(m.uploaded_at)} · Taken ${fmtAdded(m.taken_at)}`,
+      ...(m.size_bytes ? [fmtSize(m.size_bytes)] : []),
+      m.filename,
+      ...(m.tags ? [`#${m.tags.split(", ").join(" #")}`] : []),
+      ...(m.description ? [m.description] : []),
+      ...(m.owner_name ? [`@${m.owner_name}`] : []),
+    ],
+  }));
+
   return (
     <section className="mb-8">
       <h2 className="mb-1 text-lg font-semibold">Duplicates</h2>
@@ -370,9 +412,20 @@ export default function GalleryDuplicates() {
                   : "Same photo (re-cropped)"}
               </span>
               <button
+                onClick={() =>
+                  setCompare({
+                    groupKey: g.group_key,
+                    focusId: g.members[0].item_id,
+                  })
+                }
+                className="ml-auto flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 font-medium text-white/80 transition hover:bg-white/20"
+              >
+                <Columns2 size={12} /> Compare copies
+              </button>
+              <button
                 onClick={() => ignoreGroup(g)}
                 disabled={busy}
-                className="ml-auto flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 font-medium text-white/70 transition hover:bg-white/15 disabled:opacity-50"
+                className="flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 font-medium text-white/70 transition hover:bg-white/15 disabled:opacity-50"
               >
                 <Ban size={12} /> Not duplicates
               </button>
@@ -393,9 +446,8 @@ export default function GalleryDuplicates() {
                   (o) => o.item_id === m.item_id || o.uploaded_at <= m.uploaded_at
                 );
                 return (
-                  <button
+                  <div
                     key={m.item_id}
-                    onClick={() => toggle(m.item_id)}
                     className={cn(
                       "relative overflow-hidden rounded-xl border text-left transition",
                       isSel
@@ -405,93 +457,128 @@ export default function GalleryDuplicates() {
                           : "border-white/10 hover:border-white/30"
                     )}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`/api/gallery/${m.item_id}/media?variant=${large ? "preview" : "thumb"}`}
-                      alt=""
-                      loading="lazy"
-                      className={cn(
-                        "w-full bg-black/40",
-                        large
-                          ? "max-h-[70vh] object-contain"
-                          : "aspect-square object-cover"
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        "absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                        isSel
-                          ? "bg-rose-500 text-white"
-                          : m.is_best
-                            ? "bg-emerald-500 text-black"
-                            : "bg-black/60 text-white"
-                      )}
+                    <button
+                      onClick={() => toggle(m.item_id)}
+                      className="block w-full text-left"
                     >
-                      {isSel ? (
-                        <>
-                          <Trash2 size={11} /> Trash
-                        </>
-                      ) : m.is_best ? (
-                        <>
-                          <Crown size={11} /> Keep
-                        </>
-                      ) : (
-                        "Keep"
-                      )}
-                    </span>
-                    <div className="space-y-0.5 p-2 text-[11px] leading-tight text-white/70">
-                      <p className="font-medium text-white/90">
-                        {fmtRes(m.width, m.height)}
-                        {!m.is_best && (
-                          <span
-                            className={cn(
-                              "ml-1 font-normal",
-                              m.similarity >= 100
-                                ? "text-emerald-300/80"
-                                : "text-white/40"
-                            )}
-                          >
-                            · {fmtSimilarity(m.similarity)}
-                          </span>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/gallery/${m.item_id}/media?variant=${large ? "preview" : "thumb"}`}
+                        alt=""
+                        loading="lazy"
+                        className={cn(
+                          "w-full bg-black/40",
+                          large
+                            ? "max-h-[70vh] object-contain"
+                            : "aspect-square object-cover"
                         )}
-                      </p>
-                      <p className={cn(newest ? "text-sky-300" : "text-white/50")}>
-                        Added {fmtAdded(m.uploaded_at)}
-                        {newest && g.members.length > 1 ? " · newest" : ""}
-                      </p>
-                      <p className="text-white/50">
-                        Taken {fmtAdded(m.taken_at)}
-                        {m.size_bytes ? ` · ${fmtSize(m.size_bytes)}` : ""}
-                      </p>
-                      <p className="truncate text-white/50" title={m.filename}>
-                        {m.filename}
-                      </p>
-                      {m.tags && (
-                        <p className="truncate text-white/50" title={m.tags}>
-                          #{m.tags.split(", ").join(" #")}
+                      />
+                      <span
+                        className={cn(
+                          "absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                          isSel
+                            ? "bg-rose-500 text-white"
+                            : m.is_best
+                              ? "bg-emerald-500 text-black"
+                              : "bg-black/60 text-white"
+                        )}
+                      >
+                        {isSel ? (
+                          <>
+                            <Trash2 size={11} /> Trash
+                          </>
+                        ) : m.is_best ? (
+                          <>
+                            <Crown size={11} /> Keep
+                          </>
+                        ) : (
+                          "Keep"
+                        )}
+                      </span>
+                      <div className="space-y-0.5 p-2 text-[11px] leading-tight text-white/70">
+                        <p className="font-medium text-white/90">
+                          {fmtRes(m.width, m.height)}
+                          {!m.is_best && (
+                            <span
+                              className={cn(
+                                "ml-1 font-normal",
+                                m.similarity >= 100
+                                  ? "text-emerald-300/80"
+                                  : "text-white/40"
+                              )}
+                            >
+                              · {fmtSimilarity(m.similarity)}
+                            </span>
+                          )}
                         </p>
-                      )}
-                      {m.description && (
-                        <p
-                          className="line-clamp-2 whitespace-pre-wrap text-white/60"
-                          title={m.description}
-                        >
-                          {m.description}
+                        <p className={cn(newest ? "text-sky-300" : "text-white/50")}>
+                          Added {fmtAdded(m.uploaded_at)}
+                          {newest && g.members.length > 1 ? " · newest" : ""}
                         </p>
-                      )}
-                      {m.owner_name && (
-                        <p className="truncate text-white/40">
-                          @{m.owner_name}
+                        <p className="text-white/50">
+                          Taken {fmtAdded(m.taken_at)}
+                          {m.size_bytes ? ` · ${fmtSize(m.size_bytes)}` : ""}
                         </p>
-                      )}
-                    </div>
-                  </button>
+                        <p className="truncate text-white/50" title={m.filename}>
+                          {m.filename}
+                        </p>
+                        {m.tags && (
+                          <p className="truncate text-white/50" title={m.tags}>
+                            #{m.tags.split(", ").join(" #")}
+                          </p>
+                        )}
+                        {m.description && (
+                          <p
+                            className="line-clamp-2 whitespace-pre-wrap text-white/60"
+                            title={m.description}
+                          >
+                            {m.description}
+                          </p>
+                        )}
+                        {m.owner_name && (
+                          <p className="truncate text-white/40">
+                            @{m.owner_name}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                    {/* Sibling of the select button, not nested inside it:
+                        opening the compare view must not flip Keep/Trash. */}
+                    <button
+                      onClick={() =>
+                        setCompare({
+                          groupKey: g.group_key,
+                          focusId: m.item_id,
+                        })
+                      }
+                      aria-label="Compare this copy"
+                      className="absolute bottom-1.5 right-1.5 rounded-full bg-black/70 p-2 text-white transition active:scale-90 hover:bg-black/90"
+                    >
+                      <Columns2 size={13} />
+                    </button>
+                  </div>
                 );
               })}
             </div>
           </div>
         ))}
       </div>
+
+      {compareGroup && compareItems.length > 0 && compare && (
+        <DuplicateCompare
+          title={`${compareGroup.members.length} copies · ${
+            compareGroup.match_type === "exact"
+              ? "Identical file"
+              : "Same photo (re-cropped)"
+          }`}
+          items={compareItems}
+          focusId={compare.focusId}
+          selected={selected}
+          onToggle={toggle}
+          onClose={() => setCompare(null)}
+          deleteLabel="Trash"
+        />
+      )}
       {confirmDialog}
     </section>
   );

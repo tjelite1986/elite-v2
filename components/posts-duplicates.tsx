@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
+import DuplicateCompare, {
+  type CompareItem,
+} from "@/components/duplicate-compare";
 import {
   Copy,
   Loader2,
@@ -13,6 +16,7 @@ import {
   Ban,
   Maximize2,
   Minimize2,
+  Columns2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -92,6 +96,12 @@ export default function PostsDuplicates() {
   // so identical-looking copies can actually be told apart.
   const [minSim, setMinSim] = useState(0);
   const [large, setLarge] = useState(false);
+  // Before/after slider for one group, so near-identical copies can be told
+  // apart before anything is deleted.
+  const [compare, setCompare] = useState<{
+    groupKey: string;
+    focusId: number;
+  } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Groups passing the current similarity filter, and the set of image ids they
@@ -253,6 +263,28 @@ export default function PostsDuplicates() {
     visibleIds.has(id)
   ).length;
 
+  // Read the group back out of state so the compare view closes by itself once
+  // a rescan, a delete or the similarity filter makes the group go away.
+  const compareGroup = compare
+    ? visibleGroups.find((g) => g.group_key === compare.groupKey)
+    : null;
+  const compareItems: CompareItem[] = (compareGroup?.members ?? []).map((m) => ({
+    id: m.media_id,
+    // Full-size original — post media is stored as JPEG (HEIC is converted on
+    // ingest), so the browser can always render it.
+    src: `/api/posts/media/${m.media_id}`,
+    isBest: m.is_best,
+    headline: `${fmtRes(m.width, m.height)}${m.is_best ? "" : ` · ${fmtSimilarity(m.similarity)}`}`,
+    lines: [
+      `Added ${fmtAdded(m.created_at)}`,
+      ...(m.post_media_count > 1
+        ? [`Carousel of ${m.post_media_count} — deleting trims that post`]
+        : []),
+      ...(m.caption ? [m.caption] : []),
+      ...(m.author_name ? [`@${m.author_name}`] : []),
+    ],
+  }));
+
   return (
     <section className="mb-8">
       <h2 className="mb-1 text-lg font-semibold">Duplicates</h2>
@@ -361,9 +393,20 @@ export default function PostsDuplicates() {
                   : "Same photo (re-cropped)"}
               </span>
               <button
+                onClick={() =>
+                  setCompare({
+                    groupKey: g.group_key,
+                    focusId: g.members[0].media_id,
+                  })
+                }
+                className="ml-auto flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 font-medium text-white/80 transition hover:bg-white/20"
+              >
+                <Columns2 size={12} /> Compare copies
+              </button>
+              <button
                 onClick={() => ignoreGroup(g)}
                 disabled={busy}
-                className="ml-auto flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 font-medium text-white/70 transition hover:bg-white/15 disabled:opacity-50"
+                className="flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-0.5 font-medium text-white/70 transition hover:bg-white/15 disabled:opacity-50"
               >
                 <Ban size={12} /> Not duplicates
               </button>
@@ -385,9 +428,8 @@ export default function PostsDuplicates() {
                   (o) => o.media_id === m.media_id || o.created_at <= m.created_at
                 );
                 return (
-                  <button
+                  <div
                     key={m.media_id}
-                    onClick={() => toggle(m.media_id)}
                     className={cn(
                       "relative overflow-hidden rounded-xl border text-left transition",
                       isSel
@@ -397,91 +439,125 @@ export default function PostsDuplicates() {
                           : "border-white/10 hover:border-white/30"
                     )}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`/api/posts/media/${m.media_id}${large ? "" : "?size=thumb"}`}
-                      alt=""
-                      loading="lazy"
-                      className={cn(
-                        "w-full bg-black/40",
-                        large
-                          ? "max-h-[70vh] object-contain"
-                          : "aspect-square object-cover"
-                      )}
-                    />
-                    <span
-                      className={cn(
-                        "absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
-                        isSel
-                          ? "bg-rose-500 text-white"
-                          : m.is_best
-                            ? "bg-emerald-500 text-black"
-                            : "bg-black/60 text-white"
-                      )}
+                    <button
+                      onClick={() => toggle(m.media_id)}
+                      className="block w-full text-left"
                     >
-                      {isSel ? (
-                        <>
-                          <Trash2 size={11} /> Delete
-                        </>
-                      ) : m.is_best ? (
-                        <>
-                          <Crown size={11} /> Keep
-                        </>
-                      ) : (
-                        "Keep"
-                      )}
-                    </span>
-                    {m.post_media_count > 1 && (
-                      <span
-                        title="Part of a carousel — deleting trims that post"
-                        className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white"
-                      >
-                        <Layers size={11} /> {m.post_media_count}
-                      </span>
-                    )}
-                    <div className="space-y-0.5 p-2 text-[11px] leading-tight text-white/70">
-                      <p className="font-medium text-white/90">
-                        {fmtRes(m.width, m.height)}
-                        {!m.is_best && (
-                          <span
-                            className={cn(
-                              "ml-1 font-normal",
-                              m.similarity >= 100
-                                ? "text-emerald-300/80"
-                                : "text-white/40"
-                            )}
-                          >
-                            · {fmtSimilarity(m.similarity)}
-                          </span>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/posts/media/${m.media_id}${large ? "" : "?size=thumb"}`}
+                        alt=""
+                        loading="lazy"
+                        className={cn(
+                          "w-full bg-black/40",
+                          large
+                            ? "max-h-[70vh] object-contain"
+                            : "aspect-square object-cover"
                         )}
-                      </p>
-                      <p className={cn(newest ? "text-sky-300" : "text-white/50")}>
-                        Added {fmtAdded(m.created_at)}
-                        {newest && g.members.length > 1 ? " · newest" : ""}
-                      </p>
-                      {m.caption ? (
-                        <p
-                          className="line-clamp-3 whitespace-pre-wrap text-white/60"
-                          title={m.caption}
+                      />
+                      <span
+                        className={cn(
+                          "absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                          isSel
+                            ? "bg-rose-500 text-white"
+                            : m.is_best
+                              ? "bg-emerald-500 text-black"
+                              : "bg-black/60 text-white"
+                        )}
+                      >
+                        {isSel ? (
+                          <>
+                            <Trash2 size={11} /> Delete
+                          </>
+                        ) : m.is_best ? (
+                          <>
+                            <Crown size={11} /> Keep
+                          </>
+                        ) : (
+                          "Keep"
+                        )}
+                      </span>
+                      {m.post_media_count > 1 && (
+                        <span
+                          title="Part of a carousel — deleting trims that post"
+                          className="absolute right-1.5 top-1.5 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold text-white"
                         >
-                          {m.caption}
-                        </p>
-                      ) : (
-                        <p className="italic text-white/30">No caption</p>
+                          <Layers size={11} /> {m.post_media_count}
+                        </span>
                       )}
-                      {m.author_name && (
-                        <p className="truncate text-white/40">
-                          @{m.author_name}
+                      <div className="space-y-0.5 p-2 text-[11px] leading-tight text-white/70">
+                        <p className="font-medium text-white/90">
+                          {fmtRes(m.width, m.height)}
+                          {!m.is_best && (
+                            <span
+                              className={cn(
+                                "ml-1 font-normal",
+                                m.similarity >= 100
+                                  ? "text-emerald-300/80"
+                                  : "text-white/40"
+                              )}
+                            >
+                              · {fmtSimilarity(m.similarity)}
+                            </span>
+                          )}
                         </p>
-                      )}
-                    </div>
-                  </button>
+                        <p className={cn(newest ? "text-sky-300" : "text-white/50")}>
+                          Added {fmtAdded(m.created_at)}
+                          {newest && g.members.length > 1 ? " · newest" : ""}
+                        </p>
+                        {m.caption ? (
+                          <p
+                            className="line-clamp-3 whitespace-pre-wrap text-white/60"
+                            title={m.caption}
+                          >
+                            {m.caption}
+                          </p>
+                        ) : (
+                          <p className="italic text-white/30">No caption</p>
+                        )}
+                        {m.author_name && (
+                          <p className="truncate text-white/40">
+                            @{m.author_name}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                    {/* Sibling of the select button, not nested inside it:
+                        opening the compare view must not flip Keep/Delete. */}
+                    <button
+                      onClick={() =>
+                        setCompare({
+                          groupKey: g.group_key,
+                          focusId: m.media_id,
+                        })
+                      }
+                      aria-label="Compare this copy"
+                      className="absolute bottom-1.5 right-1.5 rounded-full bg-black/70 p-2 text-white transition active:scale-90 hover:bg-black/90"
+                    >
+                      <Columns2 size={13} />
+                    </button>
+                  </div>
                 );
               })}
             </div>
           </div>
         ))}
       </div>
+
+      {compareGroup && compareItems.length > 0 && compare && (
+        <DuplicateCompare
+          title={`${compareGroup.members.length} copies · ${
+            compareGroup.match_type === "exact"
+              ? "Identical file"
+              : "Same photo (re-cropped)"
+          }`}
+          items={compareItems}
+          focusId={compare.focusId}
+          selected={selected}
+          onToggle={toggle}
+          onClose={() => setCompare(null)}
+        />
+      )}
       {confirmDialog}
     </section>
   );
