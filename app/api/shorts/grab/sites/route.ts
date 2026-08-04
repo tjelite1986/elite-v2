@@ -14,7 +14,9 @@ export async function GET() {
   }
   try {
     const r = await fetch(`${GRABBIT}/api/sites`, { headers: GRABBIT_HEADERS });
-    return NextResponse.json(await r.json(), { status: r.status });
+    // The status is deliberately not forwarded: Cloudflare replaces a 5xx
+    // body with its own HTML page, and every caller reads `ok` from the JSON.
+    return NextResponse.json(await r.json());
   } catch {
     // 200, not 502: Cloudflare swallows a 5xx body and serves its own HTML
     // error page, so the client would parse "<!DOCTYPE" instead of this.
