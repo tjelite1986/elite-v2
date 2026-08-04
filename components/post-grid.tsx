@@ -223,8 +223,11 @@ export default function PostGrid({
 
   return (
     <>
-      <GridDensity cols={cols} onChange={switchCols} className="mb-2 justify-end px-1" />
-      <div className={cn("grid gap-1", GRID_COL_CLASS[cols])}>
+      <GridDensity cols={cols} onChange={switchCols} className="mb-2 justify-end px-3" />
+      {/* Not full bleed: the grid keeps a side margin and the tiles get room to
+          breathe above and below, so a dense Explore page reads as separate
+          photos instead of one continuous block. */}
+      <div className={cn("grid gap-x-2 gap-y-2.5 px-2", GRID_COL_CLASS[cols])}>
         {items.map((p) => {
           // One-per-row shows everything uncropped. The denser grids are square
           // tiles for EVERY post: letting landscape photos break out to a full
@@ -261,7 +264,7 @@ export default function PostGrid({
             </>
           );
           const cls = cn(
-            "group relative overflow-hidden bg-white/5",
+            "group relative overflow-hidden rounded-xl bg-white/5",
             // A landscape post in a multi-column grid takes the whole row, so no
             // row ever mixes a wide tile with a tall one.
             uncropped ? "col-span-full" : "aspect-square",

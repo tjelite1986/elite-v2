@@ -316,7 +316,7 @@ export default function ShortsGrid({
   // The length filter and the density control share one row, so a surface that
   // has both doesn't stack two bars above the tiles.
   const controls = (
-    <div className="mb-3 flex items-center gap-1 px-1">
+    <div className="mb-3 flex items-center gap-1 px-3">
       {lengthFilter &&
         LENGTH_ORDER.map((l) => (
           <button
@@ -357,14 +357,16 @@ export default function ShortsGrid({
           take the whole row at its own ratio — in the denser grids every tile
           is the same portrait shape, or the chosen density would not change
           the layout at all for a landscape-heavy channel. */}
-      <div className={`grid grid-flow-row-dense gap-1 ${GRID_COL_CLASS[cols]}`}>
+      <div
+        className={`grid grid-flow-row-dense gap-x-2 gap-y-2.5 px-2 ${GRID_COL_CLASS[cols]}`}
+      >
         {items.map((s) => (
           <div
             key={s.id}
             className={
               cols === 1 && isLandscape(s)
-                ? "group relative col-span-full overflow-hidden rounded-md bg-white/5"
-                : "group relative aspect-[9/16] overflow-hidden rounded-md bg-white/5"
+                ? "group relative col-span-full overflow-hidden rounded-xl bg-white/5"
+                : "group relative aspect-[9/16] overflow-hidden rounded-xl bg-white/5"
             }
             // The tile takes the clip's own ratio (16:9, 4:3, …), so the wide
             // poster fills it edge to edge without a crop.

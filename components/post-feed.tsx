@@ -151,7 +151,7 @@ export default function PostFeed({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {items.map((p) => (
         <div key={p.id} data-post-id={p.id}>
           <PostCard

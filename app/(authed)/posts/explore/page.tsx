@@ -15,7 +15,8 @@ export default async function PostsExplorePage() {
   ensureUserProfile(Number(session.sub), session.email);
 
   return (
-    // Full-bleed grid: 3 columns spanning the whole screen edge to edge.
+    // The grid brings its own side margin and tile spacing (see PostGrid), so
+    // this wrapper stays flush and only owns the vertical rhythm.
     <div className="w-full pb-24 pt-6 text-white">
       <div className="px-1">
         <PostSearch />

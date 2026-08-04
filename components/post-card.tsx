@@ -97,7 +97,9 @@ export default function PostCard({
   };
 
   return (
-    <article className="w-full border-b border-white/10 pb-3">
+    // A card with its own margin and rounded corners instead of a full-bleed
+    // slab: the feed reads as separate posts without the hard divider line.
+    <article className="mx-2 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] pb-3">
       {/* Header */}
       <header className="flex items-center gap-2.5 px-3 py-2.5">
         <Link href={`/people/${handle}`}>
@@ -120,8 +122,8 @@ export default function PostCard({
         </Link>
       </header>
 
-      {/* Media carousel */}
-      <div className="relative bg-black">
+      {/* Media carousel — inset from the card edge, rounded like the card. */}
+      <div className="relative mx-2 overflow-hidden rounded-xl bg-black">
         <div
           ref={trackRef}
           onScroll={onScroll}
