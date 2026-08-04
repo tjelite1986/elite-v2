@@ -9,6 +9,7 @@ import ShortsEditSheet from "@/components/shorts-edit-sheet";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useConfirm } from "@/components/confirm-dialog";
 import GridDensity, { useGridCols, GRID_COL_CLASS } from "@/components/grid-density";
+import { splitCaption } from "@/lib/shorts-caption";
 
 interface PickerProfile {
   id: number;
@@ -302,6 +303,10 @@ export default function ShortsGrid({
     router.refresh();
   };
 
+  // At one per row the tiles carry a caption row (see the map below); the
+  // selection mode keeps bare posters, since there the poster IS the button.
+  const asCards = cols === 1 && !onSelect;
+
   // A tile opens the feed at that clip — carry the filter along, so the clips
   // above and below it are the ones the grid was showing. hrefPrefix always
   // ends with "?focus=" or "&focus=" (except the selection-mode "#"), so the
@@ -360,7 +365,8 @@ export default function ShortsGrid({
       <div
         className={`grid grid-flow-row-dense gap-1.5 px-3 ${GRID_COL_CLASS[cols]}`}
       >
-        {items.map((s) => (
+        {items.map((s) => {
+          const tile = (
           <div
             key={s.id}
             className={
@@ -397,10 +403,14 @@ export default function ShortsGrid({
                       <Lock size={12} />
                     </div>
                   )}
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[11px] text-white">
-                    <Heart size={12} className="fill-white/90" />
-                    {s.like_count}
-                  </div>
+                  {/* The count moves into the caption row at one per row, so
+                      the poster does not print the same number twice. */}
+                  {!asCards && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 bg-gradient-to-t from-black/70 to-transparent px-1.5 py-1 text-[11px] text-white">
+                      <Heart size={12} className="fill-white/90" />
+                      {s.like_count}
+                    </div>
+                  )}
                 </>
               );
               return onSelect ? (
@@ -494,7 +504,39 @@ export default function ShortsGrid({
               </div>
             )}
           </div>
-        ))}
+          );
+          // One per row is a reading size: the poster gets the clip's own
+          // context under it — creator, title, #tags, likes — the way the
+          // immersive card shows them. The denser grids stay bare posters.
+          if (!asCards) return tile;
+          const { title, tags } = splitCaption(s.caption);
+          return (
+            <div key={s.id} className="flex flex-col gap-2">
+              {tile}
+              <div className="flex items-start gap-3 px-0.5">
+                <div className="min-w-0 flex-1">
+                  {s.profile_name && (
+                    <p className="truncate text-sm font-semibold text-white">
+                      {s.profile_name}
+                    </p>
+                  )}
+                  {title && (
+                    <p className="mt-0.5 line-clamp-2 text-sm text-white/80">{title}</p>
+                  )}
+                  {tags.length > 0 && (
+                    <p className="mt-0.5 line-clamp-1 text-[13px] text-[var(--accent)]">
+                      {tags.join(" ")}
+                    </p>
+                  )}
+                </div>
+                <span className="flex shrink-0 items-center gap-1 pt-0.5 text-sm text-white/70">
+                  <Heart size={15} className="fill-white/80 text-white/80" />
+                  {s.like_count}
+                </span>
+              </div>
+            </div>
+          );
+        })}
       </div>
       <div ref={sentinel} className="h-1 w-full" />
       {loading && (

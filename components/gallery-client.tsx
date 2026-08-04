@@ -1293,7 +1293,7 @@ export default function GalleryClient() {
                       cols === 1 && it.width && it.height
                         ? `${it.width} / ${it.height}`
                         : undefined;
-                    return (
+                    const tile = (
                       <div
                         key={it.id}
                         style={ratio ? { aspectRatio: ratio } : undefined}
@@ -1347,6 +1347,31 @@ export default function GalleryClient() {
                             className="absolute bottom-2 right-2 fill-yellow-400 text-yellow-400 drop-shadow"
                           />
                         )}
+                      </div>
+                    );
+                    // One per row is a reading size, so the photo carries its
+                    // own line of context — name, when, where — instead of
+                    // standing alone. The denser grids stay a contact sheet.
+                    if (cols !== 1) return tile;
+                    return (
+                      <div key={it.id} className="flex flex-col gap-2">
+                        {tile}
+                        <div className="flex items-start gap-3 px-0.5">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-white">
+                              {it.filename}
+                            </p>
+                            <p className="mt-0.5 truncate text-[13px] text-white/50">
+                              {fullDate(it.taken_at)}
+                              {it.location_name ? ` · ${it.location_name}` : ""}
+                            </p>
+                          </div>
+                          {it.rating > 0 && (
+                            <span className="shrink-0 pt-0.5 text-sm text-yellow-400">
+                              {"\u2605".repeat(it.rating)}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
