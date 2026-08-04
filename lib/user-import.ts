@@ -205,6 +205,51 @@ function readCaptionSidecar(fileAbs: string): {
 
 type CaptionSidecar = ReturnType<typeof readCaptionSidecar>;
 
+/**
+ * A profile drop: a lone `<handle>.json` carrying the schema-2 profile fields
+ * with no media beside it. The phone app is the only thing that can read a
+ * profile without asking Instagram's API — which answers 429 to anything that
+ * looks like a script — so this is how an existing creator gets a picture and
+ * a bio without re-downloading a post. The handle comes from the JSON's own
+ * `username`, else the drop folder, else the file name.
+ */
+function readStandaloneProfile(
+  abs: string,
+  collection: string | null
+): { handle: string; displayName: string | null; bio: string | null; avatarUrl: string | null; links: string[] } | null {
+  if (getExt(abs) !== "json") return null;
+  // A sidecar that belongs to a media file is that file's business, not ours.
+  const [stem] = splitExt(path.basename(abs));
+  const dir = path.dirname(abs);
+  try {
+    const paired = fs
+      .readdirSync(dir)
+      .some((n) => splitExt(n)[0] === stem && n !== path.basename(abs));
+    if (paired) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(abs, "utf8"));
+    const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+    const handle = creatorHandle(str(parsed?.username) ?? collection ?? stem);
+    if (!handle) return null;
+    const profile = {
+      handle,
+      displayName: str(parsed?.full_name),
+      bio: str(parsed?.bio) ?? str(parsed?.biography),
+      avatarUrl: str(parsed?.profile_pic_url),
+      links: Array.isArray(parsed?.links) ? parsed.links.filter((l: unknown) => typeof l === "string") : [],
+    };
+    // Without any of these there is nothing to apply — and a media sidecar that
+    // lost its file must not be mistaken for a profile drop.
+    if (!profile.displayName && !profile.bio && !profile.avatarUrl) return null;
+    return profile;
+  } catch {
+    return null;
+  }
+}
+
 // The profile of whoever posted, as carried by the piko sidecar (schema 2+).
 // A drop from the phone is the only thing that knows this — the folder name
 // alone gives a handle and nothing else — so it is applied to the creator the
@@ -1038,6 +1083,29 @@ async function importPostsSection(
   // aggregates under one /people profile (like @sophieraiin). A LOOSE file stays
   // the user's own post. Caption: a "<stem>.md" sidecar, else the [token] title.
   for (const item of collectItems(dir)) {
+    // A profile drop carries no media: apply it and consume it before the
+    // media branches below decide they do not know what a .json is.
+    const standalone = readStandaloneProfile(item.abs, item.collection);
+    if (standalone) {
+      try {
+        await applyToPeople(
+          standalone.handle,
+          {
+            displayName: standalone.displayName,
+            bio: standalone.bio,
+            avatarUrl: standalone.avatarUrl,
+            links: standalone.links,
+          },
+          "instagram"
+        );
+        consume(item.abs);
+        res.details.push(`profile ${standalone.handle}: applied`);
+      } catch (err) {
+        res.skipped++;
+        res.details.push(`profile ${item.name}: ${(err as Error).message}`);
+      }
+      continue;
+    }
     if (!isSupportedImage(item.name, "")) {
       // This section only stores images. Videos dropped in a CREATOR folder are
       // handed to the posts importer (scripts/import-posts.mjs knows how to make
