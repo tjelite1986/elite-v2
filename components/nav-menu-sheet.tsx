@@ -15,6 +15,7 @@ export default function NavMenuSheet({
   email,
   displayName,
   canActAs,
+  isAdmin = false,
   extras = [],
 }: {
   open: boolean;
@@ -23,6 +24,7 @@ export default function NavMenuSheet({
   email: string;
   displayName?: string | null;
   canActAs: boolean;
+  isAdmin?: boolean;
   // Section-contextual overflow destinations (the old top pill bars' tabs
   // that don't fit the bottom bar), shown as a block above the app links.
   extras?: BottomNavItem[];
@@ -41,6 +43,7 @@ export default function NavMenuSheet({
           myUsername={username}
           myEmail={email}
           myDisplayName={displayName}
+          isAdmin={isAdmin}
           beforeSections={
             canActAs || extras.length > 0 ? (
               <>

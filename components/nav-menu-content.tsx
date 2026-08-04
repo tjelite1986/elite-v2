@@ -6,6 +6,7 @@ import {
   Bell,
   Camera,
   ChevronRight,
+  Download,
   Film,
   Flame,
   Github,
@@ -73,11 +74,14 @@ export default function NavMenuContent({
   myEmail,
   myDisplayName,
   beforeSections,
+  isAdmin = false,
 }: {
   myUsername: string;
   myEmail: string;
   myDisplayName?: string | null;
   beforeSections?: React.ReactNode;
+  // Grab is an admin tool, so its row only exists for admins.
+  isAdmin?: boolean;
 }) {
   // The sketch's header shows @handle + "View profile" without the email, but
   // both callers still pass it — keep the prop so the API stays stable.
@@ -194,6 +198,11 @@ export default function NavMenuContent({
 
       <div className="mt-1 border-t border-white/10 pt-1">
         <MenuRow href="/store" icon={<Store size={18} />} label="App Store" />
+        {/* Grabbing belongs to the whole app, not to one section: the tool
+            picks the channel (Shorts / Shorts 18+) itself. */}
+        {isAdmin && (
+          <MenuRow href="/shorts/grab" icon={<Download size={18} />} label="Grab from web" />
+        )}
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">

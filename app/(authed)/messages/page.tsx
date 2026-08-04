@@ -14,6 +14,7 @@ export default async function MessagesPage() {
       myUsername={profile.username}
       myDisplayName={profile.display_name}
       myEmail={session.email}
+      isAdmin={session.role === "admin"}
     />
   );
 }

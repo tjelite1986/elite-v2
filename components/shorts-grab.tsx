@@ -221,15 +221,22 @@ export default function ShortsGrab() {
         </button>
       </div>
 
+      {/* Where it lands, decided up front: the channel is the first thing you
+          want to be sure of, and hiding it until a link resolved made it look
+          like the tool only fed Shorts. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-sm text-white/50">Save to</span>
+        <div className="flex items-center gap-0.5 rounded-full bg-black/40 p-1 ring-1 ring-white/10">
+          {chBtn("main", "Shorts")}
+          {chBtn("18plus", "Shorts 18+")}
+        </div>
+      </div>
+
       {error && <p className="text-sm text-rose-400">{error}</p>}
 
-      {/* Shared controls (channel + profile name) once something resolved */}
+      {/* The rest of the shared controls, once something resolved */}
       {(single || profile) && (
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-0.5 rounded-full bg-black/40 p-1 ring-1 ring-white/10">
-            {chBtn("main", "Main")}
-            {chBtn("18plus", "18+")}
-          </div>
           <input
             value={creator}
             onChange={(e) => setCreator(e.target.value)}

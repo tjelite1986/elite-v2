@@ -452,12 +452,14 @@ export function MenuTab({
   myUsername,
   myDisplayName,
   myEmail,
+  isAdmin = false,
   requestsCount,
   onOpenRequests,
 }: {
   myUsername: string;
   myDisplayName?: string | null;
   myEmail: string;
+  isAdmin?: boolean;
   requestsCount: number;
   onOpenRequests: () => void;
 }) {
@@ -484,6 +486,7 @@ export function MenuTab({
         myUsername={myUsername}
         myDisplayName={myDisplayName}
         myEmail={myEmail}
+        isAdmin={isAdmin}
         beforeSections={
           <div className="pb-1">
             <p className="px-4 pb-1 pt-2 text-[11px] uppercase tracking-wider text-white/35">

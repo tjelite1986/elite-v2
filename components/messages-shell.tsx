@@ -37,11 +37,13 @@ export default function MessagesShell({
   myUsername,
   myDisplayName,
   myEmail,
+  isAdmin = false,
 }: {
   meId: number;
   myUsername: string;
   myDisplayName?: string | null;
   myEmail: string;
+  isAdmin?: boolean;
 }) {
   const { subscribe } = useWs();
   const searchParams = useSearchParams();
@@ -174,6 +176,7 @@ export default function MessagesShell({
             myUsername={myUsername}
             myDisplayName={myDisplayName}
             myEmail={myEmail}
+            isAdmin={isAdmin}
             requestsCount={requestsCount}
             onOpenRequests={() => setTab("requests")}
           />

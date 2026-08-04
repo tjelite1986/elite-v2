@@ -148,6 +148,7 @@ export default function BottomNav({
             displayName={displayName}
             email={email}
             canActAs={canActAs}
+            isAdmin={isAdmin}
             extras={extras}
           />
         </>

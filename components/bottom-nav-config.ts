@@ -130,7 +130,6 @@ export function getBottomNavExtras(
     return [
       { label: "Categories", href: "/shorts/tags", icon: Hash },
       { label: "Mine", href: "/shorts/mine", icon: Clapperboard },
-      { label: "Grab", href: "/shorts/grab", icon: Download },
     ];
   }
   if (pathname === "/store" || pathname.startsWith("/store/")) {
