@@ -14,6 +14,13 @@ type Site = { domain: string; profiles: boolean | "limited" };
 // redirect, arrives as HTML, and res.json() then throws "Unexpected token '<'"
 // — an error that says nothing about what actually went wrong. Read the body
 // once and report the status instead.
+// The preview thumbnails come from the site being grabbed, and the app's CSP
+// is img-src 'self' — a remote URL is blocked outright, which is why the
+// preview stayed empty. Same proxy the link previews and store imports use.
+function proxied(url: string): string {
+  return `/api/image-proxy?url=${encodeURIComponent(url)}`;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function readJson(res: Response): Promise<any> {
   const text = await res.text();
@@ -292,7 +299,11 @@ export default function ShortsGrab() {
           <div className="flex gap-3">
             {single.thumbnail ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={single.thumbnail} alt="" className="h-20 w-20 flex-none rounded-lg object-cover" />
+              <img
+                src={proxied(single.thumbnail)}
+                alt=""
+                className="h-20 w-20 flex-none rounded-lg object-cover"
+              />
             ) : null}
             <div className="min-w-0">
               <p className="font-medium">{single.title || "Untitled"}</p>
@@ -340,7 +351,12 @@ export default function ShortsGrab() {
                   />
                   {it.thumbnail ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={it.thumbnail} alt="" loading="lazy" className="h-12 w-12 flex-none rounded-md object-cover" />
+                    <img
+                      src={proxied(it.thumbnail)}
+                      alt=""
+                      loading="lazy"
+                      className="h-12 w-12 flex-none rounded-md object-cover"
+                    />
                   ) : (
                     <div className="h-12 w-12 flex-none rounded-md bg-white/10" />
                   )}
