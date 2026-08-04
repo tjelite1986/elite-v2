@@ -10,6 +10,7 @@ import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useConfirm } from "@/components/confirm-dialog";
 import GridDensity, { useGridCols, GRID_COL_CLASS } from "@/components/grid-density";
 import { splitCaption } from "@/lib/shorts-caption";
+import ShortsInlineClip from "@/components/shorts-inline-clip";
 
 interface PickerProfile {
   id: number;
@@ -105,6 +106,8 @@ export default function ShortsGrid({
     return raw === "short" || raw === "long" ? raw : "all";
   });
   const [cols, switchCols] = useGridCols("shorts-grid-cols");
+  // Shared by every inline clip: unmuting one keeps the next one audible.
+  const [muted, setMuted] = useState(true);
   const sentinel = useRef<HTMLDivElement>(null);
   // Orphans the pages still in flight when the filter changes, so tiles from
   // the previous filter can never land in the new list.
@@ -383,10 +386,23 @@ export default function ShortsGrid({
             }
           >
             {(() => {
-              const poster = s.has_poster ? (
+              const posterUrl = s.has_poster
+                ? `/api/shorts/${s.id}/poster?v=${s.poster_v ?? "2"}`
+                : null;
+              // One per row plays where it stands; the denser grids stay still
+              // posters — a wall of playing clips is unreadable, and every one
+              // of them would be pulling video.
+              const poster = asCards ? (
+                <ShortsInlineClip
+                  id={s.id}
+                  poster={posterUrl}
+                  muted={muted}
+                  onMuteChange={setMuted}
+                />
+              ) : posterUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={`/api/shorts/${s.id}/poster?v=${s.poster_v ?? "2"}`}
+                  src={posterUrl}
                   alt=""
                   loading="lazy"
                   className="h-full w-full object-cover transition group-hover:opacity-80"
