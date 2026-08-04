@@ -249,13 +249,10 @@ export default function PostCard({
         </button>
       </div>
 
-      {/* Meta — the handle sits on its own line above the caption. */}
+      {/* Meta — the handle sits on its own line above the caption. The like
+          total lives beside the heart above; a separate "128 likes" line would
+          print the same number twice. */}
       <div className="px-3 pt-2">
-        {likeCount > 0 && (
-          <div className="mb-0.5 text-sm font-semibold text-white">
-            {likeCount} like{likeCount === 1 ? "" : "s"}
-          </div>
-        )}
         {caption && (
           <div className="text-sm text-white/90">
             <Link href={`/people/${handle}`} className="block font-semibold text-white">
