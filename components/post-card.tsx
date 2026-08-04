@@ -5,10 +5,22 @@ import Link from "next/link";
 import { Heart, MessageCircle, X, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
+import { SOURCE_RE } from "@/lib/shorts-caption";
 import PostAvatar from "@/components/post-avatar";
 import Markdown from "@/components/markdown";
 import MentionInput from "@/components/mention-input";
 import type { FeedPost } from "@/lib/posts";
+
+// "https://www.instagram.com/p/CX12ab/" → "instagram.com/p/CX12ab": enough of
+// the link to recognise where a post came from, short enough for a meta line.
+function sourceLabel(url: string): string {
+  try {
+    const u = new URL(url);
+    return (u.host.replace(/^www\./, "") + u.pathname).replace(/\/$/, "");
+  } catch {
+    return url;
+  }
+}
 
 function relativeTime(s: string): string {
   const diff = Date.now() - new Date(s.replace(" ", "T") + "Z").getTime();
@@ -37,6 +49,10 @@ export default function PostCard({
   const [likeCount, setLikeCount] = useState(post.like_count);
   const [commentCount, setCommentCount] = useState(post.comment_count);
   const [showComments, setShowComments] = useState(false);
+  // Long captions read as two lines with a "more" toggle, like the lightbox.
+  const [captionOpen, setCaptionOpen] = useState(false);
+  const [captionClamped, setCaptionClamped] = useState(false);
+  const captionRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
   const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,6 +70,28 @@ export default function PostCard({
   useBackDismiss(showComments, () => setShowComments(false));
 
   const handle = post.author.username ?? "unknown";
+
+  // An imported post carries its permalink as the caption's trailing
+  // "Source: <url>" row (see lib/user-import.ts). The sketch puts it in the
+  // header meta line, so it comes out of the caption body here.
+  const source = post.caption?.match(SOURCE_RE)?.[1] ?? null;
+  const caption = source
+    ? post.caption!.replace(SOURCE_RE, " ").replace(/\n{3,}/g, "\n\n").trim()
+    : post.caption;
+
+  // Whether the caption actually overflows its two lines — measured, not
+  // guessed from a character count, since a hashtag row or a long word wraps
+  // differently on every width. Only while collapsed: an expanded block always
+  // reports that it fits, which would hide the "less" toggle.
+  useEffect(() => {
+    const el = captionRef.current;
+    if (!el || captionOpen) return;
+    const check = () => setCaptionClamped(el.scrollHeight > el.clientHeight + 2);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [caption, captionOpen]);
 
   const toggleLike = async () => {
     const next = !liked;
@@ -97,10 +135,12 @@ export default function PostCard({
   };
 
   return (
-    // A card with its own margin and rounded corners instead of a full-bleed
-    // slab: the feed reads as separate posts without the hard divider line.
-    <article className="mx-2 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] pb-3">
-      {/* Header */}
+    // Spacing per the Layout Studio sketch (docs/elite-v2): no card frame, 6px
+    // outside the card and 12px in, so every row — header, photo, actions,
+    // caption — lines up 18px from the screen edge.
+    <article className="mx-1.5 overflow-hidden pb-3">
+      {/* Header — the meta line carries the time and, when the caption came
+          with one, the post's source link. */}
       <header className="flex items-center gap-2.5 px-3 py-2.5">
         <Link href={`/people/${handle}`}>
           <PostAvatar username={post.author.username} size={34} />
@@ -112,6 +152,16 @@ export default function PostCard({
           >
             {post.author.display_name || handle}
           </Link>
+          {source && (
+            <a
+              href={source}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="block truncate text-[11px] text-white/40 transition hover:text-white/70"
+            >
+              {sourceLabel(source)}
+            </a>
+          )}
         </div>
         <Link
           href={`/posts/p/${post.id}`}
@@ -123,7 +173,7 @@ export default function PostCard({
       </header>
 
       {/* Media carousel — inset from the card edge, rounded like the card. */}
-      <div className="relative mx-2 overflow-hidden rounded-xl bg-black">
+      <div className="relative mx-3 overflow-hidden rounded-xl bg-black">
         <div
           ref={trackRef}
           onScroll={onScroll}
@@ -172,36 +222,56 @@ export default function PostCard({
         )}
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-4 px-3 pt-2.5">
-        <button onClick={toggleLike} className="transition active:scale-90" aria-label="Like">
+      {/* Actions — each icon carries its own count, per the sketch. */}
+      <div className="flex items-center gap-5 px-3 pt-2.5">
+        <button
+          onClick={toggleLike}
+          className="flex items-center gap-1.5 transition active:scale-90"
+          aria-label="Like"
+        >
           <Heart
             size={24}
             className={cn(liked ? "fill-rose-500 text-rose-500" : "text-white")}
           />
+          {likeCount > 0 && (
+            <span className="text-sm font-semibold tabular-nums text-white">{likeCount}</span>
+          )}
         </button>
         <button
           onClick={() => setShowComments(true)}
-          className="transition active:scale-90"
+          className="flex items-center gap-1.5 transition active:scale-90"
           aria-label="Comments"
         >
           <MessageCircle size={23} className="text-white" />
+          {commentCount > 0 && (
+            <span className="text-sm font-semibold tabular-nums text-white">{commentCount}</span>
+          )}
         </button>
       </div>
 
-      {/* Meta */}
-      <div className="px-3 pt-1.5">
+      {/* Meta — the handle sits on its own line above the caption. */}
+      <div className="px-3 pt-2">
         {likeCount > 0 && (
-          <div className="text-sm font-semibold text-white">
+          <div className="mb-0.5 text-sm font-semibold text-white">
             {likeCount} like{likeCount === 1 ? "" : "s"}
           </div>
         )}
-        {post.caption && (
-          <div className="mt-0.5 text-sm text-white/90">
-            <Link href={`/people/${handle}`} className="mr-1.5 font-semibold text-white">
+        {caption && (
+          <div className="text-sm text-white/90">
+            <Link href={`/people/${handle}`} className="block font-semibold text-white">
               {handle}
             </Link>
-            <Markdown text={post.caption} className="inline [&_p]:inline" />
+            <div ref={captionRef} className={cn("mt-0.5", !captionOpen && "line-clamp-2")}>
+              <Markdown text={caption} />
+            </div>
+            {(captionClamped || captionOpen) && (
+              <button
+                onClick={() => setCaptionOpen((v) => !v)}
+                className="mt-0.5 text-sm font-medium text-white/50 transition hover:text-white/80"
+              >
+                {captionOpen ? "less" : "more"}
+              </button>
+            )}
           </div>
         )}
         {commentCount > 0 && (

@@ -358,7 +358,7 @@ export default function ShortsGrid({
           is the same portrait shape, or the chosen density would not change
           the layout at all for a landscape-heavy channel. */}
       <div
-        className={`grid grid-flow-row-dense gap-x-2 gap-y-2.5 px-2 ${GRID_COL_CLASS[cols]}`}
+        className={`grid grid-flow-row-dense gap-1.5 px-3 ${GRID_COL_CLASS[cols]}`}
       >
         {items.map((s) => (
           <div

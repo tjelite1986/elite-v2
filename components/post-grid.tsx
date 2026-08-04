@@ -224,10 +224,10 @@ export default function PostGrid({
   return (
     <>
       <GridDensity cols={cols} onChange={switchCols} className="mb-2 justify-end px-3" />
-      {/* Not full bleed: the grid keeps a side margin and the tiles get room to
-          breathe above and below, so a dense Explore page reads as separate
-          photos instead of one continuous block. */}
-      <div className={cn("grid gap-x-2 gap-y-2.5 px-2", GRID_COL_CLASS[cols])}>
+      {/* Not full bleed. Spacing per the Layout Studio sketch (docs/elite-v2):
+          12px outside the grid, 6px between the tiles on both axes, so a dense
+          Explore page reads as separate photos instead of one block. */}
+      <div className={cn("grid gap-1.5 px-3", GRID_COL_CLASS[cols])}>
         {items.map((p) => {
           // One-per-row shows everything uncropped. The denser grids are square
           // tiles for EVERY post: letting landscape photos break out to a full

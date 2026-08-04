@@ -4,6 +4,7 @@ import { ensureUserProfile } from "@/lib/profiles";
 import PostViews from "@/components/post-views";
 import PostSearch from "@/components/post-search";
 import PostsImportButton from "@/components/posts-import-button";
+import StoryRail from "@/components/story-rail";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function PostsExplorePage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  ensureUserProfile(Number(session.sub), session.email);
+  const profile = ensureUserProfile(Number(session.sub), session.email);
 
   return (
     // The grid brings its own side margin and tile spacing (see PostGrid), so
@@ -21,6 +22,8 @@ export default async function PostsExplorePage() {
       <div className="px-1">
         <PostSearch />
       </div>
+      {/* The sketch puts the story rail on Explore as well as the home feed. */}
+      <StoryRail myUsername={profile.username} />
       {session.role === "admin" && (
         <div className="px-2">
           <PostsImportButton />

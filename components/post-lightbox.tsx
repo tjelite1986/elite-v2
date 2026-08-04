@@ -61,6 +61,21 @@ export default function PostLightbox({
   const [showEdit, setShowEdit] = useState(false);
   // Caption expansion, keyed to the post so stepping resets to clamped.
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  // Whether this caption actually overflows its two lines, so the more/less
+  // label only appears where there is something to unfold.
+  const captionRef = useRef<HTMLDivElement>(null);
+  const [captionClamped, setCaptionClamped] = useState(false);
+
+  const captionOpen = !!post && expandedId === post.id;
+  useEffect(() => {
+    const el = captionRef.current;
+    if (!el || captionOpen) return;
+    const check = () => setCaptionClamped(el.scrollHeight > el.clientHeight + 2);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [post?.caption, captionOpen]);
 
   // Photo index, keyed to the open post so switching posts lands on the tapped
   // (or first) photo the same frame — no out-of-range flash from a reset effect.
@@ -367,14 +382,22 @@ export default function PostLightbox({
               onClick={() =>
                 setExpandedId((cur) => (cur === post.id ? null : post.id))
               }
-              className={cn(
-                "mb-2 cursor-pointer text-sm text-white/90",
-                expandedId === post.id
-                  ? "max-h-[40vh] overflow-y-auto"
-                  : "line-clamp-2"
-              )}
+              className="mb-2 cursor-pointer text-sm text-white/90"
             >
-              <Markdown text={post.caption} />
+              <div
+                ref={captionRef}
+                className={cn(
+                  captionOpen ? "max-h-[40vh] overflow-y-auto" : "line-clamp-2"
+                )}
+              >
+                <Markdown text={post.caption} />
+              </div>
+              {/* The tap-to-expand was invisible before — say so. */}
+              {(captionClamped || captionOpen) && (
+                <span className="text-sm font-medium text-white/50">
+                  {captionOpen ? "less" : "more"}
+                </span>
+              )}
             </div>
           )}
           {post.media.length > 1 && (

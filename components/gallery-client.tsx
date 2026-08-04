@@ -1283,7 +1283,7 @@ export default function GalleryClient() {
               {groups.map(([label, groupItems]) => (
               <section key={label} className="mb-8">
                 <h2 className="mb-3 text-sm font-medium text-white/60">{label}</h2>
-                <div className={`grid gap-x-2 gap-y-2.5 ${GRID_COL_CLASS[cols]}`}>
+                <div className={`grid gap-1.5 ${GRID_COL_CLASS[cols]}`}>
                   {groupItems.map((it) => {
                     const isSel = selected.has(it.id);
                     // One per row is a viewing size, not a contact sheet: show
