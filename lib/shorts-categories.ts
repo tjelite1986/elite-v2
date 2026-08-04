@@ -7,6 +7,7 @@ export const SHORT_CATEGORIES: ShortCategory[] = [
   "gay",
   "lesbian",
   "trans",
+  "solo",
   "uncategorized",
 ];
 
@@ -15,6 +16,7 @@ export const CATEGORY_LABELS: Record<ShortCategory, string> = {
   gay: "Gay",
   lesbian: "Lesbian",
   trans: "Trans",
+  solo: "Solo",
   uncategorized: "Uncategorized",
 };
 

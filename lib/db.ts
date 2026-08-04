@@ -188,8 +188,8 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS shorts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       channel TEXT NOT NULL DEFAULT 'main',
-      -- Adult-content sorting bucket (18+ channel): straight/gay/lesbian/trans,
-      -- or 'uncategorized' until an admin sorts it. The same profile can have
+      -- Adult-content sorting bucket (18+ channel): straight/gay/lesbian/trans/
+      -- solo, or 'uncategorized' until an admin sorts it. The same profile can have
       -- clips in different categories.
       category TEXT NOT NULL DEFAULT 'uncategorized',
       profile_id INTEGER REFERENCES short_profiles(id) ON DELETE SET NULL,
@@ -1704,6 +1704,7 @@ export type ShortCategory =
   | "gay"
   | "lesbian"
   | "trans"
+  | "solo"
   | "uncategorized";
 
 export interface ShortRow {
