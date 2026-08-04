@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Heart, MessageCircle, Copy, Check, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import PostCard from "@/components/post-card";
 import PostLightbox, { LightboxViewer } from "@/components/post-lightbox";
 import GridDensity, { useGridCols, GRID_COL_CLASS } from "@/components/grid-density";
 import type { FeedPost } from "@/lib/posts";
@@ -221,6 +222,48 @@ export default function PostGrid({
     return <p className="px-4 py-16 text-center text-sm text-white/50">{empty}</p>;
   }
 
+  // One per row is a reading size, not a contact sheet, so it renders the same
+  // card the feed view does — author, caption, actions and all — instead of a
+  // lone bare photo. Selection modes keep the plain tile: a card carries links
+  // and buttons of its own, which is the wrong thing to tap when the job is
+  // picking a post or a profile picture.
+  const asCards = cols === 1 && !select?.active && !onSelect;
+
+  const patchPost = (id: number, patch: Partial<FeedPost>) =>
+    setItems((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+
+  if (asCards) {
+    return (
+      <>
+        <GridDensity cols={cols} onChange={switchCols} className="mb-2 justify-end px-3" />
+        <div className="space-y-4">
+          {items.map((p) => (
+            <div key={p.id} data-post-id={p.id}>
+              <PostCard
+                post={p}
+                onImageTap={(photo) => openPost(p.id, photo)}
+                onPatch={(patch) => patchPost(p.id, patch)}
+              />
+            </div>
+          ))}
+        </div>
+        <div ref={sentinel} className="h-1 w-full" />
+        {loading && <p className="py-4 text-center text-sm text-white/40">Loading…</p>}
+
+        <PostLightbox
+          posts={items}
+          open={open}
+          viewer={viewer}
+          onClose={closeLightbox}
+          onNavigate={(id) => setOpen({ id, photo: 0 })}
+          onNearEnd={load}
+          onPatch={patchPost}
+          onRemove={(id) => setItems((prev) => prev.filter((p) => p.id !== id))}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <GridDensity cols={cols} onChange={switchCols} className="mb-2 justify-end px-3" />
@@ -329,9 +372,7 @@ export default function PostGrid({
         onClose={closeLightbox}
         onNavigate={(id) => setOpen({ id, photo: 0 })}
         onNearEnd={load}
-        onPatch={(id, patch) =>
-          setItems((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
-        }
+        onPatch={patchPost}
         onRemove={(id) => setItems((prev) => prev.filter((p) => p.id !== id))}
       />
     </>
