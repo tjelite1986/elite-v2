@@ -9,7 +9,7 @@
 // Bump the version to drop the previous cache: the old worker was cache-first
 // and could pin a stale poster/thumbnail under a constant URL. Purging on
 // activate self-heals every device once.
-const IMG_CACHE = "elite-img-v2";
+const IMG_CACHE = "elite-img-v3";
 const IMG_LIMIT = 600;
 
 self.addEventListener("install", () => self.skipWaiting());
