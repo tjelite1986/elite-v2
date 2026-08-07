@@ -3,6 +3,7 @@ import { getSession, getUserById } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { db } from "@/lib/db";
 import { createGateToken, GATE_COOKIE, gateCookieOptions } from "@/lib/shorts-gate";
+import { makeThrottle } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -13,23 +14,7 @@ export const dynamic = "force-dynamic";
 
 // Same in-memory throttle as the unlock route: a short PIN must not be
 // brute-forceable via the change/remove endpoints either.
-const MAX_ATTEMPTS = 5;
-const WINDOW_MS = 10 * 60 * 1000;
-const failures = new Map<string, { count: number; resetAt: number }>();
-
-function isLockedOut(userId: string): boolean {
-  const rec = failures.get(userId);
-  return !!rec && Date.now() <= rec.resetAt && rec.count >= MAX_ATTEMPTS;
-}
-function recordFailure(userId: string) {
-  const now = Date.now();
-  const rec = failures.get(userId);
-  if (!rec || now > rec.resetAt) {
-    failures.set(userId, { count: 1, resetAt: now + WINDOW_MS });
-  } else {
-    rec.count++;
-  }
-}
+const { isLockedOut, recordFailure } = makeThrottle(5, 10 * 60 * 1000);
 const lockedOutResponse = () =>
   NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
 
