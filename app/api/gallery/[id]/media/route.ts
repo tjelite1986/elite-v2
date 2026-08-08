@@ -9,6 +9,7 @@ import {
   thumbPathFor,
   previewPathFor,
   isSupportedVideo,
+  isUnderGalleryRoot,
   videoMimeFor,
 } from "@/lib/gallery-storage";
 import { imageMimeFor } from "@/lib/posts-storage";
@@ -57,6 +58,9 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       variant === "preview"
         ? previewPathFor(ownerId, item.storage_key)
         : thumbPathFor(ownerId, item.storage_key);
+    if (!isUnderGalleryRoot(filePath)) {
+      return new NextResponse("Not found", { status: 404 });
+    }
     let stat: fs.Stats;
     try {
       stat = fs.statSync(filePath);
@@ -81,6 +85,9 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   const contentType = isVideo
     ? videoMimeFor(item.storage_key)
     : imageMimeFor(item.storage_key);
+  if (!isUnderGalleryRoot(filePath)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
   let stat: fs.Stats;
   try {
     stat = fs.statSync(filePath);
