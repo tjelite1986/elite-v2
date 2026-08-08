@@ -9,6 +9,7 @@ import { renameShortFiles } from "@/lib/shorts-storage";
 import { renamePostImageFiles } from "@/lib/posts-storage";
 import { renameGalleryFiles } from "@/lib/gallery-storage";
 import { setItemTags } from "@/lib/gallery-tags";
+import { likePattern } from "@/lib/search";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +55,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
   const q = (searchParams.get("q") ?? "").trim();
-  const like = `%${q}%`;
+  const like = likePattern(q);
 
   let rows: { id: number; title: string }[] = [];
   if (section === "gallery") {

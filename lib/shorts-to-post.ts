@@ -3,6 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { pipeline } from "node:stream/promises";
 import { db, PostMediaRow, PostRow, ShortChannel } from "./db";
 import { qb, getOne } from "./kysely";
 import { getShort } from "./shorts";
@@ -29,9 +30,17 @@ import { parseHashtags } from "./posts";
 // becomes an 18+ post. Once the post exists the short is retired the same way
 // the delete route does (soft-delete first, then unlink). Likes/comments on the
 // short are NOT carried over — same trade-off as deleting it.
-export function moveShortToVideoPost(
+// Stream the file through SHA-256 instead of buffering it whole — clips can be
+// hundreds of MB and this is a dedup key, not something that needs the buffer.
+async function fileHash(filePath: string): Promise<string> {
+  const hash = crypto.createHash("sha256");
+  await pipeline(fs.createReadStream(filePath), hash);
+  return hash.digest("hex");
+}
+
+export async function moveShortToVideoPost(
   shortId: number
-): { ok: true; postId: number } | { ok: false; error: string } {
+): Promise<{ ok: true; postId: number } | { ok: false; error: string }> {
   const short = getShort(shortId);
   if (!short) return { ok: false, error: "Not found" };
   if (short.status !== "ready") {
@@ -93,10 +102,7 @@ export function moveShortToVideoPost(
   const stored = storePostVideoFromFile(slug, src, userHome);
   // Dedup key against future re-imports of the same file (source bytes, like
   // the importer — the remux output isn't byte-stable).
-  const contentHash = crypto
-    .createHash("sha256")
-    .update(fs.readFileSync(src))
-    .digest("hex");
+  const contentHash = await fileHash(src);
 
   const caption = short.caption;
   const postId = db.transaction(() => {
