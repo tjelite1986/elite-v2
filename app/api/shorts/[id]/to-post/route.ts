@@ -25,7 +25,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   }
 
   try {
-    const result = moveShortToVideoPost(short.id);
+    const result = await moveShortToVideoPost(short.id);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }

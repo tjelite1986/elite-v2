@@ -43,6 +43,11 @@ export async function verifySessionToken(
 ): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
+    // The 18+ gate token (lib/shorts-gate.ts) is signed with the same
+    // JWT_SECRET and carries a `scope` claim; a session token never has one.
+    // Reject it here so a gate token can't be structurally accepted as a
+    // session (it would yield a bogus email/role from missing claims).
+    if (payload.scope) return null;
     const result: SessionPayload = {
       sub: String(payload.sub),
       email: String(payload.email),

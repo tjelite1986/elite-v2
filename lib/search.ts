@@ -53,7 +53,7 @@ function ftsQuery(q: string): string | null {
   return tokens.map((t, i) => (i === tokens.length - 1 ? `"${t}"*` : `"${t}"`)).join(" ");
 }
 
-function likePattern(q: string): string {
+export function likePattern(q: string): string {
   return `%${q.replace(/[%_]/g, "")}%`;
 }
 

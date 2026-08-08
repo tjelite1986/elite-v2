@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getShort } from "@/lib/shorts";
+import { canAccessChannel, getShort } from "@/lib/shorts";
 import { moveShortChannel } from "@/lib/shorts-move";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,12 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
   const target = body?.channel;
   if (target !== "main" && target !== "18plus") {
     return NextResponse.json({ error: "Invalid channel." }, { status: 400 });
+  }
+  // Moving a clip INTO 18+ must prove the same PIN access the upload route
+  // requires — otherwise a locked-PIN owner could place content in the 18+
+  // channel without ever unlocking it.
+  if (target === "18plus" && !(await canAccessChannel("18plus"))) {
+    return NextResponse.json({ error: "Access denied." }, { status: 403 });
   }
 
   try {

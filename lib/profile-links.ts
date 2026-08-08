@@ -197,6 +197,29 @@ export function addAlias(handle: string, alias: string): AddAliasResult {
       status: 409,
     };
   }
+  // A name that already belongs to a different (non-account) creator profile
+  // must not be folded under this face either — that would misattribute the
+  // other creator's content and hijack their /people URL.
+  const shortProfile = db
+    .prepare("SELECT 1 FROM short_profiles WHERE norm_handle(name) = ?")
+    .get(member);
+  if (shortProfile) {
+    return {
+      ok: false,
+      error: "That name belongs to an existing creator profile.",
+      status: 409,
+    };
+  }
+  const creatorProfile = db
+    .prepare("SELECT 1 FROM post_creators WHERE norm_handle(username) = ?")
+    .get(member);
+  if (creatorProfile) {
+    return {
+      ok: false,
+      error: "That name belongs to an existing creator profile.",
+      status: 409,
+    };
+  }
   linkProfiles(primary, [member]);
   return { ok: true, alias: member };
 }

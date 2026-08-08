@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
@@ -41,12 +42,22 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Defence-in-depth: row.file_rel is server-generated, but every other media
+  // route that joins a DB-stored relative path onto a storage root guards
+  // against escaping it, so this one does too.
+  if (row.file_rel.includes("..") || path.isAbsolute(row.file_rel)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const filePath = path.join(IMPORT_ROOT, row.file_rel);
   try {
-    const buffer = fs.readFileSync(path.join(IMPORT_ROOT, row.file_rel));
+    const stat = fs.statSync(filePath);
     const ext = path.extname(row.file_rel).toLowerCase();
-    return new NextResponse(new Uint8Array(buffer), {
+    const stream = fs.createReadStream(filePath);
+    return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
       headers: {
         "Content-Type": MIME[ext] ?? "application/octet-stream",
+        "Content-Length": String(stat.size),
         "Cache-Control": "private, max-age=300",
         "X-Content-Type-Options": "nosniff",
       },

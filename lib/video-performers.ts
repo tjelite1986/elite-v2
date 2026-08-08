@@ -6,6 +6,7 @@ import type { VideoPerformerRow, VideoRow } from "./db";
 import { posterFilePath, videoFilePath } from "./videos-storage";
 import { tpdbConfigured } from "./tpdb";
 import { safeHttpUrl } from "./safe-url";
+import { assertPublicUrl } from "./link-preview";
 
 // Performer profiles for the 18+ video library. Deliberately its own table
 // rather than users or post_creators: these are people a film credits, with no
@@ -222,6 +223,7 @@ export async function enrichPerformer(slug: string): Promise<boolean> {
   let imageKey = row.image_key;
   if (!imageKey && found.image) {
     try {
+      await assertPublicUrl(new URL(found.image));
       const res = await fetch(found.image, { signal: AbortSignal.timeout(30_000) });
       if (res.ok) {
         const buf = Buffer.from(await res.arrayBuffer());
@@ -326,6 +328,7 @@ async function importGallery(slug: string, posters: any): Promise<void> {
   let idx = 0;
   for (const poster of ordered) {
     try {
+      await assertPublicUrl(new URL(poster.url));
       const res = await fetch(poster.url, { signal: AbortSignal.timeout(30_000) });
       if (!res.ok) continue;
       const buf = Buffer.from(await res.arrayBuffer());
@@ -417,7 +420,7 @@ export function performerVideos(slug: string, userId: number) {
          FROM videos v
          JOIN video_performer_links l ON l.video_id = v.id
          LEFT JOIN video_progress pr ON pr.video_id = v.id AND pr.user_id = @userId
-        WHERE l.performer_slug = @slug
+        WHERE l.performer_slug = @slug AND v.channel = 'adults'
         ORDER BY v.meta_date DESC, v.added_at DESC`
     )
     .all({ slug, userId }) as (VideoRow & { position: number; percent: number })[];
