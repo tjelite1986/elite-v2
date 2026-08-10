@@ -5,14 +5,13 @@ import { parseVideoChannel } from "@/lib/videos-storage";
 import { startMetadataRun } from "@/lib/video-metadata";
 import type { ScanResult } from "@/lib/videos";
 
-// New 18+ files carry their own sidecar metadata, but performer biographies and
-// portraits come from ThePornDB — which only the metadata pass fetches. Without
-// this a fresh drop shows unknown performers until the next hourly run.
+// A fresh drop is described by the metadata pass, not by the scan: sidecars
+// aside, titles, cover art and cast all come from an API call. Without this the
+// new files sit there unidentified until the next hourly run — and that is true
+// of a film on the main channel just as much as a scene on the 18+ one.
 // Fire-and-forget: it declines on its own if a run is already going.
-function matchNewAdultVideos(results: ScanResult[]) {
-  if (results.some((r) => r.channel === "adults" && r.added > 0)) {
-    startMetadataRun();
-  }
+function matchNewVideos(results: ScanResult[]) {
+  if (results.some((r) => r.added > 0)) startMetadataRun();
 }
 
 export const dynamic = "force-dynamic";
@@ -39,11 +38,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unknown channel" }, { status: 400 });
     }
     const results = [await scanVideoChannel(channel)];
-    matchNewAdultVideos(results);
+    matchNewVideos(results);
     return NextResponse.json({ ok: true, results });
   }
 
   const results = await scanAllVideos();
-  matchNewAdultVideos(results);
+  matchNewVideos(results);
   return NextResponse.json({ ok: true, results });
 }
