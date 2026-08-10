@@ -774,6 +774,80 @@ export function deletePerformer(slug: string): void {
   for (const g of gallery) removePosterFile(g.image_key);
 }
 
+// Every column ThePornDB owns. Listed once so unlinking cannot drift from
+// what the enrichment writes.
+const TPDB_OWNED_COLUMNS = [
+  "tpdb_id",
+  "bio",
+  "birthday",
+  "deathday",
+  "birthplace",
+  "nationality",
+  "ethnicity",
+  "gender",
+  "astrology",
+  "height",
+  "weight",
+  "measurements",
+  "cupsize",
+  "waist",
+  "hips",
+  "hair_colour",
+  "eye_colour",
+  "tattoos",
+  "piercings",
+  "fake_boobs",
+  "same_sex_only",
+  "career_start",
+  "career_end",
+  "full_name",
+  "disambiguation",
+  "rating",
+  "aliases",
+  "links",
+] as const;
+
+// Cut a profile loose from the record it was matched to. The counterpart of a
+// refresh: when the match is a different person entirely, everything imported
+// is wrong, and there may be no right record to point at instead.
+//
+// `checked_at` is deliberately left set — clearing it would hand the profile
+// straight back to the hourly pass, which would match the same wrong record
+// again, since the name that misled it has not changed.
+export function unlinkPerformerTpdb(
+  slug: string,
+  options?: { keepPortrait?: boolean }
+): void {
+  const row = db
+    .prepare("SELECT image_key FROM video_performers WHERE slug = ?")
+    .get(slug) as { image_key: string | null } | undefined;
+  if (!row) return;
+
+  const sets = TPDB_OWNED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
+  db.prepare(`UPDATE video_performers SET ${sets} WHERE slug = ?`).run(slug);
+
+  // The photo strip only ever comes from there, so it goes with the link.
+  for (const { image_key } of db
+    .prepare("SELECT image_key FROM video_performer_images WHERE performer_slug = ?")
+    .all(slug) as { image_key: string }[]) {
+    removePosterFile(image_key);
+  }
+  db.prepare("DELETE FROM video_performer_images WHERE performer_slug = ?").run(slug);
+
+  // The portrait can have come from the release folder instead, and that one
+  // is worth keeping.
+  if (!options?.keepPortrait) removePerformerPortrait(slug);
+}
+
+export function removePerformerPortrait(slug: string): void {
+  const row = db
+    .prepare("SELECT image_key FROM video_performers WHERE slug = ?")
+    .get(slug) as { image_key: string | null } | undefined;
+  if (!row?.image_key) return;
+  db.prepare("UPDATE video_performers SET image_key = NULL WHERE slug = ?").run(slug);
+  removePosterFile(row.image_key);
+}
+
 // Replace the portrait with an uploaded image. The key carries a version so the
 // browser cannot keep serving the previous portrait from its day-long cache.
 export async function savePerformerPortrait(

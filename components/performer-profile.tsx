@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Star,
   Trash2,
+  Unlink,
   UserRound,
 } from "lucide-react";
 import PerformerForm from "@/components/performer-form";
@@ -169,6 +170,36 @@ export default function PerformerProfile({
     router.refresh();
   };
 
+  // The match is a different person: drop what it imported rather than trying
+  // to correct it field by field.
+  const unlink = async () => {
+    if (
+      !confirm(
+        `Unlink ${performer.name} from ThePornDB? The imported facts and photos are removed; the name and their films stay.`
+      )
+    ) {
+      return;
+    }
+    const keepPortrait = confirm(
+      "Keep the current portrait? OK keeps it (use this when it came with the release), Cancel removes it too."
+    );
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/videos/performers/${performer.slug}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unlink: true, keepPortrait }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.performer) setPerformer(data.performer);
+      setNote(data.message || data.error || null);
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const remove = async () => {
     if (!confirm(`Delete ${performer.name}? This cannot be undone.`)) return;
     setBusy(true);
@@ -318,6 +349,16 @@ export default function PerformerProfile({
                   <RefreshCw size={13} />
                 )}
                 Refresh profile
+              </button>
+            )}
+            {isAdmin && performer.tpdb_id && (
+              <button
+                onClick={unlink}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-xs text-white/70 transition hover:bg-white/10 disabled:opacity-50"
+              >
+                <Unlink size={13} />
+                Unlink
               </button>
             )}
             {isAdmin && (

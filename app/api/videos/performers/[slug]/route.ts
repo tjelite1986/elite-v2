@@ -5,6 +5,7 @@ import {
   deletePerformer,
   enrichPerformer,
   getPerformer,
+  unlinkPerformerTpdb,
   updatePerformer,
 } from "@/lib/video-performers";
 import { parseTpdbRef } from "@/lib/tpdb";
@@ -46,6 +47,21 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   const body = await request.json().catch(() => ({}));
+
+  // { unlink: true } is the opposite of a refresh: the match is a different
+  // person, so everything it imported has to go.
+  if (body?.unlink === true) {
+    if (!getPerformer(slug)) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    unlinkPerformerTpdb(slug, { keepPortrait: body.keepPortrait === true });
+    return NextResponse.json({
+      ok: true,
+      performer: getPerformer(slug),
+      message: "Unlinked from ThePornDB.",
+    });
+  }
+
   const raw = typeof body?.tpdbId === "string" ? body.tpdbId.trim() : "";
   let tpdbId: string | undefined;
   if (raw) {
