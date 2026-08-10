@@ -728,6 +728,7 @@ function migrate(db: Database.Database) {
       links TEXT,                       -- JSON array of {key, value}
       image_key TEXT,                   -- filename within VIDEOS_ROOT/.posters
       checked_at TEXT,                  -- last TPDB enrichment attempt
+      manual INTEGER NOT NULL DEFAULT 0, -- created by hand: never auto-pruned
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -743,6 +744,8 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS video_performer_links (
       video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
       performer_slug TEXT NOT NULL REFERENCES video_performers(slug) ON DELETE CASCADE,
+      -- Added by hand on the watch page: a rematch or rescan must not drop it.
+      manual INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (video_id, performer_slug)
     );
     CREATE INDEX IF NOT EXISTS idx_video_performer_links_slug
@@ -952,9 +955,25 @@ function migrate(db: Database.Database) {
       ["rating", "REAL"],
       ["aliases", "TEXT"],
       ["links", "TEXT"],
+      ["manual", "INTEGER NOT NULL DEFAULT 0"],
     ] as const) {
       if (!cols.includes(name))
         db.exec(`ALTER TABLE video_performers ADD COLUMN ${name} ${type}`);
+    }
+  }
+
+  // Hand-made cast links on an existing database. Everything already there came
+  // from a sidecar or the API, so the default of 0 is correct for them.
+  {
+    const cols = (
+      db
+        .prepare("PRAGMA table_info(video_performer_links)")
+        .all() as { name: string }[]
+    ).map((c) => c.name);
+    if (!cols.includes("manual")) {
+      db.exec(
+        "ALTER TABLE video_performer_links ADD COLUMN manual INTEGER NOT NULL DEFAULT 0"
+      );
     }
   }
 
@@ -2060,6 +2079,7 @@ export interface VideoPerformerRow {
   links: string | null;
   image_key: string | null;
   checked_at: string | null;
+  manual: number;
   created_at: string;
 }
 

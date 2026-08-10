@@ -33,7 +33,7 @@ export default async function Watch18Page(props: {
           nationality: p.nationality,
           birthday: p.birthday,
           rating: p.rating,
-          hasImage: Boolean(p.image_key),
+          imageKey: p.image_key,
         })),
       }}
       related={relatedVideos(video, userId)}

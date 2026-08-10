@@ -6,10 +6,14 @@ import Link from "next/link";
 import {
   ExternalLink,
   Loader2,
+  Pencil,
   RefreshCw,
   Star,
+  Trash2,
   UserRound,
 } from "lucide-react";
+import PerformerForm from "@/components/performer-form";
+import PerformerTpdbScenes from "@/components/performer-tpdb-scenes";
 import { cn } from "@/lib/utils";
 import { safeHttpUrl } from "@/lib/safe-url";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -47,6 +51,7 @@ export interface Performer {
   aliases: string | null;
   links: string | null;
   image_key: string | null;
+  manual: number;
   video_count: number;
   images: number[];
 }
@@ -133,6 +138,7 @@ export default function PerformerProfile({
   const [note, setNote] = useState<string | null>(null);
   const [allLinks, setAllLinks] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [editing, setEditing] = useState(false);
 
   useBackDismiss(lightbox !== null, () => setLightbox(null));
 
@@ -147,6 +153,36 @@ export default function PerformerProfile({
       if (data.performer) setPerformer(data.performer);
       setNote(data.message || null);
       router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Re-read the profile after an edit: the sheet only sends what changed, so
+  // the server's version is the one to trust.
+  const reload = async () => {
+    const res = await fetch(`/api/videos/performers/${performer.slug}`);
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data.performer) setPerformer(data.performer);
+    }
+    router.refresh();
+  };
+
+  const remove = async () => {
+    if (!confirm(`Delete ${performer.name}? This cannot be undone.`)) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/videos/performers/${performer.slug}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        router.push("/videos18/performers");
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      setNote(data.error || "Could not delete this profile.");
     } finally {
       setBusy(false);
     }
@@ -229,7 +265,7 @@ export default function PerformerProfile({
             {performer.image_key ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={`/api/videos/performers/${performer.slug}/image`}
+                src={`/api/videos/performers/${performer.slug}/image?v=${encodeURIComponent(performer.image_key)}`}
                 alt=""
                 className="h-full w-full object-cover"
               />
@@ -282,6 +318,25 @@ export default function PerformerProfile({
                   <RefreshCw size={13} />
                 )}
                 Refresh profile
+              </button>
+            )}
+            {isAdmin && (
+              <button
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-xs transition hover:bg-white/10"
+              >
+                <Pencil size={13} />
+                Edit
+              </button>
+            )}
+            {isAdmin && performer.manual === 1 && (
+              <button
+                onClick={remove}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-xs text-red-300 transition hover:bg-red-500/10 disabled:opacity-50"
+              >
+                <Trash2 size={13} />
+                Delete
               </button>
             )}
             {note && <span className="text-xs text-white/40">{note}</span>}
@@ -354,6 +409,12 @@ export default function PerformerProfile({
         </div>
       )}
 
+      {/* What the database credits them with, whether or not it is here.
+          Admin-only: every page of it is a third-party call. */}
+      {isAdmin && performer.tpdb_id && (
+        <PerformerTpdbScenes slug={performer.slug} />
+      )}
+
       <Link
         href="/videos18/performers"
         className="mt-6 inline-block text-sm text-white/40 transition hover:text-white"
@@ -376,6 +437,17 @@ export default function PerformerProfile({
             className="max-h-full max-w-full rounded-lg object-contain"
           />
         </div>
+      )}
+
+      {editing && (
+        <PerformerForm
+          performer={performer}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            void reload();
+          }}
+        />
       )}
     </div>
   );

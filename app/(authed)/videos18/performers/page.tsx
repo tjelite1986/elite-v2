@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 export default async function PerformersPage() {
   const session = await getSession();
   if (!session) redirect("/login");
-  return <PerformersBrowser />;
+  return <PerformersBrowser isAdmin={session.role === "admin"} />;
 }

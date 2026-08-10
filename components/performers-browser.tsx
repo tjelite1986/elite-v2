@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Search, UserRound } from "lucide-react";
+import { Loader2, Plus, Search, UserRound } from "lucide-react";
+import PerformerForm from "@/components/performer-form";
 
 interface Performer {
   slug: string;
@@ -13,23 +14,30 @@ interface Performer {
   nationality: string | null;
 }
 
-// Performer index for the 18+ library: everyone credited on a video, most
-// prolific first, each linking to their own profile page.
-export default function PerformersBrowser() {
+// Performer index for the 18+ library: everyone credited on a video, plus the
+// profiles an admin created by hand, most prolific first.
+export default function PerformersBrowser({
+  isAdmin = false,
+}: {
+  isAdmin?: boolean;
+}) {
   const [performers, setPerformers] = useState<Performer[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/videos/performers");
+      if (res.ok) setPerformers((await res.json()).performers);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/videos/performers");
-        if (res.ok) setPerformers((await res.json()).performers);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    void load();
+  }, [load]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -43,6 +51,15 @@ export default function PerformersBrowser() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h1 className="text-xl font-semibold">Performers</h1>
         <span className="text-xs text-white/40">{performers.length}</span>
+        {isAdmin && (
+          <button
+            onClick={() => setCreating(true)}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs transition hover:bg-white/10"
+          >
+            <Plus size={13} />
+            New performer
+          </button>
+        )}
       </div>
 
       <label className="mb-4 flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-2">
@@ -75,9 +92,11 @@ export default function PerformersBrowser() {
             >
               <div className="relative mx-auto aspect-square w-full overflow-hidden rounded-full bg-white/5">
                 {p.image_key ? (
+                  // The key is part of the URL so a replaced portrait is not
+                  // served from the browser's day-long cache.
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={`/api/videos/performers/${p.slug}/image`}
+                    src={`/api/videos/performers/${p.slug}/image?v=${encodeURIComponent(p.image_key)}`}
                     alt=""
                     loading="lazy"
                     className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
@@ -95,6 +114,17 @@ export default function PerformersBrowser() {
             </Link>
           ))}
         </div>
+      )}
+
+      {creating && (
+        <PerformerForm
+          performer={null}
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            setCreating(false);
+            void load();
+          }}
+        />
       )}
     </div>
   );

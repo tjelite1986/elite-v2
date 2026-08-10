@@ -142,6 +142,107 @@ export async function getTpdb(
   }
 }
 
+// --- addressing a record directly -------------------------------------------
+
+export type TpdbRefType = TpdbType | "performer";
+
+export interface TpdbRef {
+  id: string;
+  // Null when the id alone was given: the caller has to try each kind.
+  type: TpdbRefType | null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function refTypeFromPath(segment: string): TpdbRefType | null {
+  const s = segment.toLowerCase();
+  if (s === "scenes" || s === "scene") return "scene";
+  if (s === "movies" || s === "movie") return "movie";
+  if (s === "performers" || s === "performer") return "performer";
+  return null;
+}
+
+// Turn whatever the user pasted into a record to fetch: a site or API URL, the
+// "scenes/224654" form a .nfo writes, or a bare uuid / numeric id. Returns null
+// for anything that is plainly a title rather than an identifier.
+export function parseTpdbRef(input: string): TpdbRef | null {
+  const raw = input.trim();
+  if (!raw) return null;
+
+  if (/^https?:\/\//i.test(raw)) {
+    let url: URL;
+    try {
+      url = new URL(raw);
+    } catch {
+      return null;
+    }
+    if (!/(^|\.)theporndb\.net$/i.test(url.hostname)) return null;
+    const parts = url.pathname.split("/").filter(Boolean);
+    for (let i = 0; i < parts.length - 1; i++) {
+      const type = refTypeFromPath(parts[i]);
+      if (type) return { id: decodeURIComponent(parts[i + 1]), type };
+    }
+    return null;
+  }
+
+  const slashed = /^(scenes?|movies?|performers?)\/(.+)$/i.exec(raw);
+  if (slashed) {
+    return { id: slashed[2].trim(), type: refTypeFromPath(slashed[1]) };
+  }
+
+  if (UUID.test(raw) || /^\d{1,12}$/.test(raw)) return { id: raw, type: null };
+  return null;
+}
+
+// Fetch a film by identifier. With no type in the reference both endpoints are
+// tried, because a bare id says nothing about which kind of record it is.
+export async function getTpdbByRef(ref: TpdbRef): Promise<TpdbResult | null> {
+  const types: TpdbType[] =
+    ref.type === "scene" || ref.type === "movie"
+      ? [ref.type]
+      : ref.type === "performer"
+        ? []
+        : ["scene", "movie"];
+  for (const type of types) {
+    const found = await getTpdb(ref.id, type);
+    if (found) return found;
+  }
+  return null;
+}
+
+export interface TpdbPage {
+  items: TpdbResult[];
+  page: number;
+  lastPage: number;
+  total: number;
+}
+
+// Everything the database credits one performer with. Paginated at the source
+// (a busy performer has well over a thousand scenes) and NOT searchable — the
+// endpoint ignores `q`, so filtering is the caller's job.
+export async function performerRecords(
+  tpdbId: string,
+  type: TpdbType,
+  page = 1,
+  perPage = 24
+): Promise<TpdbPage> {
+  const path = `/performers/${encodeURIComponent(tpdbId)}/${
+    type === "movie" ? "movies" : "scenes"
+  }`;
+  const data = await get(path, {
+    page: String(Math.max(1, page)),
+    per_page: String(perPage),
+  });
+  const meta = data?.meta || {};
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    items: (data?.data || []).map((item: any) => normalizeItem(item, type)),
+    page: Number(meta.current_page) || page,
+    lastPage: Number(meta.last_page) || 1,
+    total: Number(meta.total) || 0,
+  };
+}
+
 // --- matching ---------------------------------------------------------------
 
 function normalizeTitle(s: string): string {
