@@ -8,13 +8,15 @@ import {
   parseMetadata,
 } from "@/lib/video-metadata";
 import { tpdbConfigured } from "@/lib/tpdb";
+import { tmdbConfigured } from "@/lib/tmdb";
 
 export const dynamic = "force-dynamic";
 // A lookup fans out over several search variants against a third-party API.
 export const maxDuration = 120;
 
-// Metadata is an 18+ library feature: ThePornDB has nothing to say about the
-// main channel, and admins are the only ones who can change library-wide data.
+// Both channels have a database that can describe them — ThePornDB for the 18+
+// shelf, TheMovieDB for the main one — but only admins may change library-wide
+// data either way.
 async function load(id: string, needAdmin: boolean) {
   const session = await getSession();
   if (!session) return { error: "Unauthorized", status: 401 as const };
@@ -23,9 +25,6 @@ async function load(id: string, needAdmin: boolean) {
   }
   const video = getVideo(Number(id));
   if (!video) return { error: "Not found", status: 404 as const };
-  if (video.channel !== "adults") {
-    return { error: "Metadata lookup is 18+ only", status: 400 as const };
-  }
   if (!(await canAccessVideoChannel(video.channel))) {
     return { error: "Forbidden", status: 403 as const };
   }
@@ -48,8 +47,13 @@ export async function GET(
   if (!wantSearch) {
     return NextResponse.json({ metadata: parseMetadata(loaded.video) });
   }
-  if (!tpdbConfigured()) {
-    return NextResponse.json({ error: "TPDB_API_KEY is not set" }, { status: 503 });
+  // Either key is enough: the lookup picks the database that can speak for
+  // this channel, and falls back to the other when the first has nothing.
+  if (!tpdbConfigured() && !tmdbConfigured()) {
+    return NextResponse.json(
+      { error: "No metadata API key is configured" },
+      { status: 503 }
+    );
   }
   try {
     const candidates = await candidatesFor(
@@ -65,7 +69,8 @@ export async function GET(
   }
 }
 
-// Apply a candidate the user picked: { id: "<tpdb uuid>", type: "movie"|"scene" }.
+// Apply a candidate the user picked:
+// { id, type: "movie"|"scene"|"tv", source: "tpdb"|"tmdb" }.
 export async function POST(
   request: Request,
   props: { params: Promise<{ id: string }> }
@@ -76,12 +81,13 @@ export async function POST(
     return NextResponse.json({ error: loaded.error }, { status: loaded.status });
   }
   const body = await request.json().catch(() => ({}));
-  const tpdbId = typeof body.id === "string" ? body.id : null;
-  const type = body.type === "scene" ? "scene" : "movie";
-  if (!tpdbId) {
+  const matchId = typeof body.id === "string" ? body.id : null;
+  const source = body.source === "tmdb" ? "tmdb" : "tpdb";
+  const type = typeof body.type === "string" ? body.type : "movie";
+  if (!matchId) {
     return NextResponse.json({ error: "Missing match id" }, { status: 400 });
   }
-  const ok = await applyMatchById(loaded.video, tpdbId, type);
+  const ok = await applyMatchById(loaded.video, matchId, type, source);
   if (!ok) {
     return NextResponse.json({ error: "That entry no longer exists" }, { status: 404 });
   }

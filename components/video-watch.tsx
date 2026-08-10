@@ -412,14 +412,15 @@ export default function VideoWatch({
             </p>
           )}
 
-          {/* Metadata (18+ library only — the main channel has no such source) */}
-          {video.channel === "adults" && !editing && (
+          {/* Both channels have a database that can describe them. */}
+          {!editing && (
             <VideoMetadataPanel
               videoId={video.id}
               fallbackTitle={video.title}
               metadata={video.metadata ?? null}
               performers={video.cast ?? []}
               isAdmin={isAdmin}
+              channel={video.channel === "adults" ? "adults" : "main"}
               onSeek={(time) =>
                 setSeekRequest({ time, nonce: Date.now() })
               }
