@@ -853,6 +853,12 @@ async function convertOne(row: VideoRow): Promise<void> {
         "libx264",
         "-profile:v",
         "main",
+        // Force 8-bit. ffmpeg otherwise carries the source's pixel format
+        // through, and a 10-bit source then fails outright ("main profile
+        // doesn't support a bit depth of 10") — while High 10, the profile
+        // that would accept it, is not decodable by most browsers anyway.
+        "-pix_fmt",
+        "yuv420p",
         "-preset",
         "veryfast",
         "-crf",
