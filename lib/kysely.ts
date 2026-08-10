@@ -210,7 +210,11 @@ export interface DB {
   video_likes: VideoLikeRow;
   video_performers: VideoPerformerRow;
   video_performer_images: { performer_slug: string; idx: number; image_key: string };
-  video_performer_links: { video_id: number; performer_slug: string };
+  video_performer_links: {
+    video_id: number;
+    performer_slug: string;
+    manual: number;
+  };
 }
 
 // Kysely is used ONLY to build and type-check queries. Execution stays

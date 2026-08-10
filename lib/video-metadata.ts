@@ -14,7 +14,10 @@ import {
 import {
   findMatches,
   getTpdb,
+  getTpdbByRef,
   isConfident,
+  parseTpdbRef,
+  scoreResult,
   tpdbConfigured,
   type ScoredResult,
   type TpdbResult,
@@ -187,6 +190,15 @@ export async function candidatesFor(
   query?: string
 ): Promise<ScoredResult[]> {
   const title = (query || row.meta_title || row.title).trim();
+  // An id, a "scenes/224654" reference or a theporndb.net URL addresses one
+  // exact record — no search, no scoring, no ambiguity. This is the way out
+  // when the title is unsearchable and the right record is known.
+  const ref = parseTpdbRef(title);
+  if (ref && ref.type !== "performer") {
+    const found = await getTpdbByRef(ref);
+    if (found) return [scoreResult(found, found.title, row.duration)];
+    return [];
+  }
   return findMatches(title, row.duration);
 }
 

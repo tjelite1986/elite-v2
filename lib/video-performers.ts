@@ -38,7 +38,9 @@ export function performerSlug(name: string): string {
 }
 
 // Link a video to its performers, creating any profile that is new. Replaces
-// the whole set, so removing a name from the metadata removes the link too.
+// the set this metadata owns, so removing a name from the metadata removes the
+// link too — but hand-made links and hand-made profiles are left alone: they
+// were never derived from a sidecar or the API, so a rematch cannot know them.
 export function setVideoPerformers(videoId: number, names: string[]): void {
   const insertPerformer = db.prepare(
     "INSERT OR IGNORE INTO video_performers (slug, name) VALUES (?, ?)"
@@ -55,17 +57,28 @@ export function setVideoPerformers(videoId: number, names: string[]): void {
     link.run(videoId, slug);
     slugs.push(slug);
   }
-  // Drop links this video no longer claims.
+  // Drop the automatic links this video no longer claims.
   const placeholders = slugs.map(() => "?").join(", ");
   db.prepare(
     `DELETE FROM video_performer_links
-      WHERE video_id = ?${slugs.length ? ` AND performer_slug NOT IN (${placeholders})` : ""}`
+      WHERE video_id = ? AND manual = 0${
+        slugs.length ? ` AND performer_slug NOT IN (${placeholders})` : ""
+      }`
   ).run(videoId, ...slugs);
-  // A profile nobody links to any more is noise.
-  db.prepare(
-    `DELETE FROM video_performers
-      WHERE slug NOT IN (SELECT performer_slug FROM video_performer_links)`
-  ).run();
+  pruneOrphanPerformers();
+}
+
+// A derived profile nobody links to any more is noise. A hand-made one is not:
+// it exists because someone created it, even with no film attached yet.
+export function pruneOrphanPerformers(): void {
+  const orphans = db
+    .prepare(
+      `SELECT slug FROM video_performers
+        WHERE manual = 0
+          AND slug NOT IN (SELECT performer_slug FROM video_performer_links)`
+    )
+    .all() as { slug: string }[];
+  for (const { slug } of orphans) deletePerformer(slug);
 }
 
 // The portrait that shipped with a release: "<release>-Performer-Dee-Williams-image.png".
@@ -202,13 +215,44 @@ async function tpdbPerformer(name: string): Promise<any | null> {
   }
 }
 
-export async function enrichPerformer(slug: string): Promise<boolean> {
+// One performer addressed by its identifier — the way out when the stage name
+// is ambiguous, misspelled in the release, or shared by several records.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function tpdbPerformerById(id: string): Promise<any | null> {
+  const key = process.env.TPDB_API_KEY;
+  if (!key) return null;
+  const url = new URL(
+    `https://api.theporndb.net/performers/${encodeURIComponent(id)}`
+  );
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Fetch a profile from ThePornDB. `tpdbId` addresses one exact record;
+// otherwise the id already stored on the row wins over another name search,
+// and only then does it fall back to searching for the name.
+export async function enrichPerformer(
+  slug: string,
+  tpdbId?: string
+): Promise<boolean> {
   const row = db
     .prepare("SELECT * FROM video_performers WHERE slug = ?")
     .get(slug) as VideoPerformerRow | undefined;
   if (!row) return false;
 
-  const found = await tpdbPerformer(row.name);
+  const id = tpdbId?.trim() || row.tpdb_id;
+  const found = id
+    ? ((await tpdbPerformerById(id)) ?? (tpdbId ? null : await tpdbPerformer(row.name)))
+    : await tpdbPerformer(row.name);
   // Record the attempt either way, so a performer the database has never heard
   // of is not looked up again on every run.
   if (!found) {
@@ -253,17 +297,49 @@ export async function enrichPerformer(slug: string): Promise<boolean> {
   const bool = (v: unknown): number | null =>
     typeof v === "boolean" ? (v ? 1 : 0) : null;
 
+  // On a hand-made profile the fetch fills gaps instead of flattening them: a
+  // field the database has nothing to say about keeps what was typed in.
+  const assignments: [column: string, param: string][] = [
+    ["tpdb_id", "tpdbId"],
+    ["bio", "bio"],
+    ["birthday", "birthday"],
+    ["birthplace", "birthplace"],
+    ["nationality", "nationality"],
+    ["height", "height"],
+    ["measurements", "measurements"],
+    ["hair_colour", "hair"],
+    ["eye_colour", "eye"],
+    ["career_start", "careerStart"],
+    ["career_end", "careerEnd"],
+    ["gender", "gender"],
+    ["ethnicity", "ethnicity"],
+    ["cupsize", "cupsize"],
+    ["weight", "weight"],
+    ["waist", "waist"],
+    ["hips", "hips"],
+    ["tattoos", "tattoos"],
+    ["piercings", "piercings"],
+    ["fake_boobs", "fakeBoobs"],
+    ["same_sex_only", "sameSexOnly"],
+    ["astrology", "astrology"],
+    ["deathday", "deathday"],
+    ["full_name", "fullName"],
+    ["disambiguation", "disambiguation"],
+    ["rating", "rating"],
+    ["aliases", "aliases"],
+    ["links", "links"],
+    ["image_key", "image"],
+  ];
+  const setClause = assignments
+    .map(([column, param]) =>
+      row.manual
+        ? `${column} = COALESCE(@${param}, ${column})`
+        : `${column} = @${param}`
+    )
+    .join(", ");
+
   db.prepare(
-    `UPDATE video_performers SET tpdb_id = @tpdbId, bio = @bio, birthday = @birthday,
-       birthplace = @birthplace, nationality = @nationality, height = @height,
-       measurements = @measurements, hair_colour = @hair, eye_colour = @eye,
-       career_start = @careerStart, career_end = @careerEnd, gender = @gender,
-       ethnicity = @ethnicity, cupsize = @cupsize, weight = @weight,
-       waist = @waist, hips = @hips, tattoos = @tattoos, piercings = @piercings,
-       fake_boobs = @fakeBoobs, same_sex_only = @sameSexOnly,
-       astrology = @astrology, deathday = @deathday, full_name = @fullName,
-       disambiguation = @disambiguation, rating = @rating, aliases = @aliases,
-       links = @links, image_key = @image, checked_at = datetime('now')
+    `UPDATE video_performers SET ${setClause}, checked_at = datetime('now')
      WHERE slug = @slug`
   ).run({
     slug,
@@ -371,9 +447,11 @@ export async function enrichPendingPerformers(
   let enriched = 0;
   for (;;) {
     if (Date.now() >= deadline) break;
+    // Hand-made profiles are stamped as checked at creation, and excluded here
+    // as well: nothing automatic may overwrite a field someone typed in.
     const row = db
       .prepare(
-        "SELECT slug FROM video_performers WHERE checked_at IS NULL ORDER BY name LIMIT 1"
+        "SELECT slug FROM video_performers WHERE checked_at IS NULL AND manual = 0 ORDER BY name LIMIT 1"
       )
       .get() as { slug: string } | undefined;
     if (!row) break;
@@ -385,12 +463,14 @@ export async function enrichPendingPerformers(
 
 // --- queries ----------------------------------------------------------------
 
+// LEFT JOIN, not JOIN: a hand-made profile with no film yet still belongs in
+// the index — otherwise a performer you just created appears to vanish.
 export function listPerformers(): PerformerWithCount[] {
   return db
     .prepare(
       `SELECT p.*, COUNT(l.video_id) AS video_count
          FROM video_performers p
-         JOIN video_performer_links l ON l.performer_slug = p.slug
+         LEFT JOIN video_performer_links l ON l.performer_slug = p.slug
         GROUP BY p.slug
         ORDER BY video_count DESC, p.name COLLATE NOCASE ASC`
     )
@@ -433,4 +513,313 @@ export function performersForVideo(videoId: number): VideoPerformerRow[] {
         ORDER BY p.name COLLATE NOCASE ASC`
     )
     .all(videoId) as VideoPerformerRow[];
+}
+
+// --- hand-made profiles -----------------------------------------------------
+//
+// Everything above assembles a profile from a release folder or ThePornDB.
+// What follows is the other direction: profiles typed in by an admin, and the
+// cast list they attach by hand. Both carry `manual = 1` so the automatic
+// passes treat them as data they do not own — never pruned, never overwritten.
+
+// Text fields an admin can fill in, in the order the profile page shows them.
+export const PERFORMER_TEXT_FIELDS = [
+  "name",
+  "full_name",
+  "disambiguation",
+  "bio",
+  "gender",
+  "birthday",
+  "deathday",
+  "astrology",
+  "birthplace",
+  "nationality",
+  "ethnicity",
+  "cupsize",
+  "hair_colour",
+  "eye_colour",
+  "height",
+  "weight",
+  "measurements",
+  "waist",
+  "hips",
+  "tattoos",
+  "piercings",
+] as const;
+
+export type PerformerTextField = (typeof PERFORMER_TEXT_FIELDS)[number];
+
+export interface PerformerInput {
+  name?: string;
+  full_name?: string | null;
+  disambiguation?: string | null;
+  bio?: string | null;
+  gender?: string | null;
+  birthday?: string | null;
+  deathday?: string | null;
+  astrology?: string | null;
+  birthplace?: string | null;
+  nationality?: string | null;
+  ethnicity?: string | null;
+  cupsize?: string | null;
+  hair_colour?: string | null;
+  eye_colour?: string | null;
+  height?: string | null;
+  weight?: string | null;
+  measurements?: string | null;
+  waist?: string | null;
+  hips?: string | null;
+  tattoos?: string | null;
+  piercings?: string | null;
+  fake_boobs?: boolean | null;
+  same_sex_only?: boolean | null;
+  career_start?: number | null;
+  career_end?: number | null;
+  rating?: number | null;
+  aliases?: string[];
+  links?: { key: string; value: string }[];
+}
+
+function cleanText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 4000) : null;
+}
+
+function cleanYear(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1900 && n <= 2200 ? n : null;
+}
+
+function cleanRating(value: unknown): number | null {
+  // Number(null) and Number("") are both 0, so an unset rating would otherwise
+  // be stored as a real zero and render as a 0.0 star row.
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 && n <= 5 ? Math.round(n * 10) / 10 : null;
+}
+
+function cleanFlag(value: unknown): number | null {
+  return typeof value === "boolean" ? (value ? 1 : 0) : null;
+}
+
+// A slug is a primary key that links, images and URLs all point at, so it is
+// derived once at creation and never re-derived on rename.
+function freeSlug(name: string): string {
+  const base = performerSlug(name);
+  let slug = base;
+  for (let n = 2; ; n++) {
+    const taken = db
+      .prepare("SELECT 1 FROM video_performers WHERE slug = ?")
+      .get(slug);
+    if (!taken) return slug;
+    slug = `${base}-${n}`.slice(0, 80);
+  }
+}
+
+// Create a profile by hand. `checked_at` is stamped so the hourly enrichment
+// pass leaves it alone — the Refresh button on the profile is the only way a
+// hand-typed field gets replaced by ThePornDB's version of it.
+export function createPerformer(input: PerformerInput): string {
+  const name = cleanText(input.name);
+  if (!name) throw new Error("A name is required");
+  const slug = freeSlug(name);
+  db.prepare(
+    `INSERT INTO video_performers (slug, name, manual, checked_at)
+     VALUES (?, ?, 1, datetime('now'))`
+  ).run(slug, name);
+  updatePerformer(slug, { ...input, name });
+  return slug;
+}
+
+// Create a profile from a ThePornDB identifier: the record supplies the name,
+// and the usual enrichment fills in everything else, portrait and photo strip
+// included. Still `manual`, because nothing automatic would have created it.
+export async function createPerformerFromTpdb(
+  tpdbId: string
+): Promise<string | null> {
+  const found = await tpdbPerformerById(tpdbId);
+  const name = cleanText(found?.name);
+  if (!name) return null;
+  const slug = createPerformer({ name });
+  db.prepare("UPDATE video_performers SET tpdb_id = ? WHERE slug = ?").run(
+    String(found.id ?? tpdbId),
+    slug
+  );
+  await enrichPerformer(slug, tpdbId);
+  return slug;
+}
+
+// Patch a profile: only the keys present in the payload are touched, so the
+// form can send a subset and an untouched field keeps whatever the API found.
+export function updatePerformer(slug: string, input: PerformerInput): void {
+  const sets: string[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const params: Record<string, any> = { slug };
+
+  for (const field of PERFORMER_TEXT_FIELDS) {
+    if (!(field in input)) continue;
+    const value = cleanText(input[field]);
+    if (field === "name" && !value) continue; // a profile without a name is unusable
+    sets.push(`${field} = @${field}`);
+    params[field] = value;
+  }
+  if ("fake_boobs" in input) {
+    sets.push("fake_boobs = @fake_boobs");
+    params.fake_boobs = cleanFlag(input.fake_boobs);
+  }
+  if ("same_sex_only" in input) {
+    sets.push("same_sex_only = @same_sex_only");
+    params.same_sex_only = cleanFlag(input.same_sex_only);
+  }
+  if ("career_start" in input) {
+    sets.push("career_start = @career_start");
+    params.career_start = cleanYear(input.career_start);
+  }
+  if ("career_end" in input) {
+    sets.push("career_end = @career_end");
+    params.career_end = cleanYear(input.career_end);
+  }
+  if ("rating" in input) {
+    sets.push("rating = @rating");
+    params.rating = cleanRating(input.rating);
+  }
+  if ("aliases" in input) {
+    const list = (input.aliases || [])
+      .map((a) => cleanText(a))
+      .filter((a): a is string => a !== null);
+    sets.push("aliases = @aliases");
+    params.aliases = list.length ? JSON.stringify(list) : null;
+  }
+  if ("links" in input) {
+    // Same rule as the imported links: only http(s) is ever stored, because
+    // these end up as hrefs on the profile page.
+    const list = (input.links || [])
+      .map((l) => ({ key: cleanText(l?.key) || "Link", value: safeHttpUrl(l?.value) }))
+      .filter((l): l is { key: string; value: string } => l.value !== null);
+    sets.push("links = @links");
+    params.links = list.length ? JSON.stringify(list) : null;
+  }
+
+  if (!sets.length) return;
+  db.prepare(
+    `UPDATE video_performers SET ${sets.join(", ")} WHERE slug = @slug`
+  ).run(params);
+}
+
+function removePosterFile(key: string | null | undefined): void {
+  if (!key) return;
+  try {
+    fs.rmSync(posterFilePath(key), { force: true });
+  } catch {
+    /* best effort: a missing file is the state we wanted anyway */
+  }
+}
+
+// Drop a profile and everything stored for it. Links and gallery rows go with
+// it through ON DELETE CASCADE; the image files need doing by hand.
+export function deletePerformer(slug: string): void {
+  const row = db
+    .prepare("SELECT image_key FROM video_performers WHERE slug = ?")
+    .get(slug) as { image_key: string | null } | undefined;
+  if (!row) return;
+  const gallery = db
+    .prepare("SELECT image_key FROM video_performer_images WHERE performer_slug = ?")
+    .all(slug) as { image_key: string }[];
+  db.prepare("DELETE FROM video_performers WHERE slug = ?").run(slug);
+  removePosterFile(row.image_key);
+  for (const g of gallery) removePosterFile(g.image_key);
+}
+
+// Replace the portrait with an uploaded image. The key carries a version so the
+// browser cannot keep serving the previous portrait from its day-long cache.
+export async function savePerformerPortrait(
+  slug: string,
+  buffer: Buffer
+): Promise<string | null> {
+  const previous = (
+    db.prepare("SELECT image_key FROM video_performers WHERE slug = ?").get(slug) as
+      | { image_key: string | null }
+      | undefined
+  )?.image_key;
+  const key = `performer_${slug}_p${Date.now().toString(36)}.jpg`;
+  try {
+    await sharp(buffer)
+      .resize({ width: 500, height: 500, fit: "cover", position: "top" })
+      .jpeg({ quality: 85 })
+      .toFile(posterFilePath(key));
+  } catch {
+    return null;
+  }
+  db.prepare("UPDATE video_performers SET image_key = ? WHERE slug = ?").run(
+    key,
+    slug
+  );
+  if (previous !== key) removePosterFile(previous);
+  return key;
+}
+
+// Append a photo to the strip. Indices only ever count up, so deleting one and
+// adding another never reuses a URL a browser has already cached.
+export async function addPerformerImage(
+  slug: string,
+  buffer: Buffer
+): Promise<number | null> {
+  const max = db
+    .prepare(
+      "SELECT COALESCE(MAX(idx), -1) AS idx FROM video_performer_images WHERE performer_slug = ?"
+    )
+    .get(slug) as { idx: number };
+  const idx = max.idx + 1;
+  const key = `performer_${slug}_g${idx}_${Date.now().toString(36)}.jpg`;
+  try {
+    await sharp(buffer)
+      .resize({ width: 700, withoutEnlargement: true })
+      .jpeg({ quality: 82 })
+      .toFile(posterFilePath(key));
+  } catch {
+    return null;
+  }
+  db.prepare(
+    "INSERT OR REPLACE INTO video_performer_images (performer_slug, idx, image_key) VALUES (?, ?, ?)"
+  ).run(slug, idx, key);
+  return idx;
+}
+
+export function removePerformerImage(slug: string, idx: number): void {
+  const row = db
+    .prepare(
+      "SELECT image_key FROM video_performer_images WHERE performer_slug = ? AND idx = ?"
+    )
+    .get(slug, idx) as { image_key: string } | undefined;
+  if (!row) return;
+  db.prepare(
+    "DELETE FROM video_performer_images WHERE performer_slug = ? AND idx = ?"
+  ).run(slug, idx);
+  removePosterFile(row.image_key);
+}
+
+// The cast an admin edited by hand on a watch page: the list given here is the
+// whole cast afterwards. A name that was added by hand is marked manual so a
+// later rematch keeps it; a name that came from the metadata keeps its own
+// mark, so correcting the film's match can still correct its credits.
+export function setManualVideoPerformers(videoId: number, slugs: string[]): void {
+  const known = slugs.filter(
+    (slug) =>
+      typeof slug === "string" &&
+      db.prepare("SELECT 1 FROM video_performers WHERE slug = ?").get(slug)
+  );
+  const link = db.prepare(
+    `INSERT OR IGNORE INTO video_performer_links (video_id, performer_slug, manual)
+     VALUES (?, ?, 1)`
+  );
+  for (const slug of known) link.run(videoId, slug);
+  const placeholders = known.map(() => "?").join(", ");
+  db.prepare(
+    `DELETE FROM video_performer_links
+      WHERE video_id = ?${
+        known.length ? ` AND performer_slug NOT IN (${placeholders})` : ""
+      }`
+  ).run(videoId, ...known);
+  pruneOrphanPerformers();
 }

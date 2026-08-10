@@ -10,6 +10,7 @@ import {
   Search,
   Tag,
   Trash2,
+  UserPlus,
   Users,
   Wand2,
   X,
@@ -50,7 +51,28 @@ export interface ScenePerformer {
   nationality: string | null;
   birthday: string | null;
   rating: number | null;
-  hasImage: boolean;
+  // The stored filename, used as a cache-buster: replacing a portrait keeps
+  // the URL but changes the key.
+  imageKey: string | null;
+}
+
+interface CastEntry {
+  slug: string;
+  name: string;
+}
+
+// The identifier shapes lib/tpdb.ts accepts — a uuid, a numeric id, a
+// "performers/1234" reference or a theporndb.net link. Kept in sync by hand:
+// that module is server code and cannot be imported here.
+function looksLikeTpdbRef(input: string): boolean {
+  const raw = input.trim();
+  if (!raw) return false;
+  if (/^https?:\/\/([a-z0-9-]+\.)*theporndb\.net\//i.test(raw)) return true;
+  if (/^(scenes?|movies?|performers?)\/.+$/i.test(raw)) return true;
+  return (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw) ||
+    /^\d{1,12}$/.test(raw)
+  );
 }
 
 export interface VideoMetadata {
@@ -138,9 +160,137 @@ export default function VideoMetadataPanel({
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Cast editor: attach performers to this film by hand, including ones no
+  // sidecar or database knows about.
+  const [castOpen, setCastOpen] = useState(false);
+  const [castDraft, setCastDraft] = useState<CastEntry[]>([]);
+  const [known, setKnown] = useState<CastEntry[]>([]);
+  const [castQuery, setCastQuery] = useState("");
+  const [castBusy, setCastBusy] = useState(false);
+  const [castError, setCastError] = useState<string | null>(null);
+  // Closing the sheet dismisses a history entry, and that navigation lands on
+  // top of router.refresh() — so the saved cast is rendered from the response
+  // rather than waited for from the server.
+  const [castList, setCastList] = useState<ScenePerformer[]>(cast);
+
   useEffect(() => setMeta(initial), [initial]);
+  useEffect(() => setCastList(cast), [cast]);
 
   useBackDismiss(open, () => setOpen(false));
+  useBackDismiss(castOpen, () => setCastOpen(false));
+
+  const openCast = async () => {
+    setCastDraft(castList.map((c) => ({ slug: c.slug, name: c.name })));
+    setCastQuery("");
+    setCastError(null);
+    setCastOpen(true);
+    try {
+      const res = await fetch("/api/videos/performers");
+      if (res.ok) {
+        const data = await res.json();
+        setKnown(
+          (data.performers || []).map((p: { slug: string; name: string }) => ({
+            slug: p.slug,
+            name: p.name,
+          }))
+        );
+      }
+    } catch {
+      /* the picker still works for names already attached */
+    }
+  };
+
+  const addToCast = (entry: CastEntry) => {
+    setCastDraft((list) =>
+      list.some((c) => c.slug === entry.slug) ? list : [...list, entry]
+    );
+    setCastQuery("");
+  };
+
+  // A name nobody has heard of becomes a profile of its own, which the picker
+  // then treats like any other. An identifier instead of a name imports the
+  // whole profile from ThePornDB — portrait, biography and photos included.
+  const createAndAdd = async () => {
+    const typed = castQuery.trim();
+    if (!typed) return;
+    const byId = looksLikeTpdbRef(typed);
+    setCastBusy(true);
+    setCastError(null);
+    try {
+      const res = await fetch("/api/videos/performers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(byId ? { tpdbId: typed } : { name: typed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCastError(data.error || "Could not create that performer.");
+        return;
+      }
+      const entry = {
+        slug: data.slug as string,
+        name: data.performer?.name || typed,
+      };
+      setKnown((list) => [...list, entry]);
+      addToCast(entry);
+    } finally {
+      setCastBusy(false);
+    }
+  };
+
+  const saveCast = async () => {
+    setCastBusy(true);
+    setCastError(null);
+    try {
+      const res = await fetch(`/api/videos/${videoId}/performers`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slugs: castDraft.map((c) => c.slug) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCastError(data.error || "Could not save the cast.");
+        return;
+      }
+      setCastList(
+        (data.performers || []).map(
+          (p: {
+            slug: string;
+            name: string;
+            gender: string | null;
+            nationality: string | null;
+            birthday: string | null;
+            rating: number | null;
+            image_key: string | null;
+          }) => ({
+            slug: p.slug,
+            name: p.name,
+            gender: p.gender,
+            nationality: p.nationality,
+            birthday: p.birthday,
+            rating: p.rating,
+            imageKey: p.image_key,
+          })
+        )
+      );
+      setCastOpen(false);
+      router.refresh();
+    } finally {
+      setCastBusy(false);
+    }
+  };
+
+  const castMatches = known
+    .filter((p) => !castDraft.some((c) => c.slug === p.slug))
+    .filter((p) =>
+      castQuery.trim()
+        ? p.name.toLowerCase().includes(castQuery.trim().toLowerCase())
+        : true
+    )
+    .slice(0, 40);
+  const exactKnown = known.some(
+    (p) => p.name.toLowerCase() === castQuery.trim().toLowerCase()
+  );
 
   const search = useCallback(
     async (q: string) => {
@@ -257,6 +407,13 @@ export default function VideoMetadataPanel({
                 <Wand2 size={13} />
                 {matched ? "Rematch" : "Match"}
               </button>
+              <button
+                onClick={openCast}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-xs transition hover:bg-white/10"
+              >
+                <Users size={13} />
+                Cast
+              </button>
               {matched && (
                 <button
                   onClick={clear}
@@ -276,9 +433,9 @@ export default function VideoMetadataPanel({
 
         {/* Cast cards: portrait, how old they were in this scene, and the name
             linking on to the full profile. */}
-        {cast.length > 0 ? (
+        {castList.length > 0 ? (
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {cast.map((c) => {
+            {castList.map((c) => {
               const years = ageInScene(c.birthday, meta?.date ?? null);
               return (
                 <Link
@@ -287,10 +444,10 @@ export default function VideoMetadataPanel({
                   className="group w-28 shrink-0 overflow-hidden rounded-xl bg-white/5 transition hover:bg-white/10"
                 >
                   <span className="relative block aspect-[3/4] w-full overflow-hidden bg-white/5">
-                    {c.hasImage ? (
+                    {c.imageKey ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
-                        src={`/api/videos/performers/${c.slug}/image`}
+                        src={`/api/videos/performers/${c.slug}/image?v=${encodeURIComponent(c.imageKey)}`}
                         alt=""
                         loading="lazy"
                         className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
@@ -396,6 +553,121 @@ export default function VideoMetadataPanel({
         )}
       </div>
 
+      {/* Cast editor */}
+      {castOpen && (
+        <div
+          className="fixed inset-0 z-[1200] flex items-end justify-center bg-black/70 sm:items-center"
+          onClick={() => setCastOpen(false)}
+        >
+          <div
+            className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-t-2xl bg-neutral-900 p-4 text-white ring-1 ring-white/10 sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="flex-1 text-base font-semibold">Cast</h2>
+              <button
+                onClick={() => setCastOpen(false)}
+                aria-label="Close"
+                className="rounded-full p-1 text-white/50 transition hover:bg-white/10 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {castError && (
+              <p className="mb-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {castError}
+              </p>
+            )}
+
+            {castDraft.length > 0 ? (
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {castDraft.map((c) => (
+                  <span
+                    key={c.slug}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-white/10 py-1 pl-3 pr-1.5 text-xs"
+                  >
+                    {c.name}
+                    <button
+                      onClick={() =>
+                        setCastDraft((list) =>
+                          list.filter((x) => x.slug !== c.slug)
+                        )
+                      }
+                      aria-label={`Remove ${c.name}`}
+                      className="rounded-full p-0.5 text-white/50 transition hover:bg-white/15 hover:text-white"
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mb-3 text-xs text-white/40">
+                Nobody is credited on this video yet.
+              </p>
+            )}
+
+            <label className="mb-3 flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-2">
+              <Search size={14} className="text-white/40" />
+              <input
+                value={castQuery}
+                onChange={(e) => setCastQuery(e.target.value)}
+                placeholder="Search or type a new name"
+                className="w-full bg-transparent text-sm outline-none placeholder:text-white/30"
+              />
+            </label>
+
+            {castQuery.trim() && !exactKnown && (
+              <button
+                onClick={createAndAdd}
+                disabled={castBusy}
+                className="mb-2 inline-flex w-full items-center gap-2 rounded-xl border border-dashed border-white/20 px-3 py-2 text-left text-sm transition hover:bg-white/10 disabled:opacity-50"
+              >
+                {castBusy ? (
+                  <Loader2 size={14} className="animate-spin text-white/50" />
+                ) : (
+                  <UserPlus size={14} className="text-white/50" />
+                )}
+                {looksLikeTpdbRef(castQuery)
+                  ? `Import ${castQuery.trim()} from ThePornDB`
+                  : `Create “${castQuery.trim()}”`}
+              </button>
+            )}
+
+            <ul className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
+              {castMatches.map((p) => (
+                <li key={p.slug}>
+                  <button
+                    onClick={() => addToCast(p)}
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm transition hover:bg-white/10"
+                  >
+                    {p.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setCastOpen(false)}
+                className="rounded-full border border-white/15 px-4 py-2 text-sm transition hover:bg-white/10"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveCast}
+                disabled={castBusy}
+                className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-black transition hover:bg-white/90 disabled:opacity-50"
+              >
+                {castBusy && <Loader2 size={14} className="animate-spin" />}
+                Save cast
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Manual picker */}
       {open && (
         <div
@@ -429,7 +701,7 @@ export default function VideoMetadataPanel({
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search ThePornDB"
+                  placeholder="Title, id, or theporndb.net link"
                   className="w-full rounded-full border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm outline-none focus:border-white/25"
                 />
               </label>
@@ -452,8 +724,9 @@ export default function VideoMetadataPanel({
               <p className="py-6 text-center text-sm text-white/40">Searching…</p>
             ) : candidates.length === 0 ? (
               <p className="py-6 text-center text-sm text-white/40">
-                No candidates. Try a shorter title — the database matches on the
-                whole string, so a performer prefix usually has to go.
+                {looksLikeTpdbRef(query)
+                  ? "No record with that id. Check whether it is a scene or a movie — a bare id is tried as both."
+                  : "No candidates. Try a shorter title — the database matches on the whole string, so a performer prefix usually has to go. Pasting a scene or movie id, or its theporndb.net link, skips the search entirely."}
               </p>
             ) : (
               <ul className="flex flex-col gap-1">
