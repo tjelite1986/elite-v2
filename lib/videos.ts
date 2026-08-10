@@ -11,6 +11,8 @@ import {
   artworkStem,
   canRemuxToMp4,
   channelAvailable,
+  channelDir,
+  isTranscodeTemp,
   isWebPlayable,
   ensureVideoDirs,
   posterFilePath,
@@ -734,6 +736,37 @@ export function pendingTranscodes(): number {
   return row.n;
 }
 
+// Remove orphaned "<name>.converting.mp4" files across both channels.
+function sweepTranscodeTemps(): number {
+  let removed = 0;
+  for (const channel of VIDEO_CHANNELS) {
+    const root = channelDir(channel);
+    const walk = (dir: string) => {
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile() && isTranscodeTemp(entry.name)) {
+          try {
+            fs.rmSync(full, { force: true });
+            removed++;
+          } catch {
+            /* best effort */
+          }
+        }
+      }
+    };
+    walk(root);
+  }
+  return removed;
+}
+
 async function convertOne(row: VideoRow): Promise<void> {
   const src = videoFilePath(row.channel, row.storage_key);
   if (!fs.existsSync(src)) throw new Error("source file is gone");
@@ -885,6 +918,11 @@ export async function transcodePendingVideos(
     };
   }
   transcoding = true;
+  // Nothing else writes these, and no conversion is running (both are checked
+  // above), so anything left is from a run that was killed — a restart mid
+  // encode, most often. Clear it before starting: the files are large, and a
+  // scan would otherwise have to know to ignore them forever.
+  sweepTranscodeTemps();
   const deadline = Date.now() + budgetMs;
   let converted = 0;
   let failed = 0;
