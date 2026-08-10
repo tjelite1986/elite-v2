@@ -169,9 +169,18 @@ export function fromTmdb(r: TmdbResult): MatchCandidate {
 
 export async function applyMatch(
   row: VideoRow,
-  match: MatchCandidate,
+  candidate: MatchCandidate,
   status: "auto" | "manual"
 ): Promise<void> {
+  // A search hit from TheMovieDB is a stub: no runtime, no studio, no genres
+  // and no cast — those live only on the record itself. Fetch it before
+  // storing, or an auto-matched film keeps an empty cast forever, since
+  // nothing goes back to look at a row that already has a match.
+  let match = candidate;
+  if (match.source === "tmdb" && (!match.performers.length || !match.duration)) {
+    const full = await getTmdb(match.id, match.type === "tv" ? "tv" : "movie");
+    if (full) match = fromTmdb(full);
+  }
   deleteMetaPoster(row);
   const posterKey = await downloadPoster(row, match.posterUrl);
   db.prepare(

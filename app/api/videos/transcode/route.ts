@@ -4,20 +4,35 @@ import {
   requeueTranscode,
   startTranscodeOne,
   startTranscodeRun,
+  transcodeQueue,
   transcodeState,
 } from "@/lib/videos";
+import { parseVideoChannel } from "@/lib/videos-storage";
 
 export const dynamic = "force-dynamic";
 
 // Queue state: what is left, whether a run is going, and how the last one ended.
 // This is what the UI and the scheduler poll — the POST below returns as soon as
 // the work is started, never when it finishes.
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return NextResponse.json(transcodeState());
+  const url = new URL(request.url);
+  const scope = parseVideoChannel(url.searchParams.get("channel") || "");
+  // ?list=1 also returns the queue itself, so a human can pick one file to
+  // convert instead of starting hours of encoding for the whole backlog.
+  if (url.searchParams.get("list") === "1") {
+    if (session.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    return NextResponse.json({
+      ...transcodeState(scope ?? undefined),
+      items: transcodeQueue(scope ?? undefined),
+    });
+  }
+  return NextResponse.json(transcodeState(scope ?? undefined));
 }
 
 // Start converting queued videos to H.264/AAC MP4. Authorized by an admin
