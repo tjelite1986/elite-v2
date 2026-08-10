@@ -11,6 +11,8 @@ import {
   artworkStem,
   canRemuxToMp4,
   channelAvailable,
+  channelDir,
+  isTranscodeTemp,
   isWebPlayable,
   ensureVideoDirs,
   posterFilePath,
@@ -364,16 +366,6 @@ export async function scanVideoChannel(
     result.message = `A scan of "${channel}" is already running.`;
     return result;
   }
-  // A conversion renames files and rewrites storage keys underneath us. A scan
-  // crossing that would read a source that is about to vanish (inserting a
-  // metadata-less ghost row) and see the new .mp4 as an orphan to delete. The
-  // hourly scan and transcode jobs fire on the SAME tick, so this is the normal
-  // case, not a corner one — the scan simply waits for the next hour.
-  if (transcoding) {
-    result.skipped = true;
-    result.message = "A conversion run is in progress — skipping this scan.";
-    return result;
-  }
   scanning.add(channel);
 
   try {
@@ -409,6 +401,10 @@ export async function scanVideoChannel(
     );
 
     for (const file of files) {
+      if (isBeingConverted(channel, file.storageKey)) {
+        byKey.delete(file.storageKey); // in flight, not missing: keep its row
+        continue;
+      }
       const row = byKey.get(file.storageKey);
       const filePath = videoFilePath(channel, file.storageKey);
       const stem = artworkStem(channel, file.storageKey);
@@ -559,6 +555,7 @@ export async function scanVideoChannel(
       } else {
         const del = db.prepare("DELETE FROM videos WHERE id = ?");
         for (const row of byKey.values()) {
+          if (isBeingConverted(channel, row.storage_key)) continue;
           del.run(row.id);
           deleteArtwork(row);
           result.removed++;
@@ -615,6 +612,23 @@ export interface TranscodeResult {
 }
 
 let transcoding = false;
+// The two keys a conversion is about to swap: its source is deleted at the end
+// and its output appears in the same instant. A scan must leave BOTH alone —
+// reading the source inserts a row for a file that is about to vanish, and the
+// half-written output would be filed as a video of its own. Everything else in
+// the library is untouched by a conversion, so the scan no longer has to wait
+// for one; a conversion runs for hours, and a file dropped in meanwhile would
+// stay invisible for all of them.
+let converting: { channel: VideoChannel; srcKey: string; dstKey: string } | null =
+  null;
+
+function isBeingConverted(channel: VideoChannel, storageKey: string): boolean {
+  return (
+    converting !== null &&
+    converting.channel === channel &&
+    (converting.srcKey === storageKey || converting.dstKey === storageKey)
+  );
+}
 
 export interface TranscodeRunSummary {
   finishedAt: string;
@@ -629,12 +643,51 @@ export function isTranscoding(): boolean {
   return transcoding;
 }
 
-export function transcodeState(): {
+// `channel` scopes the count to one library, so a badge cannot promise a
+// backlog that the list under it does not show.
+export function transcodeState(channel?: VideoChannel): {
   running: boolean;
   pending: number;
   lastRun: TranscodeRunSummary | null;
+  // Which file is being rewritten right now, so the queue list can say so
+  // instead of leaving every row looking equally idle.
+  currentKey: string | null;
 } {
-  return { running: transcoding, pending: pendingTranscodes(), lastRun };
+  return {
+    running: transcoding,
+    pending: pendingTranscodes(channel),
+    lastRun,
+    currentKey: converting?.srcKey ?? null,
+  };
+}
+
+export interface TranscodeQueueItem {
+  id: number;
+  channel: VideoChannel;
+  title: string;
+  folder: string | null;
+  storage_key: string;
+  size_bytes: number;
+  duration: number | null;
+  video_codec: string | null;
+  audio_codec: string | null;
+  transcode_status: string | null;
+  transcode_error: string | null;
+}
+
+// Everything a browser cannot play, smallest first — the same order the queue
+// run works in, so the list doubles as "what happens next". Includes the ones
+// that already failed: they are exactly the files worth retrying by hand.
+export function transcodeQueue(channel?: VideoChannel): TranscodeQueueItem[] {
+  return db
+    .prepare(
+      `SELECT id, channel, title, folder, storage_key, size_bytes, duration,
+              video_codec, audio_codec, transcode_status, transcode_error
+         FROM videos
+        WHERE playable = 0${channel ? " AND channel = @channel" : ""}
+        ORDER BY (transcode_status = 'failed') ASC, size_bytes ASC`
+    )
+    .all(channel ? { channel } : {}) as TranscodeQueueItem[];
 }
 
 // Kick off a queue run WITHOUT waiting for it. A conversion is minutes to hours;
@@ -725,13 +778,47 @@ export function startTranscodeOne(id: number): {
   return { started: true, message: "Converting in the background." };
 }
 
-export function pendingTranscodes(): number {
+export function pendingTranscodes(channel?: VideoChannel): number {
   const row = db
     .prepare(
-      "SELECT COUNT(*) AS n FROM videos WHERE playable = 0 AND (transcode_status IS NULL OR transcode_status = 'pending')"
+      `SELECT COUNT(*) AS n FROM videos
+        WHERE playable = 0
+          AND (transcode_status IS NULL OR transcode_status = 'pending')
+          ${channel ? "AND channel = @channel" : ""}`
     )
-    .get() as { n: number };
+    .get(channel ? { channel } : {}) as { n: number };
   return row.n;
+}
+
+// Remove orphaned "<name>.converting.mp4" files across both channels.
+function sweepTranscodeTemps(): number {
+  let removed = 0;
+  for (const channel of VIDEO_CHANNELS) {
+    const root = channelDir(channel);
+    const walk = (dir: string) => {
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile() && isTranscodeTemp(entry.name)) {
+          try {
+            fs.rmSync(full, { force: true });
+            removed++;
+          } catch {
+            /* best effort */
+          }
+        }
+      }
+    };
+    walk(root);
+  }
+  return removed;
 }
 
 async function convertOne(row: VideoRow): Promise<void> {
@@ -745,6 +832,7 @@ async function convertOne(row: VideoRow): Promise<void> {
   const dst = videoFilePath(row.channel, dstKey);
   const tmp = `${dst}.converting.mp4`;
   fs.rmSync(tmp, { force: true });
+  converting = { channel: row.channel, srcKey: row.storage_key, dstKey };
 
   const remuxable = canRemuxToMp4(row.video_codec, row.audio_codec);
   const base = ["-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", src];
@@ -765,6 +853,12 @@ async function convertOne(row: VideoRow): Promise<void> {
         "libx264",
         "-profile:v",
         "main",
+        // Force 8-bit. ffmpeg otherwise carries the source's pixel format
+        // through, and a 10-bit source then fails outright ("main profile
+        // doesn't support a bit depth of 10") — while High 10, the profile
+        // that would accept it, is not decodable by most browsers anyway.
+        "-pix_fmt",
+        "yuv420p",
         "-preset",
         "veryfast",
         "-crf",
@@ -885,6 +979,11 @@ export async function transcodePendingVideos(
     };
   }
   transcoding = true;
+  // Nothing else writes these, and no conversion is running (both are checked
+  // above), so anything left is from a run that was killed — a restart mid
+  // encode, most often. Clear it before starting: the files are large, and a
+  // scan would otherwise have to know to ignore them forever.
+  sweepTranscodeTemps();
   const deadline = Date.now() + budgetMs;
   let converted = 0;
   let failed = 0;
@@ -908,9 +1007,16 @@ export async function transcodePendingVideos(
         converted++;
       } catch (err) {
         failed++;
+        // Keep the TAIL of the failure, not the head: ffmpeg's own reason
+        // ("Permission denied", "Invalid data found") is the last line, while
+        // the first 500 characters are the command line we already know.
+        const message = String((err as Error)?.message || err).trim();
         db.prepare(
           "UPDATE videos SET transcode_status = 'failed', transcode_error = ? WHERE id = ?"
-        ).run(String((err as Error)?.message || err).slice(0, 500), row.id);
+        ).run(message.slice(-500), row.id);
+      } finally {
+        // The swap is over either way: nothing is in flight between files.
+        converting = null;
       }
     }
   } finally {

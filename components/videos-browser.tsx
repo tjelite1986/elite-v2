@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import VideoCard, { type VideoCardData } from "@/components/video-card";
+import TranscodeQueue from "@/components/transcode-queue";
 
 interface LibraryVideo extends VideoCardData {
   description: string | null;
@@ -66,6 +67,7 @@ export default function VideosBrowser({
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [pendingConversions, setPendingConversions] = useState(0);
+  const [queueOpen, setQueueOpen] = useState(false);
   const [converting, setConverting] = useState(false);
   const [pendingMeta, setPendingMeta] = useState(0);
   const [matching, setMatching] = useState(false);
@@ -118,7 +120,7 @@ export default function VideosBrowser({
   const loadQueue = useCallback(async () => {
     if (!isAdmin) return;
     try {
-      const res = await fetch("/api/videos/transcode");
+      const res = await fetch(`/api/videos/transcode?channel=${channel}`);
       if (res.ok) {
         const data = await res.json();
         setPendingConversions(data.pending ?? 0);
@@ -214,21 +216,7 @@ export default function VideosBrowser({
     }
   };
 
-  // Start the conversion queue. The request returns as soon as the run begins —
-  // the encode itself outlives any HTTP request — so progress comes from the
-  // queue poll below.
-  const convert = async () => {
-    try {
-      const res = await fetch("/api/videos/transcode", { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      setScanResult(res.ok ? data.message || "Started." : data.error || "Could not start.");
-      if (data.started) setConverting(true);
-    } catch {
-      setScanResult("Could not reach the server.");
-    } finally {
-      await loadQueue();
-    }
-  };
+
 
   // Start the automatic metadata pass (sidecars first, then ThePornDB).
   const matchMetadata = async () => {
@@ -289,9 +277,8 @@ export default function VideosBrowser({
         )}
         {isAdmin && pendingConversions > 0 && (
           <button
-            onClick={convert}
-            disabled={converting}
-            title="Convert files a browser cannot play to MP4"
+            onClick={() => setQueueOpen(true)}
+            title="Pick which files a browser cannot play to convert"
             className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/40 px-3 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-400/10 disabled:opacity-50"
           >
             {converting ? (
@@ -299,9 +286,7 @@ export default function VideosBrowser({
             ) : (
               <Wand2 size={14} />
             )}
-            {converting
-              ? "Converting…"
-              : `Convert ${pendingConversions}`}
+            {converting ? "Converting…" : `Convert ${pendingConversions}`}
           </button>
         )}
       </div>
@@ -394,6 +379,17 @@ export default function VideosBrowser({
             </div>
           )}
         </>
+      )}
+
+      {queueOpen && (
+        <TranscodeQueue
+          channel={channel}
+          onClose={() => setQueueOpen(false)}
+          onChanged={() => {
+            void loadQueue();
+            void load();
+          }}
+        />
       )}
     </div>
   );

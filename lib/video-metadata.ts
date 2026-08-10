@@ -24,11 +24,24 @@ import {
   type TpdbResult,
   type TpdbType,
 } from "./tpdb";
+import {
+  findTmdbMatches,
+  getTmdb,
+  isConfidentTmdb,
+  parseTmdbRef,
+  parseVideoName,
+  tmdbConfigured,
+  type TmdbResult,
+} from "./tmdb";
 
-// Metadata for the 18+ video library, matched against ThePornDB. Matching is
-// deliberately two-tier: a strict automatic pass that only applies obvious
-// matches, and a manual picker for everything else — a wrong auto-match is
-// worse than no match, because nobody goes back to check it.
+// Metadata for the video library. Matching is deliberately two-tier: a strict
+// automatic pass that only applies obvious matches, and a manual picker for
+// everything else — a wrong auto-match is worse than no match, because nobody
+// goes back to check it.
+//
+// Two databases answer, by channel: ThePornDB for the 18+ shelf, TheMovieDB for
+// the main one — and for an 18+ film TPDB has never heard of, which is how a
+// 1978 cinema release gets described at all.
 
 export interface SceneMarker {
   title: string;
@@ -125,15 +138,55 @@ function deleteMetaPoster(row: VideoRow) {
   }
 }
 
+// One shape for both providers: whoever answered, the answer lands in the same
+// columns. `source` is what tells the UI which site to link back to, and which
+// client can re-fetch the record later.
+export type MetaProvider = "tpdb" | "tmdb";
+
+export interface MatchCandidate {
+  source: MetaProvider;
+  id: string;
+  type: string;
+  title: string;
+  date: string | null;
+  duration: number | null;
+  studio: string | null;
+  synopsis: string | null;
+  posterUrl: string | null;
+  performers: string[];
+  tags: string[];
+  url: string | null;
+  markers: SceneMarker[];
+  rating: number | null;
+}
+
+export function fromTpdb(r: TpdbResult): MatchCandidate {
+  return { ...r, source: "tpdb" };
+}
+
+export function fromTmdb(r: TmdbResult): MatchCandidate {
+  const { altTitle: _altTitle, ...rest } = r;
+  return { ...rest, source: "tmdb", markers: [] };
+}
+
 export async function applyMatch(
   row: VideoRow,
-  match: TpdbResult,
+  candidate: MatchCandidate,
   status: "auto" | "manual"
 ): Promise<void> {
+  // A search hit from TheMovieDB is a stub: no runtime, no studio, no genres
+  // and no cast — those live only on the record itself. Fetch it before
+  // storing, or an auto-matched film keeps an empty cast forever, since
+  // nothing goes back to look at a row that already has a match.
+  let match = candidate;
+  if (match.source === "tmdb" && (!match.performers.length || !match.duration)) {
+    const full = await getTmdb(match.id, match.type === "tv" ? "tv" : "movie");
+    if (full) match = fromTmdb(full);
+  }
   deleteMetaPoster(row);
   const posterKey = await downloadPoster(row, match.posterUrl);
   db.prepare(
-    `UPDATE videos SET meta_source = 'tpdb', meta_id = @id, meta_type = @type,
+    `UPDATE videos SET meta_source = @source, meta_id = @id, meta_type = @type,
        meta_title = @title, meta_date = @date, meta_studio = @studio,
        meta_synopsis = @synopsis, meta_performers = @performers,
        meta_tags = @tags, meta_poster_key = @poster, meta_url = @url,
@@ -142,6 +195,7 @@ export async function applyMatch(
      WHERE id = @videoId`
   ).run({
     videoId: row.id,
+    source: match.source,
     id: match.id,
     type: match.type,
     title: match.title || null,
@@ -156,13 +210,17 @@ export async function applyMatch(
     rating: match.rating,
     status,
   });
-  setVideoPerformers(row.id, match.performers);
-  await importLocalPortraits(row, match.performers);
+  // Performer profiles are an 18+ concept: the main channel credits actors,
+  // who have nothing to do with the gated /videos18/performer pages.
+  if (row.channel === "adults") {
+    setVideoPerformers(row.id, match.performers);
+    await importLocalPortraits(row, match.performers);
+  }
 }
 
 export function clearMetadata(row: VideoRow): void {
   deleteMetaPoster(row);
-  setVideoPerformers(row.id, []);
+  if (row.channel === "adults") setVideoPerformers(row.id, []);
   db.prepare(
     `UPDATE videos SET meta_source = NULL, meta_id = NULL, meta_type = NULL,
        meta_title = NULL, meta_date = NULL, meta_studio = NULL,
@@ -173,35 +231,111 @@ export function clearMetadata(row: VideoRow): void {
   ).run(row.id);
 }
 
-// Apply a specific TPDB entry the user picked in the UI.
+// Apply a specific entry the user picked in the UI, from either database.
 export async function applyMatchById(
   row: VideoRow,
-  tpdbId: string,
-  type: TpdbType
+  id: string,
+  type: string,
+  source: MetaProvider = "tpdb"
 ): Promise<boolean> {
-  const match = await getTpdb(tpdbId, type);
+  if (source === "tmdb") {
+    const found = await getTmdb(id, type === "tv" ? "tv" : "movie");
+    if (!found) return false;
+    await applyMatch(row, fromTmdb(found), "manual");
+    return true;
+  }
+  const match = await getTpdb(id, type === "scene" ? "scene" : "movie");
   if (!match) return false;
-  await applyMatch(row, match, "manual");
+  await applyMatch(row, fromTpdb(match), "manual");
   return true;
 }
 
-// Candidates for the manual picker. `query` overrides the file's own title so
-// the user can retype it when the filename is unhelpful.
+export interface ScoredCandidate extends MatchCandidate {
+  score: number;
+  durationDelta: number | null;
+  // Decided by the database that produced it, while its own evidence is still
+  // at hand: a scene has a runtime to check against, a film has a year.
+  confident: boolean;
+}
+
+// Candidates from TheMovieDB. The file's own name carries the year and any
+// season/episode, so a retyped query only replaces the title part.
+async function tmdbCandidates(
+  row: VideoRow,
+  query?: string
+): Promise<ScoredCandidate[]> {
+  if (!tmdbConfigured()) return [];
+  const parsed = parseVideoName(row.storage_key);
+  if (query) {
+    const retyped = parseVideoName(query);
+    parsed.title = retyped.title || query.trim();
+    if (retyped.year) parsed.year = retyped.year;
+    if (retyped.season !== null) {
+      parsed.season = retyped.season;
+      parsed.episode = retyped.episode;
+    }
+  }
+
+  // A themoviedb.org link or a bare id addresses one exact record.
+  const ref = query ? parseTmdbRef(query) : null;
+  if (ref) {
+    const found = await getTmdb(ref.id, ref.type);
+    return found
+      ? [{ ...fromTmdb(found), score: 1, durationDelta: null, confident: true }]
+      : [];
+  }
+
+  const results = await findTmdbMatches(parsed, row.duration);
+  return results.map((r) => ({
+    ...fromTmdb(r),
+    score: r.score,
+    durationDelta: r.durationDelta,
+    confident: isConfidentTmdb(r),
+  }));
+}
+
+// Candidates for the manual picker, from whichever database can speak for this
+// channel. `query` overrides the file's own title so the user can retype it
+// when the filename is unhelpful.
 export async function candidatesFor(
   row: VideoRow,
   query?: string
-): Promise<ScoredResult[]> {
+): Promise<ScoredCandidate[]> {
   const title = (query || row.meta_title || row.title).trim();
+
+  if (row.channel !== "adults") return tmdbCandidates(row, query);
+
   // An id, a "scenes/224654" reference or a theporndb.net URL addresses one
   // exact record — no search, no scoring, no ambiguity. This is the way out
   // when the title is unsearchable and the right record is known.
   const ref = parseTpdbRef(title);
   if (ref && ref.type !== "performer") {
     const found = await getTpdbByRef(ref);
-    if (found) return [scoreResult(found, found.title, row.duration)];
+    if (found) {
+      const scored = scoreResult(found, found.title, row.duration);
+      return [
+        {
+          ...fromTpdb(scored),
+          score: scored.score,
+          durationDelta: scored.durationDelta,
+          confident: true, // the user named the record; there is nothing to guess
+        },
+      ];
+    }
     return [];
   }
-  return findMatches(title, row.duration);
+
+  const tpdb = tpdbConfigured() ? await findMatches(title, row.duration) : [];
+  const scored: ScoredCandidate[] = tpdb.map((r) => ({
+    ...fromTpdb(r),
+    score: r.score,
+    durationDelta: r.durationDelta,
+    confident: isConfident(r),
+  }));
+  // Only when that database has nothing: an adult film it does not know is
+  // usually a cinema release, and those live in TheMovieDB.
+  if (scored.length) return scored;
+  return tmdbCandidates(row, query);
 }
 
 // --- automatic pass ---------------------------------------------------------
@@ -223,12 +357,10 @@ export function metadataState(): {
   lastRun: MetadataRunSummary | null;
 } {
   const row = db
-    .prepare(
-      "SELECT COUNT(*) AS n FROM videos WHERE channel = 'adults' AND meta_status IS NULL"
-    )
+    .prepare("SELECT COUNT(*) AS n FROM videos WHERE meta_status IS NULL")
     .get() as { n: number };
   return {
-    configured: tpdbConfigured(),
+    configured: tpdbConfigured() || tmdbConfigured(),
     running: matching,
     pending: row.n,
     lastRun: lastMetadataRun,
@@ -252,21 +384,21 @@ async function runAutoMatch(budgetMs: number): Promise<MetadataRunSummary> {
     const row = db
       .prepare(
         `SELECT * FROM videos
-          WHERE channel = 'adults' AND meta_status IS NULL
-          ORDER BY id ASC LIMIT 1`
+          WHERE meta_status IS NULL
+          ORDER BY channel = 'adults' DESC, id ASC LIMIT 1`
       )
       .get() as VideoRow | undefined;
     if (!row) break;
 
     try {
       // A sidecar beats a search every time: no network, no ambiguity.
-      if (await applyNfo(row)) {
+      if (row.channel === "adults" && (await applyNfo(row))) {
         matched++;
         continue;
       }
       const results = await candidatesFor(row);
       const best = results[0];
-      if (best && isConfident(best)) {
+      if (best && best.confident) {
         await applyMatch(row, best, "auto");
         matched++;
       } else {
@@ -310,8 +442,8 @@ export function startMetadataRun(budgetMs = 20 * 60_000): {
   started: boolean;
   message: string;
 } {
-  if (!tpdbConfigured()) {
-    return { started: false, message: "TPDB_API_KEY is not set." };
+  if (!tpdbConfigured() && !tmdbConfigured()) {
+    return { started: false, message: "No metadata API key is configured." };
   }
   if (matching) {
     return { started: false, message: "A metadata run is already in progress." };
@@ -424,7 +556,8 @@ async function enrichPendingScenes(deadline: number): Promise<number> {
     const row = db
       .prepare(
         `SELECT * FROM videos
-          WHERE channel = 'adults' AND meta_id IS NOT NULL AND meta_markers IS NULL
+          WHERE channel = 'adults' AND meta_source = 'tpdb'
+            AND meta_id IS NOT NULL AND meta_markers IS NULL
           ORDER BY id LIMIT 1`
       )
       .get() as VideoRow | undefined;
@@ -437,7 +570,5 @@ async function enrichPendingScenes(deadline: number): Promise<number> {
 
 // Put a video back in the automatic queue (the Rematch button).
 export function requeueMetadata(id: number): void {
-  db.prepare(
-    "UPDATE videos SET meta_status = NULL WHERE id = ? AND channel = 'adults'"
-  ).run(id);
+  db.prepare("UPDATE videos SET meta_status = NULL WHERE id = ?").run(id);
 }

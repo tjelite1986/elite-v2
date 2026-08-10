@@ -7,6 +7,7 @@ import {
   getPerformer,
   performerImage,
   removePerformerImage,
+  removePerformerPortrait,
   savePerformerPortrait,
 } from "@/lib/video-performers";
 import { isUnderPosters, posterFilePath } from "@/lib/videos-storage";
@@ -103,7 +104,7 @@ export async function POST(
   return NextResponse.json({ ok: true, performer: getPerformer(slug) });
 }
 
-// Remove one photo from the strip (?i=<n>).
+// Remove one photo from the strip (?i=<n>), or the portrait with no index.
 export async function DELETE(
   request: Request,
   props: { params: Promise<{ slug: string }> }
@@ -114,7 +115,11 @@ export async function DELETE(
     return NextResponse.json({ error: guard.error }, { status: guard.status });
   }
   const raw = new URL(request.url).searchParams.get("i");
-  if (raw === null || !Number.isFinite(Number(raw))) {
+  if (raw === null) {
+    removePerformerPortrait(slug);
+    return NextResponse.json({ ok: true, performer: getPerformer(slug) });
+  }
+  if (!Number.isFinite(Number(raw))) {
     return NextResponse.json({ error: "Which photo?" }, { status: 400 });
   }
   removePerformerImage(slug, Number(raw));

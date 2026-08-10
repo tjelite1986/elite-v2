@@ -94,7 +94,8 @@ export interface VideoMetadata {
 
 interface Candidate {
   id: string;
-  type: "movie" | "scene";
+  source: "tpdb" | "tmdb";
+  type: string;
   title: string;
   date: string | null;
   duration: number | null;
@@ -142,6 +143,7 @@ export default function VideoMetadataPanel({
   metadata: initial,
   performers: cast = [],
   isAdmin,
+  channel = "adults",
   onSeek,
 }: {
   videoId: number;
@@ -149,8 +151,12 @@ export default function VideoMetadataPanel({
   metadata: VideoMetadata | null;
   performers?: ScenePerformer[];
   isAdmin: boolean;
+  // The 18+ shelf has performer profiles and a cast editor; the main channel
+  // credits actors, who have no page here.
+  channel?: "main" | "adults";
   onSeek?: (seconds: number) => void;
 }) {
+  const adults = channel === "adults";
   const router = useRouter();
   const [meta, setMeta] = useState<VideoMetadata | null>(initial);
   const [open, setOpen] = useState(false);
@@ -330,7 +336,7 @@ export default function VideoMetadataPanel({
       const res = await fetch(`/api/videos/${videoId}/metadata`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: c.id, type: c.type }),
+        body: JSON.stringify({ id: c.id, type: c.type, source: c.source }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -360,11 +366,25 @@ export default function VideoMetadataPanel({
   // controls, so it is never trusted as an href unmodified.
   const studioUrl = safeHttpUrl(meta?.url);
   // Both the uuid and the numeric id resolve on the site; the path just needs
-  // the plural of the record type.
-  const tpdbUrl =
-    meta?.id && meta?.type
-      ? `https://theporndb.net/${meta.type === "movie" ? "movies" : "scenes"}/${meta.id}`
-      : null;
+  // the plural of the record type. TheMovieDB addresses an episode through its
+  // series, which is why that id carries the season and episode with it.
+  const recordUrl = (() => {
+    if (!meta?.id || !meta?.type) return null;
+    if (meta.source === "tmdb") {
+      if (meta.type === "tv") {
+        const [showId, season, episode] = meta.id.split(":");
+        return season !== undefined && episode !== undefined
+          ? `https://www.themoviedb.org/tv/${showId}/season/${season}/episode/${episode}`
+          : `https://www.themoviedb.org/tv/${showId}`;
+      }
+      return `https://www.themoviedb.org/movie/${meta.id}`;
+    }
+    if (meta.source === "nfo" || meta.source === "tpdb") {
+      return `https://theporndb.net/${meta.type === "movie" ? "movies" : "scenes"}/${meta.id}`;
+    }
+    return null;
+  })();
+  const recordName = meta?.source === "tmdb" ? "TheMovieDB" : "ThePornDB";
 
   return (
     <>
@@ -389,6 +409,7 @@ export default function VideoMetadataPanel({
                     .join(" · ")}
                   {meta?.source === "nfo" ? " · from sidecar" : ""}
                   {meta?.source === "tpdb" ? " · ThePornDB" : ""}
+                  {meta?.source === "tmdb" ? " · TheMovieDB" : ""}
                   </span>
                 </p>
               </>
@@ -407,6 +428,7 @@ export default function VideoMetadataPanel({
                 <Wand2 size={13} />
                 {matched ? "Rematch" : "Match"}
               </button>
+              {adults && (
               <button
                 onClick={openCast}
                 className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-xs transition hover:bg-white/10"
@@ -414,6 +436,7 @@ export default function VideoMetadataPanel({
                 <Users size={13} />
                 Cast
               </button>
+              )}
               {matched && (
                 <button
                   onClick={clear}
@@ -480,12 +503,16 @@ export default function VideoMetadataPanel({
             <Users size={12} className="text-white/40" />
             {meta.performers.map((name, i) => (
               <span key={name}>
-                <Link
-                  href={`/videos18/performer/${performerSlug(name)}`}
-                  className="underline-offset-2 transition hover:text-white hover:underline"
-                >
-                  {name}
-                </Link>
+                {adults ? (
+                  <Link
+                    href={`/videos18/performer/${performerSlug(name)}`}
+                    className="underline-offset-2 transition hover:text-white hover:underline"
+                  >
+                    {name}
+                  </Link>
+                ) : (
+                  name
+                )}
                 {i < meta.performers.length - 1 ? "," : ""}
               </span>
             ))}
@@ -525,17 +552,17 @@ export default function VideoMetadataPanel({
           </div>
         )}
 
-        {(studioUrl || tpdbUrl) && (
+        {(studioUrl || recordUrl) && (
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            {tpdbUrl && (
+            {recordUrl && (
               <a
-                href={tpdbUrl}
+                href={recordUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-white/40 transition hover:text-white"
               >
                 <ExternalLink size={12} />
-                ThePornDB
+                {recordName}
               </a>
             )}
             {studioUrl && (
@@ -701,7 +728,11 @@ export default function VideoMetadataPanel({
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Title, id, or theporndb.net link"
+                  placeholder={
+                    adults
+                      ? "Title, id, or theporndb.net link"
+                      : "Title, or a themoviedb.org link"
+                  }
                   className="w-full rounded-full border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm outline-none focus:border-white/25"
                 />
               </label>
@@ -724,9 +755,11 @@ export default function VideoMetadataPanel({
               <p className="py-6 text-center text-sm text-white/40">Searching…</p>
             ) : candidates.length === 0 ? (
               <p className="py-6 text-center text-sm text-white/40">
-                {looksLikeTpdbRef(query)
-                  ? "No record with that id. Check whether it is a scene or a movie — a bare id is tried as both."
-                  : "No candidates. Try a shorter title — the database matches on the whole string, so a performer prefix usually has to go. Pasting a scene or movie id, or its theporndb.net link, skips the search entirely."}
+                {!adults
+                  ? "Nothing found. Try the title on its own — a release name's resolution, codec and group tags confuse the search. A themoviedb.org link, or the id from one, skips the search entirely."
+                  : looksLikeTpdbRef(query)
+                    ? "No record with that id. Check whether it is a scene or a movie — a bare id is tried as both."
+                    : "No candidates. Try a shorter title — the database matches on the whole string, so a performer prefix usually has to go. Pasting a scene or movie id, or its theporndb.net link, skips the search entirely."}
               </p>
             ) : (
               <ul className="flex flex-col gap-1">
@@ -747,7 +780,8 @@ export default function VideoMetadataPanel({
                             c.studio,
                             c.date?.slice(0, 10),
                             runtime(c.duration),
-                            c.type === "scene" ? "scene" : "movie",
+                            c.type === "tv" ? "series" : c.type,
+                            c.source === "tmdb" ? "TheMovieDB" : null,
                           ]
                             .filter(Boolean)
                             .join(" · ")}

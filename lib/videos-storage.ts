@@ -162,6 +162,14 @@ export type ScannedFile = {
 // Recursive walk of a channel directory. Returns every video file keyed by its
 // path relative to the channel root. Hidden files/dirs (incl. .posters) and
 // unfinished downloads (*.part, *.crdownload) are skipped.
+// The transcoder writes "<name>.mp4.converting.mp4" beside its source. That is
+// a valid .mp4 name, so a scan crossing a conversion — or finding the leftovers
+// of one that was killed — used to file the half-written temp file as a video
+// of its own, duplicating the film it was made from.
+export function isTranscodeTemp(filename: string): boolean {
+  return /\.converting\.mp4$/i.test(filename);
+}
+
 export function walkChannel(channel: VideoChannel): ScannedFile[] {
   const root = channelDir(channel);
   const out: ScannedFile[] = [];
@@ -180,6 +188,7 @@ export function walkChannel(channel: VideoChannel): ScannedFile[] {
         continue;
       }
       if (!entry.isFile() || !isVideoFile(entry.name)) continue;
+      if (isTranscodeTemp(entry.name)) continue;
       let stat: fs.Stats;
       try {
         stat = fs.statSync(full);

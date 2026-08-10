@@ -212,6 +212,9 @@ export default function PerformerForm({
 
   const payload = () => {
     const body: Record<string, unknown> = {
+      // Saved as well as fetched with: clearing it makes a later Refresh search
+      // by name again instead of re-fetching the wrong record forever.
+      tpdb_id: tpdbRef.trim() || null,
       bio: draft.bio,
       aliases: draft.aliases
         .split(",")
@@ -344,6 +347,19 @@ export default function PerformerForm({
     }
   };
 
+  // A wrong portrait is worth removing outright: the round placeholder reads
+  // better than a picture of someone else.
+  const removePortrait = async () => {
+    if (!slug) return;
+    const res = await fetch(`/api/videos/performers/${slug}/image`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      setPortraitKey(null);
+      setPortraitFile(null);
+    }
+  };
+
   const removePhoto = async (idx: number) => {
     if (!slug) return;
     const res = await fetch(
@@ -413,6 +429,16 @@ export default function PerformerForm({
                 className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/60 transition hover:bg-white/10"
               >
                 Undo
+              </button>
+            )}
+            {slug && portraitKey && !portraitFile && (
+              <button
+                type="button"
+                onClick={removePortrait}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1.5 text-xs text-white/60 transition hover:bg-white/10"
+              >
+                <Trash2 size={13} />
+                Remove portrait
               </button>
             )}
             <input

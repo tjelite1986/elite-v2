@@ -24,7 +24,7 @@ export interface PerformerDetail extends PerformerWithCount {
   images: number[]; // gallery indices, in order
 }
 
-const GALLERY_LIMIT = 8;
+const GALLERY_LIMIT = 12;
 
 export function performerSlug(name: string): string {
   return (
@@ -243,7 +243,8 @@ async function tpdbPerformerById(id: string): Promise<any | null> {
 // and only then does it fall back to searching for the name.
 export async function enrichPerformer(
   slug: string,
-  tpdbId?: string
+  tpdbId?: string,
+  options?: { replaceImages?: boolean }
 ): Promise<boolean> {
   const row = db
     .prepare("SELECT * FROM video_performers WHERE slug = ?")
@@ -254,6 +255,11 @@ export async function enrichPerformer(
   const found = id
     ? ((await tpdbPerformerById(id)) ?? (tpdbId ? null : await tpdbPerformer(row.name)))
     : await tpdbPerformer(row.name);
+  // A record reached by its identifier is a stronger statement about who this
+  // is than the name a film happened to credit ("Jennifer" for Jennifer
+  // Andersson), so that lookup may rename the profile. A name search cannot:
+  // it only ever matches the name already there.
+  const addressedById = Boolean(id && found);
   // Record the attempt either way, so a performer the database has never heard
   // of is not looked up again on every run.
   if (!found) {
@@ -264,14 +270,24 @@ export async function enrichPerformer(
   }
 
   const extras = found.extras || {};
+  // A refresh someone asked for REPLACES the pictures. Only filling gaps meant
+  // a wrong portrait — the release folder's artwork, or the one a same-name
+  // record supplied — survived every attempt to correct it.
+  const replaceImages = options?.replaceImages === true;
   let imageKey = row.image_key;
-  if (!imageKey && found.image) {
+  if (found.image && (replaceImages || !imageKey)) {
     try {
       await assertPublicUrl(new URL(found.image));
       const res = await fetch(found.image, { signal: AbortSignal.timeout(30_000) });
       if (res.ok) {
         const buf = Buffer.from(await res.arrayBuffer());
-        if (buf.length) imageKey = await storePortrait(slug, { buffer: buf });
+        if (buf.length) {
+          // Versioned key on a replacement: the image URL is stable, so the
+          // old portrait would otherwise stay in the browser's cache all day.
+          imageKey = replaceImages
+            ? await savePerformerPortrait(slug, buf)
+            : await storePortrait(slug, { buffer: buf });
+        }
       }
     } catch {
       /* portrait is best-effort */
@@ -302,6 +318,9 @@ export async function enrichPerformer(
   // On a hand-made profile the fetch fills gaps instead of flattening them: a
   // field the database has nothing to say about keeps what was typed in.
   const assignments: [column: string, param: string][] = [
+    ...(addressedById && cleanText(found.name)
+      ? ([["name", "name"]] as [string, string][])
+      : []),
     ["tpdb_id", "tpdbId"],
     ["bio", "bio"],
     ["birthday", "birthday"],
@@ -345,6 +364,7 @@ export async function enrichPerformer(
      WHERE slug = @slug`
   ).run({
     slug,
+    name: cleanText(found.name),
     tpdbId: found.id ? String(found.id) : null,
     bio: found.bio || null,
     birthday: extras.birthday || null,
@@ -379,19 +399,35 @@ export async function enrichPerformer(
     image: imageKey,
   });
 
-  await importGallery(slug, found.posters);
+  await importGallery(slug, found.posters, replaceImages);
   return true;
 }
 
 // The photo strip. Only the first few posters are kept: a popular performer has
 // dozens, and this is a header, not an archive.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function importGallery(slug: string, posters: any): Promise<void> {
+async function importGallery(
+  slug: string,
+  posters: any,
+  replace = false
+): Promise<void> {
   if (!Array.isArray(posters) || posters.length === 0) return;
   const existing = db
     .prepare("SELECT COUNT(*) AS n FROM video_performer_images WHERE performer_slug = ?")
     .get(slug) as { n: number };
-  if (existing.n > 0) return; // already imported; a refresh keeps what it has
+  // A background pass keeps what it has; a refresh someone asked for rebuilds
+  // the strip, because the reason for asking is usually that it is wrong. The
+  // search response also carries far fewer posters than the detail record, so
+  // a strip built from a search is worth replacing.
+  if (existing.n > 0 && !replace) return;
+  if (existing.n > 0) {
+    for (const { image_key } of db
+      .prepare("SELECT image_key FROM video_performer_images WHERE performer_slug = ?")
+      .all(slug) as { image_key: string }[]) {
+      removePosterFile(image_key);
+    }
+    db.prepare("DELETE FROM video_performer_images WHERE performer_slug = ?").run(slug);
+  }
 
   const ordered = [...posters]
     .filter((p) => p && typeof p.url === "string")
@@ -554,6 +590,9 @@ export type PerformerTextField = (typeof PERFORMER_TEXT_FIELDS)[number];
 
 export interface PerformerInput {
   name?: string;
+  // Editable so a profile matched to the wrong record can be repointed, or
+  // cleared to fall back to searching by name.
+  tpdb_id?: string | null;
   full_name?: string | null;
   disambiguation?: string | null;
   bio?: string | null;
@@ -660,6 +699,10 @@ export function updatePerformer(slug: string, input: PerformerInput): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const params: Record<string, any> = { slug };
 
+  if ("tpdb_id" in input) {
+    sets.push("tpdb_id = @tpdb_id");
+    params.tpdb_id = cleanText(input.tpdb_id);
+  }
   for (const field of PERFORMER_TEXT_FIELDS) {
     if (!(field in input)) continue;
     const value = cleanText(input[field]);
@@ -732,6 +775,80 @@ export function deletePerformer(slug: string): void {
   db.prepare("DELETE FROM video_performers WHERE slug = ?").run(slug);
   removePosterFile(row.image_key);
   for (const g of gallery) removePosterFile(g.image_key);
+}
+
+// Every column ThePornDB owns. Listed once so unlinking cannot drift from
+// what the enrichment writes.
+const TPDB_OWNED_COLUMNS = [
+  "tpdb_id",
+  "bio",
+  "birthday",
+  "deathday",
+  "birthplace",
+  "nationality",
+  "ethnicity",
+  "gender",
+  "astrology",
+  "height",
+  "weight",
+  "measurements",
+  "cupsize",
+  "waist",
+  "hips",
+  "hair_colour",
+  "eye_colour",
+  "tattoos",
+  "piercings",
+  "fake_boobs",
+  "same_sex_only",
+  "career_start",
+  "career_end",
+  "full_name",
+  "disambiguation",
+  "rating",
+  "aliases",
+  "links",
+] as const;
+
+// Cut a profile loose from the record it was matched to. The counterpart of a
+// refresh: when the match is a different person entirely, everything imported
+// is wrong, and there may be no right record to point at instead.
+//
+// `checked_at` is deliberately left set — clearing it would hand the profile
+// straight back to the hourly pass, which would match the same wrong record
+// again, since the name that misled it has not changed.
+export function unlinkPerformerTpdb(
+  slug: string,
+  options?: { keepPortrait?: boolean }
+): void {
+  const row = db
+    .prepare("SELECT image_key FROM video_performers WHERE slug = ?")
+    .get(slug) as { image_key: string | null } | undefined;
+  if (!row) return;
+
+  const sets = TPDB_OWNED_COLUMNS.map((c) => `${c} = NULL`).join(", ");
+  db.prepare(`UPDATE video_performers SET ${sets} WHERE slug = ?`).run(slug);
+
+  // The photo strip only ever comes from there, so it goes with the link.
+  for (const { image_key } of db
+    .prepare("SELECT image_key FROM video_performer_images WHERE performer_slug = ?")
+    .all(slug) as { image_key: string }[]) {
+    removePosterFile(image_key);
+  }
+  db.prepare("DELETE FROM video_performer_images WHERE performer_slug = ?").run(slug);
+
+  // The portrait can have come from the release folder instead, and that one
+  // is worth keeping.
+  if (!options?.keepPortrait) removePerformerPortrait(slug);
+}
+
+export function removePerformerPortrait(slug: string): void {
+  const row = db
+    .prepare("SELECT image_key FROM video_performers WHERE slug = ?")
+    .get(slug) as { image_key: string | null } | undefined;
+  if (!row?.image_key) return;
+  db.prepare("UPDATE video_performers SET image_key = NULL WHERE slug = ?").run(slug);
+  removePosterFile(row.image_key);
 }
 
 // Replace the portrait with an uploaded image. The key carries a version so the
