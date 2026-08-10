@@ -13,6 +13,7 @@ import {
   UserRound,
 } from "lucide-react";
 import PerformerForm from "@/components/performer-form";
+import PerformerTpdbScenes from "@/components/performer-tpdb-scenes";
 import { cn } from "@/lib/utils";
 import { safeHttpUrl } from "@/lib/safe-url";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
@@ -406,6 +407,12 @@ export default function PerformerProfile({
             <VideoCard key={v.id} video={v} basePath="/videos18" />
           ))}
         </div>
+      )}
+
+      {/* What the database credits them with, whether or not it is here.
+          Admin-only: every page of it is a third-party call. */}
+      {isAdmin && performer.tpdb_id && (
+        <PerformerTpdbScenes slug={performer.slug} />
       )}
 
       <Link

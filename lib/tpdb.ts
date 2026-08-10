@@ -210,6 +210,39 @@ export async function getTpdbByRef(ref: TpdbRef): Promise<TpdbResult | null> {
   return null;
 }
 
+export interface TpdbPage {
+  items: TpdbResult[];
+  page: number;
+  lastPage: number;
+  total: number;
+}
+
+// Everything the database credits one performer with. Paginated at the source
+// (a busy performer has well over a thousand scenes) and NOT searchable — the
+// endpoint ignores `q`, so filtering is the caller's job.
+export async function performerRecords(
+  tpdbId: string,
+  type: TpdbType,
+  page = 1,
+  perPage = 24
+): Promise<TpdbPage> {
+  const path = `/performers/${encodeURIComponent(tpdbId)}/${
+    type === "movie" ? "movies" : "scenes"
+  }`;
+  const data = await get(path, {
+    page: String(Math.max(1, page)),
+    per_page: String(perPage),
+  });
+  const meta = data?.meta || {};
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    items: (data?.data || []).map((item: any) => normalizeItem(item, type)),
+    page: Number(meta.current_page) || page,
+    lastPage: Number(meta.last_page) || 1,
+    total: Number(meta.total) || 0,
+  };
+}
+
 // --- matching ---------------------------------------------------------------
 
 function normalizeTitle(s: string): string {
