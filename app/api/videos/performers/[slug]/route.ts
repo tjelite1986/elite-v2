@@ -58,7 +58,9 @@ export async function POST(
     }
     tpdbId = ref.id;
   }
-  const ok = await enrichPerformer(slug, tpdbId);
+  // A refresh someone clicked replaces the portrait and the photo strip: the
+  // usual reason for clicking it is that they are wrong.
+  const ok = await enrichPerformer(slug, tpdbId, { replaceImages: true });
   return NextResponse.json({
     ok,
     performer: getPerformer(slug),

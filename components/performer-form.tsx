@@ -212,6 +212,9 @@ export default function PerformerForm({
 
   const payload = () => {
     const body: Record<string, unknown> = {
+      // Saved as well as fetched with: clearing it makes a later Refresh search
+      // by name again instead of re-fetching the wrong record forever.
+      tpdb_id: tpdbRef.trim() || null,
       bio: draft.bio,
       aliases: draft.aliases
         .split(",")
