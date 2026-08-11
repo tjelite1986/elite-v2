@@ -328,6 +328,35 @@ export function requeueShortSummary(id: number): void {
   db.prepare("UPDATE shorts SET ai_summary_error = NULL WHERE id = ?").run(id);
 }
 
+/** The stored description for one clip, for the UI to read back after a run. */
+export function shortSummaryOf(id: number): {
+  summary: string | null;
+  tags: string | null;
+  model: string | null;
+  error: string | null;
+} | null {
+  const row = db
+    .prepare(
+      `SELECT ai_summary, ai_summary_tags, ai_summary_model, ai_summary_error
+         FROM shorts WHERE id = ?`
+    )
+    .get(id) as
+    | {
+        ai_summary: string | null;
+        ai_summary_tags: string | null;
+        ai_summary_model: string | null;
+        ai_summary_error: string | null;
+      }
+    | undefined;
+  if (!row) return null;
+  return {
+    summary: row.ai_summary,
+    tags: row.ai_summary_tags,
+    model: row.ai_summary_model,
+    error: row.ai_summary_error,
+  };
+}
+
 export function shortChannelOf(id: number): ShortChannel | null {
   const row = db.prepare("SELECT channel FROM shorts WHERE id = ?").get(id) as
     | { channel: ShortChannel }

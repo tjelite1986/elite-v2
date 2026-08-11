@@ -4,6 +4,7 @@ import { has18Access } from "@/lib/shorts-gate";
 import {
   requeueShortSummary,
   shortChannelOf,
+  shortSummaryOf,
   shortSummaryState,
   startShortSummaryOne,
   startShortSummaryRun,
@@ -13,11 +14,26 @@ export const dynamic = "force-dynamic";
 
 // Queue state for the UI and the scheduler. POST returns as soon as the work
 // is started, never when it finishes.
-export async function GET() {
+export async function GET(request: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // ?id=<n> reads back one clip's description — what the UI polls for after
+  // starting a run. Same 18+ gate as everything else here.
+  const id = Number(new URL(request.url).searchParams.get("id"));
+  if (Number.isFinite(id) && id > 0) {
+    const channel = shortChannelOf(id);
+    if (!channel) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    if (channel === "18plus" && !(await has18Access())) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return NextResponse.json({ summary: shortSummaryOf(id) });
+  }
+
   return NextResponse.json(shortSummaryState());
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Loader2, Sparkles } from "lucide-react";
 import { splitCaption, buildCaption } from "@/lib/shorts-caption";
 
 // Edit a clip's title / source URL / #tags. Shared by the immersive short card
@@ -10,11 +11,14 @@ import { splitCaption, buildCaption } from "@/lib/shorts-caption";
 export default function ShortsEditSheet({
   shortId,
   caption,
+  aiSummary = null,
   onClose,
   onSaved,
 }: {
   shortId: number;
   caption: string | null;
+  /** Existing vision summary, if this clip already has one. */
+  aiSummary?: string | null;
   onClose: () => void;
   onSaved: (caption: string | null) => void;
 }) {
@@ -24,6 +28,25 @@ export default function ShortsEditSheet({
   const [source, setSource] = useState(initial.source ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [describing, setDescribing] = useState(false);
+  const [described, setDescribed] = useState<string | null>(aiSummary);
+
+  // Both call sites (the immersive card and the grid) carry only the caption,
+  // so an existing description is read on open rather than threaded through
+  // two component types that do not otherwise care about it.
+  useEffect(() => {
+    if (aiSummary) return;
+    let cancelled = false;
+    void fetch(`/api/shorts/summarize?id=${shortId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.summary?.summary) setDescribed(d.summary.summary);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [shortId, aiSummary]);
 
   const save = async () => {
     if (saving) return;
@@ -55,6 +78,43 @@ export default function ShortsEditSheet({
       setError("Could not save.");
     }
     setSaving(false);
+  };
+
+  // Describing costs one API call, so it is a deliberate button rather than
+  // something that happens on open. The run is started server-side and the
+  // queue is polled until it goes idle — bounded, so a stuck run cannot spin
+  // here forever.
+  const describe = async () => {
+    if (describing) return;
+    setDescribing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/shorts/summarize?id=${shortId}`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || "Could not describe this clip.");
+        return;
+      }
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const state = await fetch("/api/shorts/summarize")
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        if (state && !state.running) break;
+      }
+      const fresh = await fetch(`/api/shorts/summarize?id=${shortId}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      const text = fresh?.summary?.summary ?? null;
+      if (text) setDescribed(text);
+      else setError(fresh?.summary?.error || "The model could not read this clip.");
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setDescribing(false);
+    }
   };
 
   return (
@@ -91,6 +151,33 @@ export default function ShortsEditSheet({
           placeholder="#dance #funny"
           className="mb-4 w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30"
         />
+        <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-white/50">
+              <Sparkles size={13} />
+              AI description
+            </span>
+            <button
+              onClick={describe}
+              disabled={describing}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-2.5 py-1 text-xs transition hover:bg-white/10 disabled:opacity-50"
+            >
+              {describing ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Sparkles size={12} />
+              )}
+              {describing ? "Reading…" : described ? "Redo" : "Describe"}
+            </button>
+          </div>
+          <p className="text-sm text-white/70">
+            {described ??
+              (describing
+                ? "Sampling frames…"
+                : "Not described yet — costs one API call.")}
+          </p>
+        </div>
+
         {error && <p className="mb-2 text-sm text-rose-400">{error}</p>}
         <div className="flex gap-3">
           <button

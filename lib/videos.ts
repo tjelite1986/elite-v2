@@ -1015,6 +1015,27 @@ async function convertOne(row: VideoRow): Promise<void> {
 
   fs.renameSync(tmp, dst);
 
+  // From here to the UPDATE below, the file on disk and the row disagree: the
+  // .mp4 exists but the row still names the source. A process that dies in
+  // that window (a restart, an OOM kill) leaves the finished file behind, and
+  // the next scan inserts a row for it — so this row's own conversion would
+  // later collide with that row's unique (channel, storage_key).
+  //
+  // If that already happened, the work is done and the surviving row is the
+  // one users can see and may have watched. Retire this row instead of
+  // fighting it for the key.
+  const claimed = db
+    .prepare(
+      "SELECT id FROM videos WHERE channel = ? AND storage_key = ? AND id <> ?"
+    )
+    .get(row.channel, dstKey, row.id) as { id: number } | undefined;
+  if (claimed) {
+    deleteArtwork(row);
+    db.prepare("DELETE FROM videos WHERE id = ?").run(row.id);
+    if (!inPlace) fs.rmSync(src, { force: true });
+    return;
+  }
+
   // Artwork is named from the storage key, so the old sheet/poster belong to a
   // key that no longer exists — drop them and build fresh ones from the MP4.
   deleteArtwork(row);
