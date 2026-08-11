@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.116.0",
     "@ark-ui/react": "^5.37.2",
     "archiver": "^8.0.0",
     "better-sqlite3": "^11.10.0",

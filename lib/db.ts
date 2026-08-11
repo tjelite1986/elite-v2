@@ -925,6 +925,14 @@ function migrate(db: Database.Database) {
       ["meta_checked_at", "TEXT"],
       ["meta_markers", "TEXT"],
       ["meta_rating", "REAL"],
+      // Vision-model summary built from the storyboard sheet. Kept apart from
+      // `description` (hand-written) and `meta_synopsis` (from TPDB/TMDB) so a
+      // re-run never overwrites either, and the UI can label who wrote what.
+      ["ai_summary", "TEXT"],
+      ["ai_summary_tags", "TEXT"],
+      ["ai_summary_model", "TEXT"],
+      ["ai_summary_at", "TEXT"],
+      ["ai_summary_error", "TEXT"],
     ] as const) {
       if (!cols.includes(name))
         db.exec(`ALTER TABLE videos ADD COLUMN ${name} ${type}`);
@@ -2033,6 +2041,11 @@ export interface VideoRow {
   meta_checked_at: string | null;
   meta_markers: string | null;
   meta_rating: number | null;
+  ai_summary: string | null;
+  ai_summary_tags: string | null;
+  ai_summary_model: string | null;
+  ai_summary_at: string | null;
+  ai_summary_error: string | null;
   views: number;
   added_at: string;
 }

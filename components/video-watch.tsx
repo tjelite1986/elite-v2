@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Loader2,
   Pencil,
+  Sparkles,
   ThumbsUp,
   Trash2,
   X,
@@ -49,8 +50,22 @@ export interface WatchVideo extends VideoCardData {
   transcode_error: string | null;
   video_codec: string | null;
   audio_codec: string | null;
+  ai_summary: string | null;
+  ai_summary_tags: string | null;
+  ai_summary_at: string | null;
   metadata?: VideoMetadata | null;
   cast?: ScenePerformer[];
+}
+
+// Tags are stored as a JSON array; a malformed value must never break the page.
+function parseTags(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 function formatSize(bytes: number | null): string | null {
@@ -83,6 +98,7 @@ export default function VideoWatch({
   const [titleDraft, setTitleDraft] = useState(initial.title);
   const [descDraft, setDescDraft] = useState(initial.description ?? "");
   const [saving, setSaving] = useState(false);
+  const [summarising, setSummarising] = useState(false);
   const [playerKey, setPlayerKey] = useState(0);
   // Chapter chips live in the metadata panel but drive the player; a nonce lets
   // the same timestamp be requested twice in a row.
@@ -189,6 +205,29 @@ export default function VideoWatch({
     if (!res.ok) return;
     const data = await res.json();
     setVideo((v) => ({ ...v, liked: data.liked ? 1 : 0, likes: data.likes }));
+  };
+
+  // Summarising runs in the background on the server (one vision-model call),
+  // so the button starts it and then polls the queue until it goes idle. The
+  // poll is bounded: a stuck run must not spin here forever.
+  const summarise = async () => {
+    setSummarising(true);
+    try {
+      const res = await fetch(`/api/videos/summarize?id=${video.id}`, {
+        method: "POST",
+      });
+      if (!res.ok) return;
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const state = await fetch("/api/videos/summarize")
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        if (state && !state.running) break;
+      }
+      router.refresh();
+    } finally {
+      setSummarising(false);
+    }
   };
 
   const save = async () => {
@@ -449,6 +488,63 @@ export default function VideoWatch({
                 >
                   {expanded ? "Show less" : "Show more"}
                 </button>
+              )}
+            </div>
+          )}
+
+          {/* AI summary — always labelled as generated, never mixed into the
+              hand-written description above. */}
+          {(video.ai_summary || isAdmin) && !editing && (
+            <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-white/50">
+                  <Sparkles size={13} />
+                  AI summary
+                </span>
+                {isAdmin && (
+                  <button
+                    onClick={summarise}
+                    disabled={summarising}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-2.5 py-1 text-xs transition hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {summarising ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={12} />
+                    )}
+                    {summarising
+                      ? "Describing…"
+                      : video.ai_summary
+                        ? "Redo"
+                        : "Describe"}
+                  </button>
+                )}
+              </div>
+
+              {video.ai_summary ? (
+                <>
+                  <p className="whitespace-pre-wrap text-sm text-white/75">
+                    {video.ai_summary}
+                  </p>
+                  {parseTags(video.ai_summary_tags).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {parseTags(video.ai_summary_tags).map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] text-white/60"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-white/40">
+                  {summarising
+                    ? "Reading the storyboard…"
+                    : "Not described yet."}
+                </p>
               )}
             </div>
           )}
