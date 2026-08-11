@@ -35,6 +35,7 @@ import ShortsImportButton from "@/components/shorts-import-button";
 import PostsImportButton from "@/components/posts-import-button";
 import UserImportButton from "@/components/user-import-button";
 import ShortsDuplicates from "@/components/shorts-duplicates";
+import MediaFingerprintDuplicates from "@/components/media-fingerprint-duplicates";
 import PostsDuplicates from "@/components/posts-duplicates";
 import ShortsCleanup from "@/components/shorts-cleanup";
 import PostsCleanup from "@/components/posts-cleanup";
@@ -594,8 +595,22 @@ function LibraryToolPanel({
     );
   }
   if (tool === "duplicates") {
-    if (section === "shorts") return <ShortsDuplicates channel="main" />;
-    if (section === "shorts18") return <ShortsDuplicates channel="18plus" />;
+    // Two complementary scans for clips: the existing exact/per-frame one, and
+    // the fingerprint scan that catches re-encodes the first cannot.
+    if (section === "shorts")
+      return (
+        <>
+          <ShortsDuplicates channel="main" />
+          <MediaFingerprintDuplicates />
+        </>
+      );
+    if (section === "shorts18")
+      return (
+        <>
+          <ShortsDuplicates channel="18plus" />
+          <MediaFingerprintDuplicates />
+        </>
+      );
     if (section === "posts") return <PostsDuplicates />;
     return <GalleryDuplicates />;
   }

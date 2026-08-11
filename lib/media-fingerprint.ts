@@ -124,6 +124,29 @@ async function sampleFrame(
   };
 }
 
+/** Ask the file how long it is. */
+async function probeDuration(sourcePath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFile(
+      "ffprobe",
+      [
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=nw=1:nk=1",
+        sourcePath,
+      ],
+      { timeout: 30_000, maxBuffer: 64 * 1024 }
+    );
+    const n = Number(String(stdout).trim());
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fingerprint a clip. Returns null when too little of it could be decoded to
  * be worth comparing — a truncated download should not get a fingerprint that
@@ -133,8 +156,14 @@ export async function fingerprintVideo(
   sourcePath: string,
   durationSeconds: number | null
 ): Promise<Fingerprint | null> {
+  // The duration decides where to sample, so a missing one is not a detail to
+  // shrug at: without it the fallback spacing walks off the end of a short
+  // clip and most frames come back empty, which reads as "damaged file". Ask
+  // the file instead — plenty of rows carry no duration yet.
   const duration =
-    durationSeconds && durationSeconds > 1 ? durationSeconds : null;
+    durationSeconds && durationSeconds > 1
+      ? durationSeconds
+      : await probeDuration(sourcePath);
 
   const dhashParts: string[] = [];
   const colorParts: string[] = [];
@@ -145,7 +174,9 @@ export async function fingerprintVideo(
     // frames are often black or a title card, which are the least
     // distinguishing parts of any video.
     const fraction = (i + 1) / (FINGERPRINT_FRAMES + 1);
-    const at = duration ? duration * fraction : i * 2;
+    // With no duration even after probing, fall back to a tight spacing that
+    // stays inside even a very short clip.
+    const at = duration ? duration * fraction : i * 0.5;
     const frame = await sampleFrame(sourcePath, at);
     if (!frame) {
       // Keep the slot so frames stay positionally comparable between clips.
