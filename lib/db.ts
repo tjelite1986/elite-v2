@@ -1149,6 +1149,21 @@ function migrate(db: Database.Database) {
       "ALTER TABLE shorts ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0"
     );
   }
+  // Vision summary of the clip, built from a contact sheet made on demand.
+  // Shorts have no storyboard sheet (they are too short for a scrub preview),
+  // so unlike videos the frames are sampled at describe time.
+  if (shortColumns.length > 0) {
+    for (const [name, type] of [
+      ["ai_summary", "TEXT"],
+      ["ai_summary_tags", "TEXT"],
+      ["ai_summary_model", "TEXT"],
+      ["ai_summary_at", "TEXT"],
+      ["ai_summary_error", "TEXT"],
+    ] as const) {
+      if (!shortColumns.includes(name))
+        db.exec(`ALTER TABLE shorts ADD COLUMN ${name} ${type}`);
+    }
+  }
   db.exec(
     "CREATE INDEX IF NOT EXISTS idx_shorts_profile_source ON shorts(profile_id, source_id)"
   );
@@ -1770,6 +1785,11 @@ export interface ShortRow {
   status: "ready" | "pending" | "failed";
   is_private: number;
   is_deleted: number;
+  ai_summary: string | null;
+  ai_summary_tags: string | null;
+  ai_summary_model: string | null;
+  ai_summary_at: string | null;
+  ai_summary_error: string | null;
   created_at: string;
 }
 

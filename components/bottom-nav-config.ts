@@ -126,12 +126,14 @@ export function getBottomNavExtras(
   if (pathname === "/shorts18" || pathname.startsWith("/shorts18/")) {
     return [
       { label: "Categories", href: "/shorts18/tags", icon: Hash },
+      { label: "Analysis", href: "/shorts18/analysis", icon: Sparkles },
       { label: "Mine", href: "/shorts18/mine", icon: Clapperboard },
     ];
   }
   if (pathname === "/shorts" || pathname.startsWith("/shorts/")) {
     return [
       { label: "Categories", href: "/shorts/tags", icon: Hash },
+      { label: "Analysis", href: "/shorts/analysis", icon: Sparkles },
       { label: "Mine", href: "/shorts/mine", icon: Clapperboard },
     ];
   }

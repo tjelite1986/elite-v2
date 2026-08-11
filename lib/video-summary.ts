@@ -1,14 +1,14 @@
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { execFile as execFileCb } from "node:child_process";
-import { promisify } from "node:util";
-import Anthropic from "@anthropic-ai/sdk";
 import { db } from "./db";
 import type { VideoRow, VideoChannel } from "./db";
 import { posterFilePath, videoFilePath } from "./videos-storage";
-
-const execFile = promisify(execFileCb);
+import {
+  buildContactSheet,
+  clockLabel,
+  describeImage,
+  visionConfigured,
+  visionModel,
+} from "./ai-vision";
 
 // ---------------------------------------------------------------------------
 // Vision summaries for the video library.
@@ -25,35 +25,12 @@ const execFile = promisify(execFileCb);
 // this, but the default is the safe one.
 // ---------------------------------------------------------------------------
 
-// The same Claude models are reachable two ways: Anthropic directly, or
-// OpenRouter's OpenAI-shaped API. Which one to use depends on where the
-// account credit is, so the provider is picked from whichever key is present.
-type ProviderKind = "anthropic" | "openrouter";
-
-const DEFAULT_MODELS: Record<ProviderKind, string> = {
-  anthropic: "claude-opus-5",
-  openrouter: "anthropic/claude-opus-5",
-};
-
-// A summary is a short read of a contact sheet, not a reasoning problem —
-// medium effort is plenty and keeps the per-video cost down. Raise it with
-// VIDEO_AI_EFFORT if summaries come out shallow.
-const DEFAULT_EFFORT = "medium";
-
-function providerKind(): ProviderKind {
-  const forced = process.env.VIDEO_AI_PROVIDER as ProviderKind | undefined;
-  if (forced === "anthropic" || forced === "openrouter") return forced;
-  return process.env.ANTHROPIC_API_KEY ? "anthropic" : "openrouter";
-}
-
 export function summaryConfigured(): boolean {
-  return providerKind() === "anthropic"
-    ? Boolean(process.env.ANTHROPIC_API_KEY)
-    : Boolean(process.env.OPENROUTER_API_KEY);
+  return visionConfigured();
 }
 
 function summaryModel(): string {
-  return process.env.VIDEO_AI_MODEL || DEFAULT_MODELS[providerKind()];
+  return visionModel();
 }
 
 function allowedChannels(): VideoChannel[] {
@@ -138,118 +115,6 @@ function buildPrompt(row: VideoRow): string {
   ].join("\n");
 }
 
-async function askAnthropic(image: string, prompt: string): Promise<string> {
-  const client = new Anthropic();
-  const response = await client.messages.create({
-    model: summaryModel(),
-    max_tokens: 8000,
-    output_config: {
-      effort: (process.env.VIDEO_AI_EFFORT || DEFAULT_EFFORT) as "low",
-      format: { type: "json_schema", schema: SUMMARY_SCHEMA },
-    },
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type: "image/jpeg", data: image },
-          },
-          { type: "text", text: prompt },
-        ],
-      },
-    ],
-  });
-
-  // Safety classifiers can decline a request: that arrives as a normal 200
-  // with an empty content array, so checking stop_reason has to come first.
-  if (response.stop_reason === "refusal") {
-    throw new Error(
-      `model declined to describe this video (${response.stop_details?.category ?? "unspecified"})`
-    );
-  }
-  if (response.stop_reason === "max_tokens") {
-    throw new Error("model hit the token limit before finishing");
-  }
-
-  const text = response.content.find((b) => b.type === "text");
-  if (!text || text.type !== "text") {
-    throw new Error("model returned no text block");
-  }
-  return text.text;
-}
-
-async function askOpenRouter(image: string, prompt: string): Promise<string> {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "X-Title": "elite-v2 video summaries",
-    },
-    body: JSON.stringify({
-      model: summaryModel(),
-      max_tokens: 8000,
-      reasoning: { effort: process.env.VIDEO_AI_EFFORT || DEFAULT_EFFORT },
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "video_summary",
-          strict: true,
-          schema: SUMMARY_SCHEMA,
-        },
-      },
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${image}` },
-            },
-            { type: "text", text: prompt },
-          ],
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    let detail = body.slice(0, 200);
-    try {
-      const parsed = JSON.parse(body) as { error?: { message?: string } };
-      if (parsed.error?.message) detail = parsed.error.message;
-    } catch {
-      /* keep the raw body */
-    }
-    throw new Error(`OpenRouter returned ${response.status}: ${detail}`);
-  }
-
-  const data = (await response.json()) as {
-    choices?: {
-      message?: { content?: string | null };
-      finish_reason?: string;
-      native_finish_reason?: string;
-    }[];
-    error?: { message?: string };
-  };
-  if (data.error?.message) throw new Error(`OpenRouter: ${data.error.message}`);
-
-  const choice = data.choices?.[0];
-  const text = choice?.message?.content;
-  if (!text) {
-    // A refused or truncated turn comes back as an empty content string with
-    // the reason in finish_reason — surfacing that beats "malformed JSON".
-    throw new Error(
-      `model returned no text (finish_reason: ${
-        choice?.native_finish_reason ?? choice?.finish_reason ?? "unknown"
-      })`
-    );
-  }
-  return text;
-}
-
 async function summariseRow(row: VideoRow): Promise<void> {
   if (!row.storyboard_key) {
     throw new Error("no storyboard sheet for this video");
@@ -261,10 +126,12 @@ async function summariseRow(row: VideoRow): Promise<void> {
 
   const image = fs.readFileSync(sheetPath).toString("base64");
   const prompt = buildPrompt(row);
-  const raw =
-    providerKind() === "anthropic"
-      ? await askAnthropic(image, prompt)
-      : await askOpenRouter(image, prompt);
+  const raw = await describeImage({
+    image,
+    prompt,
+    schema: SUMMARY_SCHEMA as unknown as Record<string, unknown>,
+    schemaName: "video_summary",
+  });
 
   let parsed: SummaryPayload;
   try {
@@ -500,110 +367,6 @@ export interface SegmentSummaryRow {
   created_at: string;
 }
 
-async function buildSegmentSheet(
-  row: VideoRow,
-  fromSeconds: number,
-  toSeconds: number
-): Promise<{ sheet: string; dir: string } | null> {
-  const src = videoFilePath(row.channel, row.storage_key);
-  if (!fs.existsSync(src)) throw new Error("the video file is gone");
-
-  const frames = SEGMENT_COLS * SEGMENT_ROWS;
-  const span = Math.max(1, toSeconds - fromSeconds);
-  const step = span / frames;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "video-seg-"));
-
-  let lastGood: string | null = null;
-  for (let i = 0; i < frames; i++) {
-    const at = fromSeconds + i * step;
-    const frame = path.join(dir, `f${String(i).padStart(4, "0")}.jpg`);
-    try {
-      await execFile(
-        "nice",
-        [
-          "-n",
-          "19",
-          "ffmpeg",
-          "-y",
-          "-hide_banner",
-          "-loglevel",
-          "error",
-          "-nostdin",
-          "-ss",
-          at.toFixed(3),
-          "-i",
-          src,
-          "-frames:v",
-          "1",
-          "-vf",
-          "scale=320:-2",
-          "-q:v",
-          "4",
-          frame,
-        ],
-        { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 }
-      );
-    } catch {
-      /* filled from the previous frame below */
-    }
-    if (fs.existsSync(frame) && fs.statSync(frame).size > 0) {
-      lastGood = frame;
-    } else if (lastGood) {
-      // The image-sequence demuxer stops at the first missing index, so a
-      // frame ffmpeg could not grab is filled with the one before it.
-      fs.copyFileSync(lastGood, frame);
-    } else {
-      fs.rmSync(dir, { recursive: true, force: true });
-      return null; // nothing decodable in this range at all
-    }
-  }
-
-  const sheet = path.join(dir, "sheet.jpg");
-  await execFile(
-    "nice",
-    [
-      "-n",
-      "19",
-      "ffmpeg",
-      "-y",
-      "-hide_banner",
-      "-loglevel",
-      "error",
-      "-nostdin",
-      "-framerate",
-      "1",
-      "-start_number",
-      "0",
-      "-i",
-      path.join(dir, "f%04d.jpg"),
-      "-frames:v",
-      "1",
-      "-vf",
-      `tile=${SEGMENT_COLS}x${SEGMENT_ROWS}`,
-      "-q:v",
-      "4",
-      sheet,
-    ],
-    { timeout: 120_000, maxBuffer: 8 * 1024 * 1024 }
-  );
-
-  if (!fs.existsSync(sheet) || fs.statSync(sheet).size === 0) {
-    fs.rmSync(dir, { recursive: true, force: true });
-    return null;
-  }
-  return { sheet, dir };
-}
-
-function clockLabel(seconds: number): string {
-  const s = Math.max(0, Math.round(seconds));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return h > 0
-    ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
-    : `${m}:${String(sec).padStart(2, "0")}`;
-}
-
 /**
  * Describe one stretch of a video. Runs inline rather than in the background:
  * sixteen keyframe grabs plus one model call is tens of seconds, and the
@@ -633,11 +396,15 @@ export async function summariseSegment(
   }
   if (to - from < 5) throw new Error("Pick a range of at least 5 seconds.");
 
-  const built = await buildSegmentSheet(row, from, to);
-  if (!built) throw new Error("Could not read any frames from that range.");
+  const source = videoFilePath(row.channel, row.storage_key);
+  const sheet = await buildContactSheet(source, from, to, {
+    columns: SEGMENT_COLS,
+    rows: SEGMENT_ROWS,
+  });
+  if (!sheet) throw new Error("Could not read any frames from that range.");
 
-  try {
-    const image = fs.readFileSync(built.sheet).toString("base64");
+  {
+    const image = sheet.image;
     const prompt = [
       `This image is a contact sheet covering ONE STRETCH of a longer video: ${SEGMENT_COLS} columns by ${SEGMENT_ROWS} rows of thumbnails, read left to right, top to bottom, sampled evenly between ${clockLabel(from)} and ${clockLabel(to)}.`,
       `The video is titled "${row.title}"${duration ? ` and runs ${clockLabel(duration)} in total` : ""}.`,
@@ -645,10 +412,12 @@ export async function summariseSegment(
       `Describe what happens in this stretch only — not the whole video. Track how the scenes progress across the frames. If the frames do not support a confident reading, say so via the confidence field rather than inventing detail.`,
     ].join("\n");
 
-    const raw =
-      providerKind() === "anthropic"
-        ? await askAnthropic(image, prompt)
-        : await askOpenRouter(image, prompt);
+    const raw = await describeImage({
+      image,
+      prompt,
+      schema: SUMMARY_SCHEMA as unknown as Record<string, unknown>,
+      schemaName: "video_segment_summary",
+    });
 
     let parsed: SummaryPayload;
     try {
@@ -678,8 +447,6 @@ export async function summariseSegment(
         model: `${summaryModel()} (${parsed.confidence})`,
       }) as SegmentSummaryRow;
     return result;
-  } finally {
-    fs.rmSync(built.dir, { recursive: true, force: true });
   }
 }
 
