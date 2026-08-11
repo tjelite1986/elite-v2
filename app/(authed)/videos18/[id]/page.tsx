@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { canAccessVideoChannel, getVideoWithState, relatedVideos } from "@/lib/videos";
 import { parseMetadata } from "@/lib/video-metadata";
+import { segmentSummaries } from "@/lib/video-summary";
 import { performersForVideo } from "@/lib/video-performers";
 import VideoWatch from "@/components/video-watch";
 
@@ -39,6 +40,7 @@ export default async function Watch18Page(props: {
       related={relatedVideos(video, userId)}
       basePath="/videos18"
       isAdmin={session.role === "admin"}
+      segments={segmentSummaries(video.id)}
     />
   );
 }

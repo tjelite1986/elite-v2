@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { getVideoWithState, relatedVideos } from "@/lib/videos";
 import { parseMetadata } from "@/lib/video-metadata";
+import { segmentSummaries } from "@/lib/video-summary";
 import VideoWatch from "@/components/video-watch";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export default async function WatchPage(props: {
       related={relatedVideos(video, userId)}
       basePath="/videos"
       isAdmin={session.role === "admin"}
+      segments={segmentSummaries(video.id)}
     />
   );
 }

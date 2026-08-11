@@ -1,8 +1,14 @@
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFile as execFileCb } from "node:child_process";
+import { promisify } from "node:util";
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "./db";
 import type { VideoRow, VideoChannel } from "./db";
-import { posterFilePath } from "./videos-storage";
+import { posterFilePath, videoFilePath } from "./videos-storage";
+
+const execFile = promisify(execFileCb);
 
 // ---------------------------------------------------------------------------
 // Vision summaries for the video library.
@@ -464,6 +470,284 @@ export async function summariseOne(id: number): Promise<SummaryResult> {
     running = false;
     current = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Segment analysis: "what happens between 10:00 and 20:00?"
+//
+// The stored storyboard covers the whole film at a fixed spacing, which is too
+// coarse to answer a question about one stretch. So a segment gets its own
+// contact sheet, sampled only within the chosen range.
+//
+// Frames are grabbed one at a time with an input seek (-ss before -i) rather
+// than decoding the whole span through an fps filter: a keyframe jump is
+// near-instant, so the cost is the same whether the segment is two minutes or
+// two hours. Decoding a 20-minute span on a Pi would take longer than the
+// model call it feeds.
+// ---------------------------------------------------------------------------
+
+const SEGMENT_COLS = 4;
+const SEGMENT_ROWS = 4;
+
+export interface SegmentSummaryRow {
+  id: number;
+  video_id: number;
+  from_seconds: number;
+  to_seconds: number;
+  summary: string;
+  tags: string | null;
+  model: string | null;
+  created_at: string;
+}
+
+async function buildSegmentSheet(
+  row: VideoRow,
+  fromSeconds: number,
+  toSeconds: number
+): Promise<{ sheet: string; dir: string } | null> {
+  const src = videoFilePath(row.channel, row.storage_key);
+  if (!fs.existsSync(src)) throw new Error("the video file is gone");
+
+  const frames = SEGMENT_COLS * SEGMENT_ROWS;
+  const span = Math.max(1, toSeconds - fromSeconds);
+  const step = span / frames;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "video-seg-"));
+
+  let lastGood: string | null = null;
+  for (let i = 0; i < frames; i++) {
+    const at = fromSeconds + i * step;
+    const frame = path.join(dir, `f${String(i).padStart(4, "0")}.jpg`);
+    try {
+      await execFile(
+        "nice",
+        [
+          "-n",
+          "19",
+          "ffmpeg",
+          "-y",
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-nostdin",
+          "-ss",
+          at.toFixed(3),
+          "-i",
+          src,
+          "-frames:v",
+          "1",
+          "-vf",
+          "scale=320:-2",
+          "-q:v",
+          "4",
+          frame,
+        ],
+        { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 }
+      );
+    } catch {
+      /* filled from the previous frame below */
+    }
+    if (fs.existsSync(frame) && fs.statSync(frame).size > 0) {
+      lastGood = frame;
+    } else if (lastGood) {
+      // The image-sequence demuxer stops at the first missing index, so a
+      // frame ffmpeg could not grab is filled with the one before it.
+      fs.copyFileSync(lastGood, frame);
+    } else {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return null; // nothing decodable in this range at all
+    }
+  }
+
+  const sheet = path.join(dir, "sheet.jpg");
+  await execFile(
+    "nice",
+    [
+      "-n",
+      "19",
+      "ffmpeg",
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-nostdin",
+      "-framerate",
+      "1",
+      "-start_number",
+      "0",
+      "-i",
+      path.join(dir, "f%04d.jpg"),
+      "-frames:v",
+      "1",
+      "-vf",
+      `tile=${SEGMENT_COLS}x${SEGMENT_ROWS}`,
+      "-q:v",
+      "4",
+      sheet,
+    ],
+    { timeout: 120_000, maxBuffer: 8 * 1024 * 1024 }
+  );
+
+  if (!fs.existsSync(sheet) || fs.statSync(sheet).size === 0) {
+    fs.rmSync(dir, { recursive: true, force: true });
+    return null;
+  }
+  return { sheet, dir };
+}
+
+function clockLabel(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+    : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+/**
+ * Describe one stretch of a video. Runs inline rather than in the background:
+ * sixteen keyframe grabs plus one model call is tens of seconds, and the
+ * caller asked for this specific answer and is waiting for it.
+ */
+export async function summariseSegment(
+  videoId: number,
+  fromSeconds: number,
+  toSeconds: number
+): Promise<SegmentSummaryRow> {
+  if (!summaryConfigured()) {
+    throw new Error(
+      "No AI key configured — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY."
+    );
+  }
+  const row = db.prepare("SELECT * FROM videos WHERE id = ?").get(videoId) as
+    | VideoRow
+    | undefined;
+  if (!row) throw new Error("No such video.");
+
+  const duration = row.duration ?? 0;
+  let from = Math.max(0, Math.min(fromSeconds, toSeconds));
+  let to = Math.max(fromSeconds, toSeconds);
+  if (duration > 0) {
+    from = Math.min(from, Math.max(0, duration - 1));
+    to = Math.min(to, duration);
+  }
+  if (to - from < 5) throw new Error("Pick a range of at least 5 seconds.");
+
+  const built = await buildSegmentSheet(row, from, to);
+  if (!built) throw new Error("Could not read any frames from that range.");
+
+  try {
+    const image = fs.readFileSync(built.sheet).toString("base64");
+    const prompt = [
+      `This image is a contact sheet covering ONE STRETCH of a longer video: ${SEGMENT_COLS} columns by ${SEGMENT_ROWS} rows of thumbnails, read left to right, top to bottom, sampled evenly between ${clockLabel(from)} and ${clockLabel(to)}.`,
+      `The video is titled "${row.title}"${duration ? ` and runs ${clockLabel(duration)} in total` : ""}.`,
+      "",
+      `Describe what happens in this stretch only — not the whole video. Track how the scenes progress across the frames. If the frames do not support a confident reading, say so via the confidence field rather than inventing detail.`,
+    ].join("\n");
+
+    const raw =
+      providerKind() === "anthropic"
+        ? await askAnthropic(image, prompt)
+        : await askOpenRouter(image, prompt);
+
+    let parsed: SummaryPayload;
+    try {
+      parsed = JSON.parse(raw) as SummaryPayload;
+    } catch {
+      throw new Error("model returned malformed JSON");
+    }
+    if (!parsed.summary?.trim()) throw new Error("model returned an empty summary");
+
+    const result = db
+      .prepare(
+        `INSERT INTO video_segment_summaries
+           (video_id, from_seconds, to_seconds, summary, tags, model)
+         VALUES (@video_id, @from_seconds, @to_seconds, @summary, @tags, @model)
+         RETURNING *`
+      )
+      .get({
+        video_id: videoId,
+        from_seconds: from,
+        to_seconds: to,
+        summary: parsed.summary.trim(),
+        tags: JSON.stringify(
+          (parsed.tags ?? [])
+            .map((t) => String(t).trim().toLowerCase())
+            .filter(Boolean)
+        ),
+        model: `${summaryModel()} (${parsed.confidence})`,
+      }) as SegmentSummaryRow;
+    return result;
+  } finally {
+    fs.rmSync(built.dir, { recursive: true, force: true });
+  }
+}
+
+export interface AnalysedVideo {
+  id: number;
+  channel: VideoChannel;
+  title: string;
+  folder: string | null;
+  duration: number | null;
+  poster_key: string | null;
+  ai_summary: string;
+  ai_summary_tags: string | null;
+  ai_summary_model: string | null;
+  ai_summary_at: string | null;
+  segment_count: number;
+}
+
+/**
+ * Everything that has been described, newest first — the reading list behind
+ * the Analysis page. Channel-scoped by the caller, because the 18+ library
+ * must never leak into the main one.
+ */
+export function analysedVideos(channel: VideoChannel): AnalysedVideo[] {
+  return db
+    .prepare(
+      `SELECT v.id, v.channel, v.title, v.folder, v.duration, v.poster_key,
+              v.ai_summary, v.ai_summary_tags, v.ai_summary_model,
+              v.ai_summary_at,
+              (SELECT COUNT(*) FROM video_segment_summaries s
+                WHERE s.video_id = v.id) AS segment_count
+         FROM videos v
+        WHERE v.channel = ?
+          AND v.ai_summary IS NOT NULL
+        ORDER BY v.ai_summary_at DESC`
+    )
+    .all(channel) as AnalysedVideo[];
+}
+
+/** Segment analyses across a whole channel, for the same page. */
+export function analysedSegments(
+  channel: VideoChannel
+): (SegmentSummaryRow & { title: string; poster_key: string | null })[] {
+  return db
+    .prepare(
+      `SELECT s.*, v.title, v.poster_key
+         FROM video_segment_summaries s
+         JOIN videos v ON v.id = s.video_id
+        WHERE v.channel = ?
+        ORDER BY s.created_at DESC`
+    )
+    .all(channel) as (SegmentSummaryRow & {
+    title: string;
+    poster_key: string | null;
+  })[];
+}
+
+export function segmentSummaries(videoId: number): SegmentSummaryRow[] {
+  return db
+    .prepare(
+      `SELECT * FROM video_segment_summaries
+        WHERE video_id = ?
+        ORDER BY from_seconds ASC`
+    )
+    .all(videoId) as SegmentSummaryRow[];
+}
+
+export function deleteSegmentSummary(id: number): void {
+  db.prepare("DELETE FROM video_segment_summaries WHERE id = ?").run(id);
 }
 
 // Clear a stored failure so the row re-enters the queue.

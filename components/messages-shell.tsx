@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bell, Images, Menu, MessageCircle } from "lucide-react";
+import {
+  Bell,
+  Images,
+  Menu,
+  MessageCircle,
+  MessagesSquare,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useWs } from "@/components/ws-provider";
@@ -21,8 +27,15 @@ type MainTab = "chats" | "stories" | "notifications" | "menu" | "requests";
 
 type BarTab = Exclude<MainTab, "requests">;
 
-const TABS: { key: BarTab; label: string; icon: typeof MessageCircle }[] = [
+// Channels is not a MainTab of its own: it is the chats view with its inner
+// tab flipped. It earns a bar slot anyway because reaching it through
+// Chats → Channels made it feel like a sub-feature of DMs rather than the
+// other half of the messenger.
+type BarKey = BarTab | "channels";
+
+const TABS: { key: BarKey; label: string; icon: typeof MessageCircle }[] = [
   { key: "chats", label: "Chats", icon: MessageCircle },
+  { key: "channels", label: "Channels", icon: MessagesSquare },
   { key: "stories", label: "Stories", icon: Images },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "menu", label: "Menu", icon: Menu },
@@ -49,15 +62,26 @@ export default function MessagesShell({
   const searchParams = useSearchParams();
   const initialTab = searchParams.get("tab");
   const [tab, setTab] = useState<MainTab>(
-    TABS.some((t) => t.key === initialTab) ? (initialTab as BarTab) : "chats"
+    initialTab === "channels"
+      ? "chats"
+      : TABS.some((t) => t.key === initialTab)
+        ? (initialTab as BarTab)
+        : "chats"
   );
 
   // Also react to ?tab= changing while mounted (e.g. tapping the menu's
   // Notifications row while already on /messages).
   useEffect(() => {
+    if (initialTab === "channels") {
+      setTab("chats");
+      setChatTab("channels");
+      return;
+    }
     if (TABS.some((t) => t.key === initialTab)) setTab(initialTab as BarTab);
   }, [initialTab]);
-  const [chatTab, setChatTab] = useState<"dm" | "channels">("dm");
+  const [chatTab, setChatTab] = useState<"dm" | "channels">(
+    initialTab === "channels" ? "channels" : "dm"
+  );
   const [dmUnread, setDmUnread] = useState(0);
   const [notifCount, setNotifCount] = useState(0);
   const [requestsCount, setRequestsCount] = useState(0);
@@ -119,7 +143,7 @@ export default function MessagesShell({
     });
   }, [subscribe, loadNotifCount, loadDmUnread, loadRequestsCount]);
 
-  const badge = (t: BarTab): number =>
+  const badge = (t: BarKey): number =>
     t === "chats"
       ? dmUnread
       : t === "notifications"
@@ -197,11 +221,30 @@ export default function MessagesShell({
       <nav className="flex shrink-0 border-t border-white/10 bg-black/40 pb-[env(safe-area-inset-bottom)]">
         {TABS.map(({ key, label, icon: Icon }) => {
           const count = badge(key);
-          const active = tab === key || (key === "menu" && tab === "requests");
+          // Chats and Channels share one view, so they light up on the inner
+          // tab rather than on `tab` alone.
+          const active =
+            key === "channels"
+              ? tab === "chats" && chatTab === "channels"
+              : key === "chats"
+                ? tab === "chats" && chatTab === "dm"
+                : tab === key || (key === "menu" && tab === "requests");
           return (
             <button
               key={key}
-              onClick={() => setTab(key)}
+              onClick={() => {
+                if (key === "channels") {
+                  setTab("chats");
+                  setChatTab("channels");
+                  return;
+                }
+                if (key === "chats") {
+                  setTab("chats");
+                  setChatTab("dm");
+                  return;
+                }
+                setTab(key);
+              }}
               className={cn(
                 "flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] transition",
                 active ? "text-blue-400" : "text-white/50 hover:text-white/80"

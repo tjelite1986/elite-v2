@@ -751,6 +751,23 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_video_performer_links_slug
       ON video_performer_links(performer_slug);
 
+    -- Vision summaries of one stretch of a video, asked for by hand ("what
+    -- happens between 10:00 and 20:00"). Separate from the whole-video summary
+    -- on the videos table: several can exist per video, they are cheap to
+    -- re-ask, and deleting one must not disturb the other.
+    CREATE TABLE IF NOT EXISTS video_segment_summaries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+      from_seconds REAL NOT NULL,
+      to_seconds REAL NOT NULL,
+      summary TEXT NOT NULL,
+      tags TEXT,
+      model TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_video_segments_video
+      ON video_segment_summaries(video_id, from_seconds);
+
     CREATE TABLE IF NOT EXISTS video_likes (
       video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

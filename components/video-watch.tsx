@@ -57,6 +57,29 @@ export interface WatchVideo extends VideoCardData {
   cast?: ScenePerformer[];
 }
 
+export interface SegmentSummary {
+  id: number;
+  video_id: number;
+  from_seconds: number;
+  to_seconds: number;
+  summary: string;
+  tags: string | null;
+  model: string | null;
+  created_at: string;
+}
+
+/** Accepts "12:30", "1:02:30" or a bare number of seconds. */
+function parseClock(input: string): number | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  const parts = trimmed.split(":").map((p) => Number(p));
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return null;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
+
 // Tags are stored as a JSON array; a malformed value must never break the page.
 function parseTags(raw: string | null): string[] {
   if (!raw) return [];
@@ -83,11 +106,13 @@ export default function VideoWatch({
   related,
   basePath,
   isAdmin,
+  segments: initialSegments,
 }: {
   video: WatchVideo;
   related: VideoCardData[];
   basePath: string;
   isAdmin: boolean;
+  segments?: SegmentSummary[];
 }) {
   const router = useRouter();
   const [video, setVideo] = useState(initial);
@@ -99,6 +124,13 @@ export default function VideoWatch({
   const [descDraft, setDescDraft] = useState(initial.description ?? "");
   const [saving, setSaving] = useState(false);
   const [summarising, setSummarising] = useState(false);
+  const [segments, setSegments] = useState<SegmentSummary[]>(
+    initialSegments ?? []
+  );
+  const [segFrom, setSegFrom] = useState("");
+  const [segTo, setSegTo] = useState("");
+  const [segBusy, setSegBusy] = useState(false);
+  const [segError, setSegError] = useState<string | null>(null);
   const [playerKey, setPlayerKey] = useState(0);
   // Chapter chips live in the metadata panel but drive the player; a nonce lets
   // the same timestamp be requested twice in a row.
@@ -108,6 +140,9 @@ export default function VideoWatch({
     initial.percent < 95 ? initial.position : 0
   );
   const lastSent = useRef(0);
+  // Where the player is right now, so "analyse this bit" can pre-fill from it.
+  // Updated on every progress tick, unlike lastSent which is throttled.
+  const livePosition = useRef(0);
 
   // A different video id means a different row — reset the local view state.
   useEffect(() => {
@@ -117,7 +152,12 @@ export default function VideoWatch({
     setResumeAt(initial.percent < 95 ? initial.position : 0);
     setEditing(false);
     setExpanded(false);
+    setSegError(null);
   }, [initial]);
+
+  useEffect(() => {
+    setSegments(initialSegments ?? []);
+  }, [initialSegments]);
 
   useEffect(() => {
     try {
@@ -158,6 +198,7 @@ export default function VideoWatch({
   // by the navigation there, and the resume point was silently lost.
   const saveProgress = useCallback(
     (position: number) => {
+      livePosition.current = position;
       if (Math.abs(position - lastSent.current) < 5) return;
       lastSent.current = position;
       const url = `/api/videos/${video.id}/progress`;
@@ -228,6 +269,59 @@ export default function VideoWatch({
     } finally {
       setSummarising(false);
     }
+  };
+
+  // Analyse one stretch. Unlike the whole-video summary this runs inline —
+  // sixteen keyframe grabs plus a model call — so the request is simply awaited.
+  const analyseSegment = async () => {
+    const from = parseClock(segFrom);
+    const to = parseClock(segTo);
+    if (from === null || to === null) {
+      setSegError("Use m:ss, h:mm:ss, or seconds.");
+      return;
+    }
+    if (to - from < 5) {
+      setSegError("Pick a range of at least 5 seconds.");
+      return;
+    }
+    setSegBusy(true);
+    setSegError(null);
+    try {
+      const res = await fetch("/api/videos/summarize/segment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId: video.id, from, to }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSegError(data.error || "Could not analyse that range.");
+        return;
+      }
+      setSegments((prev) =>
+        [...prev, data.segment].sort((a, b) => a.from_seconds - b.from_seconds)
+      );
+      setSegFrom("");
+      setSegTo("");
+    } catch {
+      setSegError("Could not reach the server.");
+    } finally {
+      setSegBusy(false);
+    }
+  };
+
+  // Pre-fill the range from where the viewer is: this bit, plus two minutes.
+  const fillFromPlayer = () => {
+    const at = Math.max(0, Math.floor(livePosition.current));
+    setSegFrom(formatTime(at));
+    setSegTo(formatTime(at + 120));
+    setSegError(null);
+  };
+
+  const removeSegment = async (id: number) => {
+    setSegments((prev) => prev.filter((s) => s.id !== id));
+    await fetch(`/api/videos/summarize/segment?id=${id}`, {
+      method: "DELETE",
+    }).catch(() => {});
   };
 
   const save = async () => {
@@ -545,6 +639,89 @@ export default function VideoWatch({
                     ? "Reading the storyboard…"
                     : "Not described yet."}
                 </p>
+              )}
+
+              {/* Segment analysis: describe one stretch rather than the film. */}
+              {segments.length > 0 && (
+                <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
+                  {segments.map((seg) => (
+                    <div key={seg.id} className="text-sm">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() =>
+                            setSeekRequest({
+                              time: seg.from_seconds,
+                              nonce: Date.now(),
+                            })
+                          }
+                          className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-medium text-white/70 transition hover:bg-white/20"
+                        >
+                          {formatTime(seg.from_seconds)}–
+                          {formatTime(seg.to_seconds)}
+                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => removeSegment(seg.id)}
+                            className="text-white/30 transition hover:text-white/70"
+                            aria-label="Remove this analysis"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </div>
+                      <p className="mt-1 whitespace-pre-wrap text-white/70">
+                        {seg.summary}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {isAdmin && (
+                <div className="mt-3 border-t border-white/10 pt-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <input
+                      value={segFrom}
+                      onChange={(e) => setSegFrom(e.target.value)}
+                      placeholder="from"
+                      aria-label="Segment start"
+                      className="w-20 rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-xs outline-none placeholder:text-white/30 focus:border-white/30"
+                    />
+                    <span className="text-xs text-white/30">→</span>
+                    <input
+                      value={segTo}
+                      onChange={(e) => setSegTo(e.target.value)}
+                      placeholder="to"
+                      aria-label="Segment end"
+                      className="w-20 rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-xs outline-none placeholder:text-white/30 focus:border-white/30"
+                    />
+                    <button
+                      onClick={fillFromPlayer}
+                      className="rounded-full border border-white/15 px-2.5 py-1 text-xs transition hover:bg-white/10"
+                    >
+                      From here
+                    </button>
+                    <button
+                      onClick={analyseSegment}
+                      disabled={segBusy}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-xs font-medium text-black transition hover:bg-white/90 disabled:opacity-50"
+                    >
+                      {segBusy ? (
+                        <Loader2 size={12} className="animate-spin" />
+                      ) : (
+                        <Sparkles size={12} />
+                      )}
+                      {segBusy ? "Analysing…" : "Analyse part"}
+                    </button>
+                  </div>
+                  {segError ? (
+                    <p className="mt-1.5 text-xs text-red-300/80">{segError}</p>
+                  ) : (
+                    <p className="mt-1.5 text-[11px] text-white/30">
+                      Describe one stretch — m:ss, h:mm:ss, or seconds.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           )}

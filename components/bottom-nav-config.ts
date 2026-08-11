@@ -15,6 +15,7 @@ import {
   Newspaper,
   Play,
   Search,
+  Sparkles,
   SquarePlus,
   Store,
   Users,
@@ -51,6 +52,7 @@ const SECTIONS: {
     items: () => [
       { label: "Videos 18+", href: "/videos18", icon: Film },
       { label: "Performers", href: "/videos18/performers", icon: Users },
+      { label: "Analysis", href: "/videos18/analysis", icon: Sparkles },
       { label: "Shorts 18+", href: "/shorts18", icon: Flame },
     ],
   },
@@ -58,6 +60,7 @@ const SECTIONS: {
     prefix: "/videos",
     items: () => [
       { label: "Videos", href: "/videos", icon: Film },
+      { label: "Analysis", href: "/videos/analysis", icon: Sparkles },
       { label: "Shorts", href: "/shorts", icon: Play },
       { label: "Posts", href: "/posts", icon: Newspaper },
     ],
