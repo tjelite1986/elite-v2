@@ -19,19 +19,35 @@ import { posterFilePath } from "./videos-storage";
 // this, but the default is the safe one.
 // ---------------------------------------------------------------------------
 
-const DEFAULT_MODEL = "claude-opus-5";
+// The same Claude models are reachable two ways: Anthropic directly, or
+// OpenRouter's OpenAI-shaped API. Which one to use depends on where the
+// account credit is, so the provider is picked from whichever key is present.
+type ProviderKind = "anthropic" | "openrouter";
+
+const DEFAULT_MODELS: Record<ProviderKind, string> = {
+  anthropic: "claude-opus-5",
+  openrouter: "anthropic/claude-opus-5",
+};
 
 // A summary is a short read of a contact sheet, not a reasoning problem —
 // medium effort is plenty and keeps the per-video cost down. Raise it with
 // VIDEO_AI_EFFORT if summaries come out shallow.
 const DEFAULT_EFFORT = "medium";
 
+function providerKind(): ProviderKind {
+  const forced = process.env.VIDEO_AI_PROVIDER as ProviderKind | undefined;
+  if (forced === "anthropic" || forced === "openrouter") return forced;
+  return process.env.ANTHROPIC_API_KEY ? "anthropic" : "openrouter";
+}
+
 export function summaryConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return providerKind() === "anthropic"
+    ? Boolean(process.env.ANTHROPIC_API_KEY)
+    : Boolean(process.env.OPENROUTER_API_KEY);
 }
 
 function summaryModel(): string {
-  return process.env.VIDEO_AI_MODEL || DEFAULT_MODEL;
+  return process.env.VIDEO_AI_MODEL || DEFAULT_MODELS[providerKind()];
 }
 
 function allowedChannels(): VideoChannel[] {
@@ -116,18 +132,8 @@ function buildPrompt(row: VideoRow): string {
   ].join("\n");
 }
 
-async function summariseRow(row: VideoRow): Promise<void> {
-  if (!row.storyboard_key) {
-    throw new Error("no storyboard sheet for this video");
-  }
-  const sheetPath = posterFilePath(row.storyboard_key);
-  if (!fs.existsSync(sheetPath)) {
-    throw new Error("storyboard sheet is missing on disk");
-  }
-
+async function askAnthropic(image: string, prompt: string): Promise<string> {
   const client = new Anthropic();
-  const image = fs.readFileSync(sheetPath).toString("base64");
-
   const response = await client.messages.create({
     model: summaryModel(),
     max_tokens: 8000,
@@ -143,7 +149,7 @@ async function summariseRow(row: VideoRow): Promise<void> {
             type: "image",
             source: { type: "base64", media_type: "image/jpeg", data: image },
           },
-          { type: "text", text: buildPrompt(row) },
+          { type: "text", text: prompt },
         ],
       },
     ],
@@ -164,10 +170,99 @@ async function summariseRow(row: VideoRow): Promise<void> {
   if (!text || text.type !== "text") {
     throw new Error("model returned no text block");
   }
+  return text.text;
+}
+
+async function askOpenRouter(image: string, prompt: string): Promise<string> {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "X-Title": "elite-v2 video summaries",
+    },
+    body: JSON.stringify({
+      model: summaryModel(),
+      max_tokens: 8000,
+      reasoning: { effort: process.env.VIDEO_AI_EFFORT || DEFAULT_EFFORT },
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "video_summary",
+          strict: true,
+          schema: SUMMARY_SCHEMA,
+        },
+      },
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${image}` },
+            },
+            { type: "text", text: prompt },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    let detail = body.slice(0, 200);
+    try {
+      const parsed = JSON.parse(body) as { error?: { message?: string } };
+      if (parsed.error?.message) detail = parsed.error.message;
+    } catch {
+      /* keep the raw body */
+    }
+    throw new Error(`OpenRouter returned ${response.status}: ${detail}`);
+  }
+
+  const data = (await response.json()) as {
+    choices?: {
+      message?: { content?: string | null };
+      finish_reason?: string;
+      native_finish_reason?: string;
+    }[];
+    error?: { message?: string };
+  };
+  if (data.error?.message) throw new Error(`OpenRouter: ${data.error.message}`);
+
+  const choice = data.choices?.[0];
+  const text = choice?.message?.content;
+  if (!text) {
+    // A refused or truncated turn comes back as an empty content string with
+    // the reason in finish_reason — surfacing that beats "malformed JSON".
+    throw new Error(
+      `model returned no text (finish_reason: ${
+        choice?.native_finish_reason ?? choice?.finish_reason ?? "unknown"
+      })`
+    );
+  }
+  return text;
+}
+
+async function summariseRow(row: VideoRow): Promise<void> {
+  if (!row.storyboard_key) {
+    throw new Error("no storyboard sheet for this video");
+  }
+  const sheetPath = posterFilePath(row.storyboard_key);
+  if (!fs.existsSync(sheetPath)) {
+    throw new Error("storyboard sheet is missing on disk");
+  }
+
+  const image = fs.readFileSync(sheetPath).toString("base64");
+  const prompt = buildPrompt(row);
+  const raw =
+    providerKind() === "anthropic"
+      ? await askAnthropic(image, prompt)
+      : await askOpenRouter(image, prompt);
 
   let parsed: SummaryPayload;
   try {
-    parsed = JSON.parse(text.text) as SummaryPayload;
+    parsed = JSON.parse(raw) as SummaryPayload;
   } catch {
     throw new Error("model returned malformed JSON");
   }
@@ -254,7 +349,8 @@ export async function summarisePending(
       summarised: 0,
       failed: 0,
       remaining: 0,
-      message: "ANTHROPIC_API_KEY is not configured.",
+      message:
+        "No AI key configured — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY.",
     };
   }
   if (running) {
@@ -316,7 +412,8 @@ export async function summariseOne(id: number): Promise<SummaryResult> {
       summarised: 0,
       failed: 0,
       remaining: 0,
-      message: "ANTHROPIC_API_KEY is not configured.",
+      message:
+        "No AI key configured — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY.",
     };
   }
   if (running) {
@@ -384,7 +481,8 @@ export function startSummaryRun(budgetMs?: number): {
   if (!summaryConfigured()) {
     return {
       started: false,
-      message: "ANTHROPIC_API_KEY is not configured.",
+      message:
+        "No AI key configured — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY.",
       pending: 0,
     };
   }
@@ -428,7 +526,11 @@ export function startSummaryOne(id: number): {
   message: string;
 } {
   if (!summaryConfigured()) {
-    return { started: false, message: "ANTHROPIC_API_KEY is not configured." };
+    return {
+      started: false,
+      message:
+        "No AI key configured — set ANTHROPIC_API_KEY or OPENROUTER_API_KEY.",
+    };
   }
   if (running) {
     return { started: false, message: "A summary run is already in progress." };
