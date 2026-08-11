@@ -736,6 +736,33 @@ export function analysedSegments(
   })[];
 }
 
+/**
+ * Which channel a video belongs to. Callers use this to apply the same 18+
+ * gate the pages do — an API route that skips it is a way around the user's
+ * own PIN, which is the whole point of the gate.
+ */
+export function videoChannelOf(videoId: number): VideoChannel | null {
+  const row = db
+    .prepare("SELECT channel FROM videos WHERE id = ?")
+    .get(videoId) as { channel: VideoChannel } | undefined;
+  return row?.channel ?? null;
+}
+
+/** The video (and therefore channel) a stored segment belongs to. */
+export function segmentOwner(
+  segmentId: number
+): { videoId: number; channel: VideoChannel } | null {
+  const row = db
+    .prepare(
+      `SELECT s.video_id AS videoId, v.channel AS channel
+         FROM video_segment_summaries s
+         JOIN videos v ON v.id = s.video_id
+        WHERE s.id = ?`
+    )
+    .get(segmentId) as { videoId: number; channel: VideoChannel } | undefined;
+  return row ?? null;
+}
+
 export function segmentSummaries(videoId: number): SegmentSummaryRow[] {
   return db
     .prepare(

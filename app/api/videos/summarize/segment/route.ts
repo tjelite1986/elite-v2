@@ -1,17 +1,38 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { canAccessVideoChannel } from "@/lib/videos";
+import type { VideoChannel } from "@/lib/db";
 import {
   deleteSegmentSummary,
+  segmentOwner,
   segmentSummaries,
   summariseSegment,
+  videoChannelOf,
 } from "@/lib/video-summary";
 
 export const dynamic = "force-dynamic";
 // Sixteen keyframe grabs plus a model call: tens of seconds, not milliseconds.
 export const maxDuration = 300;
 
-// Read the segment analyses stored for one video. Any signed-in user — the
-// text is part of the library, like a description.
+// The 18+ gate is per user and PIN-backed, so "is an admin" is not the same
+// thing as "is entitled to this channel right now". Every handler here checks
+// the channel of the video it is about — a route that skipped it would be a
+// way around the user's own lock, since the analysis text describes the video.
+// A denial is 404, not 403: existence of an 18+ row is itself information.
+async function denyByChannel(
+  channel: VideoChannel | null
+): Promise<NextResponse | null> {
+  if (!channel) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!(await canAccessVideoChannel(channel))) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  return null;
+}
+
+// Read the segment analyses stored for one video. Any signed-in user with
+// access to that video's channel — the text is part of the library.
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) {
@@ -21,6 +42,10 @@ export async function GET(request: Request) {
   if (!Number.isFinite(videoId) || videoId <= 0) {
     return NextResponse.json({ error: "Missing videoId" }, { status: 400 });
   }
+
+  const denied = await denyByChannel(videoChannelOf(videoId));
+  if (denied) return denied;
+
   return NextResponse.json({ segments: segmentSummaries(videoId) });
 }
 
@@ -50,6 +75,9 @@ export async function POST(request: Request) {
     );
   }
 
+  const denied = await denyByChannel(videoChannelOf(videoId));
+  if (denied) return denied;
+
   try {
     const segment = await summariseSegment(videoId, from, to);
     return NextResponse.json({ ok: true, segment });
@@ -70,6 +98,13 @@ export async function DELETE(request: Request) {
   if (!Number.isFinite(id) || id <= 0) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
+
+  // Resolve the segment's own video before deleting: the id says nothing
+  // about which channel it belongs to.
+  const owner = segmentOwner(id);
+  const denied = await denyByChannel(owner?.channel ?? null);
+  if (denied) return denied;
+
   deleteSegmentSummary(id);
   return NextResponse.json({ ok: true });
 }
