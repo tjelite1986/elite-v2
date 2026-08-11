@@ -52,17 +52,91 @@ export async function canAccessVideoChannel(
 
 const execFile = promisify(execFileCb);
 
+interface RunOptions {
+  // Absolute ceiling. For a long encode this is a runaway backstop, NOT a
+  // schedule — see `watchFile` for the check that actually catches a hang.
+  timeoutMs: number;
+  // Output file to watch. An encode that is merely slow keeps writing bytes; one
+  // that is wedged does not. Killing on "stopped growing" lets a legitimately
+  // slow encode take as long as it needs while still bounding a stuck process.
+  watchFile?: string;
+  stallMs?: number;
+}
+
 // ffmpeg work is niced so a scan or transcode never starves the web app.
 async function run(
   bin: string,
   args: string[],
-  timeoutMs: number
+  opts: number | RunOptions
 ): Promise<void> {
-  await execFile("nice", ["-n", "19", bin, ...args], {
-    timeout: timeoutMs,
-    maxBuffer: 16 * 1024 * 1024,
+  const { timeoutMs, watchFile, stallMs = 10 * 60_000 } =
+    typeof opts === "number" ? { timeoutMs: opts } : opts;
+
+  let watchdog: NodeJS.Timeout | null = null;
+  let stalled = false;
+
+  await new Promise<void>((resolve, reject) => {
+    const child = execFileCb(
+      "nice",
+      ["-n", "19", bin, ...args],
+      { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
+      (err) => {
+        if (watchdog) clearInterval(watchdog);
+        if (stalled) {
+          reject(
+            new Error(
+              `${bin} wrote no output for ${Math.round(stallMs / 60_000)} minutes — killed as stalled`
+            )
+          );
+          return;
+        }
+        if (err) {
+          // execFile's timeout kills the child and reports the command line
+          // without ever saying "timed out" — which is exactly how an encode
+          // that outran its budget looked like an ffmpeg error for months.
+          const killed = (err as NodeJS.ErrnoException & { killed?: boolean })
+            .killed;
+          reject(
+            killed
+              ? new Error(
+                  `${bin} exceeded its ${Math.round(timeoutMs / 60_000)} minute time limit`
+                )
+              : err
+          );
+          return;
+        }
+        resolve();
+      }
+    );
+
+    if (watchFile) {
+      let lastSize = -1;
+      let lastGrowth = Date.now();
+      watchdog = setInterval(() => {
+        let size = -1;
+        try {
+          size = fs.statSync(watchFile).size;
+        } catch {
+          /* not created yet — that counts as no growth */
+        }
+        if (size > lastSize) {
+          lastSize = size;
+          lastGrowth = Date.now();
+          return;
+        }
+        if (Date.now() - lastGrowth >= stallMs) {
+          stalled = true;
+          child.kill("SIGKILL");
+        }
+      }, 60_000);
+      watchdog.unref();
+    }
   });
 }
+
+// Codecs that mean "cover art", not "the film". Used both when probing and when
+// deciding a stored row was mis-probed by the old cover-image bug.
+const STILL_IMAGE_CODECS = new Set(["png", "mjpeg", "bmp", "gif", "webp"]);
 
 type Probe = {
   duration: number | null;
@@ -102,8 +176,22 @@ async function probeVideo(filePath: string): Promise<Probe> {
     if (Number.isFinite(duration) && duration > 0) probe.duration = duration;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const streams: any[] = data.streams || [];
+    // A cover image is a video stream too, and it is usually stream 0 — so the
+    // naive "first video stream" made an ordinary h264 file probe as `png`,
+    // count as unplayable, and sit in the transcode queue forever (its own name
+    // is already .mp4, so the conversion could never even start).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const v = streams.find((s: any) => s.codec_type === "video");
+    const videoStreams = streams.filter((s: any) => s.codec_type === "video");
+    const v =
+      videoStreams.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (s: any) =>
+          s.disposition?.attached_pic !== 1 &&
+          !(
+            videoStreams.length > 1 &&
+            STILL_IMAGE_CODECS.has(String(s.codec_name ?? "").toLowerCase())
+          )
+      ) ?? videoStreams[0];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const a = streams.find((s: any) => s.codec_type === "audio");
     if (a?.codec_name) probe.audioCodec = String(a.codec_name).toLowerCase();
@@ -475,8 +563,16 @@ export async function scanVideoChannel(
       // Re-probe only when the file actually changed, or when a previous scan
       // failed to produce artwork (e.g. ffmpeg was busy / the file was still
       // being copied). Rows the user edited keep their title/description.
+      // A stored row whose video codec is a still image is a leftover of the
+      // cover-image mis-probe: re-probe it even though the file is untouched,
+      // so it can leave the transcode queue it never belonged in.
+      const misprobed = STILL_IMAGE_CODECS.has(
+        String(row.video_codec ?? "").toLowerCase()
+      );
       const changed =
-        row.size_bytes !== file.size || row.file_mtime !== file.mtime;
+        row.size_bytes !== file.size ||
+        row.file_mtime !== file.mtime ||
+        misprobed;
       const posterMissing =
         !row.poster_key || !fs.existsSync(posterFilePath(row.poster_key));
       if (!changed && !posterMissing) continue;
@@ -828,7 +924,16 @@ async function convertOne(row: VideoRow): Promise<void> {
   // Same folder, same basename, .mp4 — so the library keeps its structure and
   // the file stays where its owner put it.
   const dstKey = `${row.storage_key.replace(/\.[^./]+$/, "")}.mp4`;
-  if (dstKey === row.storage_key) throw new Error("source is already .mp4");
+  // An .mp4 can still hold codecs no browser plays (HEVC is the common one), so
+  // "already .mp4" is not "already fine". Those convert in place: the temp file
+  // is separate either way, and the finished encode replaces the original only
+  // after the same playability + duration checks as any other conversion.
+  const inPlace = dstKey === row.storage_key;
+  if (inPlace && process.env.VIDEOS_KEEP_ORIGINALS === "1") {
+    throw new Error(
+      "source is already .mp4 and VIDEOS_KEEP_ORIGINALS=1 — converting it would overwrite the original"
+    );
+  }
   const dst = videoFilePath(row.channel, dstKey);
   const tmp = `${dst}.converting.mp4`;
   fs.rmSync(tmp, { force: true });
@@ -836,14 +941,20 @@ async function convertOne(row: VideoRow): Promise<void> {
 
   const remuxable = canRemuxToMp4(row.video_codec, row.audio_codec);
   const base = ["-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", src];
-  // Long encodes need a generous ceiling: a 45-minute SD film is ~15 minutes.
+  // This Pi encodes 1080p at roughly REALTIME, not the 2x the old duration/2
+  // ceiling assumed — which killed every long film at the same point and left a
+  // half-written temp file behind, forever. Six times the running time is a
+  // runaway backstop; the stall watchdog is what catches a wedged encode.
   const budgetMs = Math.max(
-    30 * 60_000,
-    Math.ceil(((row.duration ?? 3600) / 2) * 1000)
+    60 * 60_000,
+    Math.ceil((row.duration ?? 3600) * 6 * 1000)
   );
 
   if (remuxable) {
-    await run("ffmpeg", [...base, "-c", "copy", "-movflags", "+faststart", tmp], 30 * 60_000);
+    await run("ffmpeg", [...base, "-c", "copy", "-movflags", "+faststart", tmp], {
+      timeoutMs: 30 * 60_000,
+      watchFile: tmp,
+    });
   } else {
     await run(
       "ffmpeg",
@@ -879,7 +990,7 @@ async function convertOne(row: VideoRow): Promise<void> {
         "+faststart",
         tmp,
       ],
-      budgetMs
+      { timeoutMs: budgetMs, watchFile: tmp }
     );
   }
 
@@ -951,7 +1062,8 @@ async function convertOne(row: VideoRow): Promise<void> {
   // The row now points at the MP4, so the source is redundant. Removed only
   // after the checks above passed. Set VIDEOS_KEEP_ORIGINALS=1 to keep it (the
   // scan then re-adds it as its own unplayable row, so this is off by default).
-  if (process.env.VIDEOS_KEEP_ORIGINALS !== "1") {
+  // Not after an in-place conversion: there `src` IS the file we just wrote.
+  if (!inPlace && process.env.VIDEOS_KEEP_ORIGINALS !== "1") {
     fs.rmSync(src, { force: true });
   }
 }
@@ -1081,7 +1193,13 @@ export async function transcodeOne(id: number): Promise<TranscodeResult> {
       message: "Converted.",
     };
   } catch (err) {
-    const message = String((err as Error)?.message || err).slice(0, 500);
+    // The TAIL, like the queue run keeps: ffmpeg's own reason is the last line,
+    // while the first 500 characters are the command line we already know. The
+    // head-slice here is why every failure in the UI read "Command failed: nice
+    // -n 19 ffmpeg …" and nothing more.
+    const message = String((err as Error)?.message || err)
+      .trim()
+      .slice(-500);
     db.prepare(
       "UPDATE videos SET transcode_status = 'failed', transcode_error = ? WHERE id = ?"
     ).run(message, row.id);
