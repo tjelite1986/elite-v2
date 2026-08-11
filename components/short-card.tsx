@@ -17,6 +17,7 @@ import {
   Tag,
   Check,
   Image as ImageIcon,
+  Sparkles,
   Minimize2,
   Type,
   FastForward,
@@ -226,6 +227,8 @@ export default function ShortCard({
   useBackDismiss(showEdit, () => setShowEdit(false));
   const [category, setCategory] = useState(short.category);
   const [coverMsg, setCoverMsg] = useState<string | null>(null);
+  const [describing, setDescribing] = useState(false);
+  const [aiText, setAiText] = useState<string | null>(null);
   const [caption, setCaption] = useState(short.caption);
   const [isPrivate, setIsPrivate] = useState(short.is_private);
   // Overlay expansion for a long title / many tag chips.
@@ -255,6 +258,47 @@ export default function ShortCard({
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
+    }
+  };
+
+  // Admin "describe": sample frames from the clip and have a vision model read
+  // them. One API call, so it is a deliberate tap — and the result is shown
+  // here rather than only landing in the database, since reading it is the
+  // point.
+  const describe = async () => {
+    if (describing) return;
+    setDescribing(true);
+    setCoverMsg("Reading clip…");
+    try {
+      const res = await fetch(`/api/shorts/summarize?id=${short.id}`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        setCoverMsg("Failed");
+        return;
+      }
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const state = await fetch("/api/shorts/summarize")
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        if (state && !state.running) break;
+      }
+      const fresh = await fetch(`/api/shorts/summarize?id=${short.id}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
+      const text = fresh?.summary?.summary ?? null;
+      if (text) {
+        setAiText(text);
+        setCoverMsg(null);
+      } else {
+        setCoverMsg(fresh?.summary?.error ? "Could not read it" : "Failed");
+      }
+    } catch {
+      setCoverMsg("Failed");
+    } finally {
+      setDescribing(false);
+      setTimeout(() => setCoverMsg(null), 2500);
     }
   };
 
@@ -577,6 +621,37 @@ export default function ShortCard({
       {coverMsg && (
         <div className="pointer-events-none absolute left-1/2 top-20 z-10 -translate-x-1/2 rounded-full bg-black/75 px-4 py-1.5 text-sm font-medium text-white">
           {coverMsg}
+        </div>
+      )}
+
+      {/* Describe button, left of the Thumbnail one: the two are a pair of
+          admin actions on the clip itself, and this keeps it reachable without
+          opening the edit sheet. */}
+      {!chromeHidden && isAdmin && (
+        <button
+          onClick={describe}
+          disabled={describing}
+          title="Describe this clip with AI"
+          aria-label="Describe this clip with AI"
+          className="absolute right-24 top-2 z-10 rounded-full bg-black/50 p-2 text-white ring-1 ring-white/10 backdrop-blur transition hover:bg-black/70 disabled:opacity-50"
+        >
+          <Sparkles size={18} className={describing ? "animate-pulse" : ""} />
+        </button>
+      )}
+
+      {/* The description itself, once there is one. Dismissible: it covers the
+          clip, and the clip is what the viewer came for. */}
+      {aiText && !chromeHidden && (
+        <div
+          className="absolute inset-x-3 top-14 z-20 rounded-2xl bg-black/85 p-3 text-sm text-white/90 ring-1 ring-white/15 backdrop-blur"
+          onClick={() => setAiText(null)}
+        >
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-white/50">
+            <Sparkles size={12} />
+            AI description
+            <span className="ml-auto text-white/30">tap to dismiss</span>
+          </div>
+          {aiText}
         </div>
       )}
 

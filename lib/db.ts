@@ -768,6 +768,20 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_video_segments_video
       ON video_segment_summaries(video_id, from_seconds);
 
+    -- Perceptual fingerprints of whole clips, for duplicate detection.
+    -- One row per media item; kind keeps shorts and long-form videos in one
+    -- table without their ids colliding.
+    CREATE TABLE IF NOT EXISTS media_fingerprints (
+      kind TEXT NOT NULL,
+      media_id INTEGER NOT NULL,
+      dhash TEXT NOT NULL,
+      colors TEXT NOT NULL,
+      frames INTEGER NOT NULL,
+      duration REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (kind, media_id)
+    );
+
     CREATE TABLE IF NOT EXISTS video_likes (
       video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
