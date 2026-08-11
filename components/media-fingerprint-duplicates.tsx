@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Fingerprint, Loader2, Palette, RefreshCw } from "lucide-react";
+import {
+  Check,
+  Fingerprint,
+  Loader2,
+  Palette,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
+import { useConfirm } from "@/components/confirm-dialog";
 import { cn } from "@/lib/utils";
 
 interface Member {
@@ -65,6 +73,10 @@ export default function MediaFingerprintDuplicates({
   const [loading, setLoading] = useState(false);
   const [recolored, setRecolored] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Which members are ticked for deletion, per group.
+  const [selected, setSelected] = useState<Record<string, Set<number>>>({});
+  const [busyGroup, setBusyGroup] = useState<string | null>(null);
+  const [confirmDialog, confirmAsk] = useConfirm();
 
   const loadState = useCallback(async () => {
     const s = await fetch("/api/media/fingerprint")
@@ -100,7 +112,93 @@ export default function MediaFingerprintDuplicates({
   // Switching kind invalidates the listed groups.
   useEffect(() => {
     setGroups(null);
+    setSelected({});
   }, [kind]);
+
+  const groupKey = (g: Group) => g.members.map((m) => m.id).join("-");
+
+  const toggle = (key: string, id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev[key] ?? []);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { ...prev, [key]: next };
+    });
+
+  // Deleting reaches the filesystem, so it asks first and names the count.
+  // The whole group is sent so the server can refuse to empty it.
+  const remove = async (group: Group) => {
+    const key = groupKey(group);
+    const ids = [...(selected[key] ?? [])];
+    if (ids.length === 0) return;
+    const ok = await confirmAsk({
+      title: `Delete ${ids.length} file${ids.length === 1 ? "" : "s"}?`,
+      message:
+        kind === "short"
+          ? "The clips and their posters are removed from disk. This cannot be undone."
+          : "The video files are removed from disk. This cannot be undone.",
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
+
+    setBusyGroup(key);
+    setError(null);
+    try {
+      const res = await fetch("/api/media/duplicates", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          ids,
+          groupMembers: group.members.map((m) => m.id),
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) {
+        setError(d.message || d.error || "Could not delete.");
+        return;
+      }
+      setGroups((gs) =>
+        (gs ?? [])
+          .map((g) =>
+            groupKey(g) === key
+              ? { ...g, members: g.members.filter((m) => !ids.includes(m.id)) }
+              : g
+          )
+          .filter((g) => g.members.length > 1)
+      );
+      setSelected((prev) => ({ ...prev, [key]: new Set() }));
+    } catch {
+      setError("Could not delete.");
+    } finally {
+      setBusyGroup(null);
+    }
+  };
+
+  // "Not a duplicate": records the human judgement so the pair stops being
+  // offered on every future scan.
+  const dismiss = async (group: Group) => {
+    const key = groupKey(group);
+    setBusyGroup(key);
+    setError(null);
+    try {
+      const res = await fetch("/api/media/duplicates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, ids: group.members.map((m) => m.id) }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || "Could not save that.");
+        return;
+      }
+      setGroups((gs) => (gs ?? []).filter((g) => groupKey(g) !== key));
+    } catch {
+      setError("Could not save that.");
+    } finally {
+      setBusyGroup(null);
+    }
+  };
 
   // Fingerprinting is CPU work on the server, so the button starts it and the
   // page polls. Bounded: a stuck run must not spin here forever.
@@ -238,13 +336,20 @@ export default function MediaFingerprintDuplicates({
 
               <div className="space-y-1.5">
                 {group.members.map((m, i) => (
-                  <div
+                  <label
                     key={m.id}
                     className={cn(
-                      "flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs",
+                      "flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs",
                       i === 0 ? "bg-emerald-500/10" : "bg-white/5"
                     )}
                   >
+                    <input
+                      type="checkbox"
+                      checked={selected[groupKey(group)]?.has(m.id) ?? false}
+                      onChange={() => toggle(groupKey(group), m.id)}
+                      className="accent-rose-400"
+                      aria-label={`Select ${m.label || m.id} for deletion`}
+                    />
                     <span className="w-10 shrink-0 text-white/35">#{m.id}</span>
                     <span className="min-w-0 flex-1 truncate text-white/75">
                       {m.label || "(no title)"}
@@ -263,13 +368,48 @@ export default function MediaFingerprintDuplicates({
                         best
                       </span>
                     )}
-                  </div>
+                  </label>
                 ))}
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => remove(group)}
+                  disabled={
+                    busyGroup === groupKey(group) ||
+                    (selected[groupKey(group)]?.size ?? 0) === 0
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/90 px-3 py-1 text-xs font-medium text-white transition hover:bg-rose-500 disabled:opacity-40"
+                >
+                  {busyGroup === groupKey(group) ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={12} />
+                  )}
+                  Delete selected
+                  {(selected[groupKey(group)]?.size ?? 0) > 0
+                    ? ` (${selected[groupKey(group)]?.size})`
+                    : ""}
+                </button>
+
+                <button
+                  onClick={() => dismiss(group)}
+                  disabled={busyGroup === groupKey(group)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-1 text-xs transition hover:bg-white/10 disabled:opacity-40"
+                >
+                  <Check size={12} />
+                  Not a duplicate
+                </button>
+
+                <span className="ml-auto text-[11px] text-white/30">
+                  tick what to remove — the rest is kept
+                </span>
               </div>
             </div>
           ))}
         </div>
       )}
+      {confirmDialog}
     </section>
   );
 }

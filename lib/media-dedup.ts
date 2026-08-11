@@ -2,6 +2,8 @@ import { db } from "./db";
 import type { ShortChannel, VideoChannel } from "./db";
 import { videoPathFor } from "./shorts-storage";
 import { videoFilePath } from "./videos-storage";
+import { deleteShortFiles } from "./shorts-storage";
+import { deleteVideo } from "./videos";
 import {
   compareFingerprints,
   fingerprintVideo,
@@ -219,6 +221,117 @@ export function startFingerprintRun(budgetMs?: number): {
   };
 }
 
+// --- dismissals -------------------------------------------------------------
+
+/** Pair key, order-independent so (a,b) and (b,a) are the same judgement. */
+function pairKey(a: number, b: number): [number, number] {
+  return a < b ? [a, b] : [b, a];
+}
+
+export function dismissPair(kind: MediaKind, a: number, b: number): void {
+  const [lo, hi] = pairKey(a, b);
+  db.prepare(
+    `INSERT OR IGNORE INTO media_dupe_dismissals (kind, a_id, b_id)
+     VALUES (?, ?, ?)`
+  ).run(kind, lo, hi);
+}
+
+export function undismissPair(kind: MediaKind, a: number, b: number): void {
+  const [lo, hi] = pairKey(a, b);
+  db.prepare(
+    "DELETE FROM media_dupe_dismissals WHERE kind = ? AND a_id = ? AND b_id = ?"
+  ).run(kind, lo, hi);
+}
+
+function dismissedSet(kind: MediaKind): Set<string> {
+  const rows = db
+    .prepare("SELECT a_id, b_id FROM media_dupe_dismissals WHERE kind = ?")
+    .all(kind) as { a_id: number; b_id: number }[];
+  return new Set(rows.map((r) => `${r.a_id}:${r.b_id}`));
+}
+
+export function dismissedCount(kind: MediaKind): number {
+  const row = db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM media_dupe_dismissals WHERE kind = ?"
+    )
+    .get(kind) as { n: number };
+  return row.n;
+}
+
+// --- deletion ---------------------------------------------------------------
+
+export interface DeleteResult {
+  deleted: number;
+  skipped: number;
+  message: string;
+}
+
+/**
+ * Delete duplicate members. Refuses to empty a group: the caller must always
+ * leave at least one copy, so a mis-click cannot take the last surviving file
+ * along with its duplicates.
+ */
+export function deleteDuplicateMembers(
+  kind: MediaKind,
+  ids: number[],
+  groupMembers: number[]
+): DeleteResult {
+  const wanted = [...new Set(ids.filter((n) => Number.isInteger(n) && n > 0))];
+  const survivors = groupMembers.filter((id) => !wanted.includes(id));
+  if (survivors.length === 0) {
+    return {
+      deleted: 0,
+      skipped: wanted.length,
+      message: "Refusing to delete every copy — keep at least one.",
+    };
+  }
+
+  let deleted = 0;
+  let skipped = 0;
+
+  for (const id of wanted) {
+    if (kind === "short") {
+      const clip = db
+        .prepare(
+          "SELECT id, channel, storage_key, poster_key FROM shorts WHERE id = ? AND is_deleted = 0"
+        )
+        .get(id) as
+        | {
+            id: number;
+            channel: ShortChannel;
+            storage_key: string;
+            poster_key: string | null;
+          }
+        | undefined;
+      if (!clip) {
+        skipped++;
+        continue;
+      }
+      deleteShortFiles(clip.channel, clip.storage_key, clip.poster_key);
+      // Soft delete, matching how the rest of the shorts library retires a
+      // clip — the row stays so re-imports can recognise it.
+      db.prepare("UPDATE shorts SET is_deleted = 1 WHERE id = ?").run(id);
+      deleted++;
+    } else {
+      if (!deleteVideo(id, true)) {
+        skipped++;
+        continue;
+      }
+      deleted++;
+    }
+    db.prepare(
+      "DELETE FROM media_fingerprints WHERE kind = ? AND media_id = ?"
+    ).run(kind, id);
+  }
+
+  return {
+    deleted,
+    skipped,
+    message: `${deleted} deleted${skipped ? `, ${skipped} skipped` : ""}.`,
+  };
+}
+
 export interface DuplicateMatch {
   kind: MediaKind;
   a: number;
@@ -252,11 +365,16 @@ export function findDuplicates(
     duration: number | null;
   }[];
 
+  const dismissed = dismissedSet(kind);
   const matches: DuplicateMatch[] = [];
   for (let i = 0; i < rows.length; i++) {
     for (let j = i + 1; j < rows.length; j++) {
       const a = rows[i];
       const b = rows[j];
+
+      // A pair a human has already judged is never re-offered.
+      const [lo, hi] = pairKey(a.media_id, b.media_id);
+      if (dismissed.has(`${lo}:${hi}`)) continue;
 
       // Length pre-filter: a re-encode keeps the running time, so anything
       // more than 5% apart cannot be the same clip and is not worth hashing.

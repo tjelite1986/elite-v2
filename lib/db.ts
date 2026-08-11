@@ -782,6 +782,18 @@ function migrate(db: Database.Database) {
       PRIMARY KEY (kind, media_id)
     );
 
+    -- Pairs a human has judged NOT to be duplicates. The fingerprint is a
+    -- heuristic and will produce false positives (title cards, intros, the
+    -- same person filming the same room twice); without somewhere to record
+    -- "no", the reviewer has to dismiss the same pair on every scan.
+    CREATE TABLE IF NOT EXISTS media_dupe_dismissals (
+      kind TEXT NOT NULL,
+      a_id INTEGER NOT NULL,
+      b_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (kind, a_id, b_id)
+    );
+
     CREATE TABLE IF NOT EXISTS video_likes (
       video_id INTEGER NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
