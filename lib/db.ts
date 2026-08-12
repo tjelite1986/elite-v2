@@ -21,26 +21,42 @@ function createDb(): Database.Database {
   // journal_mode switch: on a fresh file, parallel `next build` workers race on
   // the WAL switch itself (it takes a write lock), and without a timeout the
   // losers fail instantly with SQLITE_BUSY.
-  db.pragma("busy_timeout = 15000");
+  //
+  // The timeout has to cover a CUMULATIVE wait, not one critical section: N build
+  // workers initialise the same fresh file, so the last one queues behind all the
+  // others. That is why 15 s was occasionally not enough even though no single
+  // holder came close to it.
+  db.pragma("busy_timeout = 30000");
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
-  // Serialize migrations across processes. `next build` collects page data in
-  // several worker processes, each of which opens the DB and runs migrate()
-  // against a fresh file; without a lock they race on `ALTER TABLE ADD COLUMN`
-  // ("duplicate column name"). BEGIN IMMEDIATE takes the write lock up front, so
-  // a second process waits (busy_timeout) and then reads the already-migrated
-  // schema, skipping the guarded ALTERs. Runtime reuses one connection, so this
-  // only matters at build time — but it's correct either way.
+  // Serialize the whole write-side of startup across processes. `next build`
+  // collects page data in several worker processes, each of which opens the DB
+  // and initialises a fresh file; without a lock they race on
+  // `ALTER TABLE ADD COLUMN` ("duplicate column name"). BEGIN IMMEDIATE takes the
+  // write lock up front, so a second process waits (busy_timeout) and then reads
+  // the already-migrated schema, skipping the guarded ALTERs.
+  //
+  // The env-seeded accounts belong INSIDE this transaction, and not because the
+  // inserts are slow. Each one used to take the write lock on its own — four
+  // acquisitions per worker instead of one — and, more expensively, every worker
+  // that reached them before another had committed hashed the same passwords
+  // itself. hashPassword is scryptSync: deliberately slow, synchronous, and on a
+  // fresh DB it ran for EVERY worker, three times each, all competing for the
+  // same cores as the worker holding the lock. Seeding under the lock means only
+  // the first worker hashes anything; the rest see the rows committed and skip.
   db.exec("BEGIN IMMEDIATE");
   try {
     migrate(db);
+    seedAdmin(db);
+    seedContentOwners(db);
     db.exec("COMMIT");
   } catch (e) {
     db.exec("ROLLBACK");
     throw e;
   }
-  seedAdmin(db);
-  seedContentOwners(db);
+  // Deliberately outside the lock: this one walks the on-disk archive before it
+  // writes, and a directory scan has no business holding a global write lock. It
+  // already batches its inserts into a single transaction of its own.
   seedAppStore(db);
   return db;
 }

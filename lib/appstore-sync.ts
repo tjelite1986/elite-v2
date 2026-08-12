@@ -117,7 +117,14 @@ export function syncArchiveCatalog(db: Database.Database): {
       app.screenshots.forEach((key, idx) => insShot.run(appId, key, idx));
     }
   });
-  run();
+  // .immediate(), not the default deferred BEGIN. This body reads (findBySlug)
+  // before it writes, and a deferred transaction that upgrades a read lock to a
+  // write lock while another connection holds one gets SQLITE_BUSY returned
+  // STRAIGHT AWAY — SQLite skips the busy handler there, because waiting could
+  // deadlock two readers both wanting to upgrade. So busy_timeout does not cover
+  // this case at all. BEGIN IMMEDIATE takes the write lock up front, where the
+  // timeout does apply and the caller simply waits its turn.
+  run.immediate();
 
   return { scanned: apps.length, inserted, updated };
 }
