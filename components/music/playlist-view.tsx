@@ -153,7 +153,10 @@ export default function PlaylistView({
           <h1 className="mt-4 text-center text-lg font-semibold">{playlist.name}</h1>
         )}
         <p className="mt-0.5 text-xs text-white/35">
-          {[`${songs.length} songs`, formatTotal(playlist.duration)]
+          {[
+            `${songs.length} ${songs.length === 1 ? "song" : "songs"}`,
+            formatTotal(playlist.duration),
+          ]
             .filter(Boolean)
             .join(" · ")}
         </p>

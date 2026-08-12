@@ -158,7 +158,10 @@ export default function PlaylistsBrowser({ library }: { library: MusicLibrary })
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm">{p.name}</span>
                   <span className="block truncate text-xs text-white/40">
-                    {[`${p.songCount ?? 0} songs`, formatTotal(p.duration)]
+                    {[
+                      `${p.songCount ?? 0} ${p.songCount === 1 ? "song" : "songs"}`,
+                      formatTotal(p.duration),
+                    ]
                       .filter(Boolean)
                       .join(" · ")}
                   </span>

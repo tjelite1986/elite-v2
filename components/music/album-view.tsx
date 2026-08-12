@@ -84,7 +84,7 @@ export default function AlbumView({
           {[
             album.year || null,
             album.genre,
-            `${songs.length} tracks`,
+            `${songs.length} ${songs.length === 1 ? "track" : "tracks"}`,
             formatTotal(album.duration),
           ]
             .filter(Boolean)
