@@ -137,7 +137,8 @@ const run = db.transaction((folder) => {
 
 for (const folder of folders) {
   try {
-    run(folder);
+    // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
+    run.immediate(folder);
   } catch (err) {
     log(`skip ${folder}: ${err.message}`);
   }

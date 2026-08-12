@@ -112,7 +112,8 @@ export function cleanupOrphanMedia(ids: number[]): { deleted: number } {
       deleted++;
     }
   });
-  tx();
+  // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
+  tx.immediate();
   return { deleted };
 }
 

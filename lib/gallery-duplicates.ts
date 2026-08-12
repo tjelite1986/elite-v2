@@ -208,7 +208,8 @@ export function deleteGalleryDuplicates(
         )`
     ).run();
   });
-  tx();
+  // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
+  tx.immediate();
 
   return { deleted, keptBest };
 }

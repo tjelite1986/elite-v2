@@ -98,7 +98,8 @@ export async function POST(request: Request) {
       db.prepare("UPDATE posts SET is_adult = 1 WHERE id = ?").run(targetId);
     }
     return pos;
-  })();
+  // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
+  }).immediate();
 
   return NextResponse.json({ ok: true, postId: targetId, mediaCount: result });
 }

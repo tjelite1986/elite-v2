@@ -137,7 +137,6 @@ function isFullyDismissed(group: DupeGroup, dismissed: Set<string>): boolean {
   return true;
 }
 
-/** Mark a whole group as "not duplicates", so the scan stops offering it. */
 // Which channel each of the given clips actually lives in. Authorization has to
 // be derived from the rows themselves: a channel named by the caller says
 // nothing about which section the ids belong to. Ids with no live row are
@@ -155,6 +154,7 @@ export function shortChannels(shortIds: number[]): Map<number, ShortChannel> {
   return new Map(rows.map((r) => [r.id, r.channel]));
 }
 
+/** Mark a whole group as "not duplicates", so the scan stops offering it. */
 export function dismissDupeGroup(shortIds: number[]): number {
   const ids = [...new Set(shortIds.filter((n) => Number.isInteger(n) && n > 0))];
   let pairs = 0;
@@ -235,7 +235,8 @@ export function deleteDuplicates(shortIds: number[]): {
         )`
     ).run();
   });
-  tx();
+  // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
+  tx.immediate();
 
   return { deleted, skippedBest };
 }
