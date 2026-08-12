@@ -102,6 +102,13 @@ export default function MusicGrab({ library }: { library: MusicLibrary }) {
   const [at, setAt] = useState("");
   const [advanced, setAdvanced] = useState(false);
 
+  // The source page's own description. Reposted music routinely carries a
+  // clickbait video title while the real song title and artist sit in the
+  // description, so it is worth showing verbatim — collapsed, since it is
+  // usually long and only occasionally needed.
+  const [description, setDescription] = useState("");
+  const [descOpen, setDescOpen] = useState(false);
+
   const [resolving, setResolving] = useState(false);
   const [candidates, setCandidates] = useState<MetaCandidate[] | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -144,6 +151,8 @@ export default function MusicGrab({ library }: { library: MusicLibrary }) {
       if (music.album) setAlbum(music.album);
       if (music.year) setDate(String(music.year));
       if (music.genre) setGenres(music.genre);
+      setDescription((d.description || "").trim());
+      setDescOpen(false);
       setStatus(null);
     } catch (e) {
       setError((e as Error).message);
@@ -238,6 +247,7 @@ export default function MusicGrab({ library }: { library: MusicLibrary }) {
       setXargs("");
       setAt("");
       setCandidates(null);
+      setDescription("");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -264,7 +274,12 @@ export default function MusicGrab({ library }: { library: MusicLibrary }) {
           <div className="flex gap-2">
             <input
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={(e) => {
+                setUrl(e.target.value);
+                // A description belongs to the link it was read from; keeping
+                // it across an edit would describe the wrong track.
+                if (description) setDescription("");
+              }}
               placeholder="https://…"
               className={cn(field, "min-w-0 flex-1")}
             />
@@ -282,6 +297,26 @@ export default function MusicGrab({ library }: { library: MusicLibrary }) {
               Fetch
             </button>
           </div>
+
+          {description && (
+            <div className="rounded-lg border border-white/10 bg-black/20">
+              <button
+                onClick={() => setDescOpen((o) => !o)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/55 transition hover:text-white"
+              >
+                <ChevronDown
+                  size={13}
+                  className={cn("shrink-0 transition", descOpen && "rotate-180")}
+                />
+                Source description (real title often hides here)
+              </button>
+              {descOpen && (
+                <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words border-t border-white/10 px-3 py-2 font-mono text-[11px] leading-relaxed text-white/60 [scrollbar-width:thin]">
+                  {description}
+                </pre>
+              )}
+            </div>
+          )}
 
           <Field label="Save to">
             <div className="flex rounded-lg border border-white/10 p-0.5 text-xs">
