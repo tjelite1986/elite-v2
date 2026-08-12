@@ -425,6 +425,64 @@ async function provision(
   };
 }
 
+// Subsonic credentials for the library's ADMIN account, cached like the bearer
+// token above. Needed because a few Subsonic operations are admin-only —
+// startScan answers code 50 ("User is not authorized") for the per-user
+// `elite_<username>` accounts, which are deliberately not admins.
+const adminSubsonic = new Map<
+  string,
+  { creds: SubsonicCreds; expires: number }
+>();
+
+export async function getAdminMusicCreds(
+  library: MusicLibrary
+): Promise<SubsonicCreds> {
+  const baseUrl = libraryBaseUrl(library);
+  if (!baseUrl) {
+    throw new MusicAccountError(
+      `Music library "${library}" is not configured`,
+      "not_configured"
+    );
+  }
+  const cached = adminSubsonic.get(baseUrl);
+  if (cached && cached.expires > Date.now()) return cached.creds;
+
+  const { user, password } = adminCredentials(library);
+  if (!user || !password) {
+    throw new MusicAccountError(
+      "No Navidrome admin credentials are configured for this library",
+      "no_admin"
+    );
+  }
+  let login: NdLogin;
+  try {
+    login = await ndLogin(baseUrl, user, password);
+  } catch {
+    throw new MusicAccountError(
+      "Could not log in to Navidrome as the admin",
+      "admin_login_failed"
+    );
+  }
+  if (!login.subsonicSalt || !login.subsonicToken) {
+    throw new MusicAccountError(
+      "Navidrome admin login returned no Subsonic credentials",
+      "admin_login_failed"
+    );
+  }
+  const creds: SubsonicCreds = {
+    library,
+    baseUrl,
+    username: login.username || user,
+    salt: login.subsonicSalt,
+    token: login.subsonicToken,
+  };
+  adminSubsonic.set(baseUrl, {
+    creds,
+    expires: Date.now() + ADMIN_TOKEN_TTL_MS,
+  });
+  return creds;
+}
+
 /**
  * Manual fallback: link an existing Navidrome account by username + password.
  * The password is used once, to mint the salt/token pair, and not stored.

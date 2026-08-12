@@ -16,6 +16,7 @@ import {
 } from "@/components/music/common";
 import SongList from "@/components/music/song-list";
 import MusicGrab from "@/components/music/music-grab";
+import ScanStatus from "@/components/music/scan-status";
 
 interface HomeData {
   shelves: {
@@ -125,6 +126,8 @@ export default function MusicHome({
           Favourites
         </Link>
       </div>
+
+      <ScanStatus library={library} isAdmin={isAdmin} />
 
       {isAdmin && <MusicGrab library={library} />}
 
