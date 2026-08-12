@@ -6,6 +6,7 @@ import {
   dismissDupeGroup,
   getDupeGroups,
   getDupeState,
+  shortChannels,
 } from "@/lib/shorts-duplicates";
 
 export const dynamic = "force-dynamic";
@@ -42,13 +43,8 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
-    channel?: string;
     shortIds?: number[];
   };
-  const channel = body.channel ? parseChannel(body.channel) : undefined;
-  if (!hasShortsPermission(session, channel)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
 
   const ids = (body.shortIds ?? []).filter((n) => Number.isInteger(n) && n > 0);
   if (ids.length < 2) {
@@ -56,6 +52,17 @@ export async function POST(request: Request) {
       { error: "Need at least two clips" },
       { status: 400 }
     );
+  }
+
+  // Authorize against the channel each clip is really in, not one named by the
+  // caller: a body claiming "main" while carrying 18+ ids must not pass on the
+  // main-section permission alone.
+  const channels = shortChannels(ids);
+  const allowed =
+    channels.size === ids.length &&
+    [...channels.values()].every((c) => hasShortsPermission(session, c));
+  if (!allowed) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   return NextResponse.json({ ok: true, dismissed: dismissDupeGroup(ids) });

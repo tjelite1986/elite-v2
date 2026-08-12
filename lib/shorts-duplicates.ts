@@ -138,6 +138,23 @@ function isFullyDismissed(group: DupeGroup, dismissed: Set<string>): boolean {
 }
 
 /** Mark a whole group as "not duplicates", so the scan stops offering it. */
+// Which channel each of the given clips actually lives in. Authorization has to
+// be derived from the rows themselves: a channel named by the caller says
+// nothing about which section the ids belong to. Ids with no live row are
+// absent from the map, so a caller can tell "unknown" from "not permitted".
+export function shortChannels(shortIds: number[]): Map<number, ShortChannel> {
+  const ids = [...new Set(shortIds.filter((n) => Number.isInteger(n) && n > 0))];
+  if (ids.length === 0) return new Map();
+  const rows = getAll<{ id: number; channel: ShortChannel }>(
+    qb
+      .selectFrom("shorts")
+      .select(["id", "channel"])
+      .where("id", "in", ids)
+      .where("is_deleted", "=", 0)
+  );
+  return new Map(rows.map((r) => [r.id, r.channel]));
+}
+
 export function dismissDupeGroup(shortIds: number[]): number {
   const ids = [...new Set(shortIds.filter((n) => Number.isInteger(n) && n > 0))];
   let pairs = 0;
