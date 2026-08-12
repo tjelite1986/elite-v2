@@ -49,17 +49,27 @@ export default function ScanStatus({
   const countBefore = useRef<number | null>(null);
   const [added, setAdded] = useState<number | null>(null);
 
+  // Every read is also the completion check. Doing this only in the poll loop
+  // missed fast scans entirely: a thousand-track library finishes in about a
+  // second, so the optimistic `scanning: true` was already replaced by the
+  // first refetch, the poll never started, and the result was never reported.
   const load = useCallback(async () => {
     try {
       const r = await fetch(`/api/music/scan?library=${library}`);
-      const d = await r.json();
+      const d = (await r.json()) as Status & { ok?: boolean };
       if (d.ok === false) return null;
       setStatus(d);
-      return d as Status;
+      if (!d.scanning && countBefore.current != null && d.count != null) {
+        setAdded(d.count - countBefore.current);
+        countBefore.current = null;
+        // New tracks only reach the shelves on a refetch.
+        router.refresh();
+      }
+      return d;
     } catch {
       return null;
     }
-  }, [library]);
+  }, [library, router]);
 
   useEffect(() => {
     setAdded(null);
@@ -70,19 +80,9 @@ export default function ScanStatus({
   // seconds, and polling an idle server forever would be pure noise.
   useEffect(() => {
     if (!status?.scanning) return;
-    const t = setInterval(async () => {
-      const fresh = await load();
-      if (fresh && !fresh.scanning) {
-        if (countBefore.current != null && fresh.count != null) {
-          setAdded(fresh.count - countBefore.current);
-          countBefore.current = null;
-        }
-        // New tracks only reach the shelves on a refetch.
-        router.refresh();
-      }
-    }, 2500);
+    const t = setInterval(load, 2500);
     return () => clearInterval(t);
-  }, [status?.scanning, load, router]);
+  }, [status?.scanning, load]);
 
   const startScan = useCallback(
     async (full: boolean) => {
@@ -145,7 +145,7 @@ export default function ScanStatus({
             title="Re-read every file instead of only what changed on disk"
             className="rounded-full border border-white/10 px-2.5 py-1 transition hover:text-white disabled:opacity-40"
           >
-            Full
+            Full scan
           </button>
         </>
       )}
