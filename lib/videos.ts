@@ -144,6 +144,8 @@ type Probe = {
   height: number | null;
   videoCodec: string | null;
   audioCodec: string | null;
+  /** The file has no video data near the end its container claims — see probeTruncated. */
+  truncated: boolean;
 };
 
 const EMPTY_PROBE: Probe = {
@@ -152,7 +154,70 @@ const EMPTY_PROBE: Probe = {
   height: null,
   videoCodec: null,
   audioCodec: null,
+  truncated: false,
 };
+
+// How far before the claimed end to look for a packet. Generous, so a container
+// that overstates its duration by a frame or a stray silent tail is not called
+// damaged; a real truncation is missing minutes, not seconds.
+const TRUNCATION_MARGIN_SECONDS = 10;
+// Below this there is not enough room between the margin and the start for the
+// question to mean anything.
+const TRUNCATION_MIN_DURATION = 30;
+
+/**
+ * Does the file actually contain video where its header says it ends?
+ *
+ * A partially downloaded file keeps the duration it was born with — the value
+ * lives in the container header, written from the source's metadata before the
+ * bytes arrived — so a file holding 407s of a 2038s film still reports 2038s to
+ * every reader. Nothing else in the scan can tell the difference, and the first
+ * thing that notices is a conversion that runs to completion and produces a clip
+ * a fifth of the expected length.
+ *
+ * `-read_intervals` SEEKS rather than reading, so this costs one disk seek
+ * (~0.1s) instead of a pass over the file: asking for one packet just before the
+ * claimed end answers nothing at all when the data is not there.
+ */
+async function probeTruncated(
+  filePath: string,
+  duration: number | null,
+  hasVideoStream: boolean
+): Promise<boolean> {
+  // No duration to check against, no video stream to seek in, or too short for
+  // the margin to leave a meaningful window.
+  if (!hasVideoStream) return false;
+  if (duration === null || duration < TRUNCATION_MIN_DURATION) return false;
+
+  const target = duration - TRUNCATION_MARGIN_SECONDS;
+  try {
+    const { stdout } = await execFile(
+      "ffprobe",
+      [
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-read_intervals",
+        `${target}%+#1`,
+        "-show_entries",
+        "packet=pts_time",
+        "-of",
+        "csv=p=0",
+        filePath,
+      ],
+      { maxBuffer: 1024 * 1024, timeout: 60_000 }
+    );
+    // A complete file answers with a timestamp near `target`. A truncated one has
+    // nothing there at all, and the seek lands past every packet it has.
+    return stdout.trim() === "";
+  } catch {
+    // ffprobe missing, or a read error: not evidence of truncation. Saying "fine"
+    // here only costs a conversion attempt; saying "damaged" would hide a file
+    // that is probably healthy.
+    return false;
+  }
+}
 
 async function probeVideo(filePath: string): Promise<Probe> {
   const probe: Probe = { ...EMPTY_PROBE };
@@ -220,6 +285,11 @@ async function probeVideo(filePath: string): Promise<Probe> {
         }
       }
     }
+    probe.truncated = await probeTruncated(
+      filePath,
+      probe.duration,
+      Boolean(v)
+    );
   } catch {
     /* ffprobe missing or unreadable file — the row just stays without meta */
   }
@@ -417,8 +487,24 @@ export interface ScanResult {
   removed: number;
   artwork: number;
   needTranscode: number;
+  /** Files whose data stops before the end their container claims. */
+  truncated: number;
   skipped: boolean;
   message: string;
+}
+
+// Recorded on the transcode fields rather than a column of its own: the practical
+// consequence of a truncated source IS that it must not be converted, and
+// 'failed' is what keeps it out of the queue (see pendingTranscodes). The error
+// text is what the review UI already shows for a conversion that went wrong.
+const TRUNCATED_ERROR =
+  "source is truncated: no video data near the end its container claims — the file needs downloading again";
+
+function markTruncated(id: number): void {
+  db.prepare(
+    `UPDATE videos SET transcode_status = 'failed', transcode_error = ?
+      WHERE id = ?`
+  ).run(TRUNCATED_ERROR, id);
 }
 
 // One scan per channel at a time. A scan is long (ffmpeg per file) and a second
@@ -442,6 +528,7 @@ export async function scanVideoChannel(
     channel,
     added: 0,
     updated: 0,
+    truncated: 0,
     removed: 0,
     artwork: 0,
     needTranscode: 0,
@@ -541,7 +628,14 @@ export async function scanVideoChannel(
         });
         result.added++;
         if (poster) result.artwork++;
-        if (!playable) result.needTranscode++;
+        if (probe.truncated) {
+          // Before counting it as needing conversion: converting a truncated
+          // source burns the encode and then fails its own length check.
+          markTruncated(Number(info.lastInsertRowid));
+          result.truncated++;
+        } else if (!playable) {
+          result.needTranscode++;
+        }
         // A .nfo sidecar next to the file is authoritative and free to read, so
         // a Whisparr-style drop is fully described the moment it is scanned —
         // no waiting for the metadata pass, no third-party call.
@@ -585,6 +679,12 @@ export async function scanVideoChannel(
             height: row.height,
             videoCodec: row.video_codec,
             audioCodec: row.audio_codec,
+            // This branch did not probe (the file is untouched and only its
+            // poster is missing), so there is no fresh evidence either way —
+            // false means "nothing new to report", not "verified complete". A
+            // file truncated after its last scan changes size, which lands in
+            // the `changed` branch above and does get re-probed.
+            truncated: false,
           };
       const playable = isWebPlayable(
         file.storageKey,
@@ -633,7 +733,12 @@ export async function scanVideoChannel(
       });
       result.updated++;
       if (poster && poster !== row.poster_key) result.artwork++;
-      if (!playable) result.needTranscode++;
+      if (probe.truncated) {
+        markTruncated(row.id);
+        result.truncated++;
+      } else if (!playable) {
+        result.needTranscode++;
+      }
     }
 
     // Anything still in byKey has no file on disk. Pruning is only safe when the
@@ -664,6 +769,9 @@ export async function scanVideoChannel(
         `${result.added} added, ${result.updated} updated, ${result.removed} removed.` +
         (result.needTranscode
           ? ` ${result.needTranscode} need converting before they can play.`
+          : "") +
+        (result.truncated
+          ? ` ${result.truncated} incomplete on disk (download again) — not queued for conversion.`
           : "");
     }
     return result;
