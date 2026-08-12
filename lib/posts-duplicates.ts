@@ -181,6 +181,9 @@ export function deletePostDuplicates(mediaIds: number[]): {
   );
 
   let deleted = 0;
+  // Unlinked after commit: a rollback must not leave a surviving row whose
+  // image this pass has already removed from disk.
+  const unlinkAfterCommit: string[] = [];
 
   const tx = db.transaction(() => {
     for (const id of Array.from(ids)) {
@@ -188,7 +191,7 @@ export function deletePostDuplicates(mediaIds: number[]): {
         | { id: number; post_id: number; storage_key: string }
         | undefined;
       if (!media) continue;
-      deletePostImageFiles(media.storage_key);
+      unlinkAfterCommit.push(media.storage_key);
       deleteMedia.run(id);
       dropGroupRow.run(id);
       deleted++;
@@ -207,6 +210,7 @@ export function deletePostDuplicates(mediaIds: number[]): {
   });
   // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
   tx.immediate();
+  for (const key of unlinkAfterCommit) deletePostImageFiles(key);
 
   return { deleted, keptBest };
 }

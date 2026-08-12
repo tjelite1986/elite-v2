@@ -99,6 +99,9 @@ export function cleanupOrphanMedia(ids: number[]): { deleted: number } {
   const delMedia = db.prepare("DELETE FROM post_media WHERE id = ?");
 
   let deleted = 0;
+  // Unlinked after commit, never inside the transaction: a rollback would
+  // otherwise leave a surviving row whose leftovers this pass had removed.
+  const unlinkAfterCommit: string[] = [];
   const tx = db.transaction(() => {
     for (const id of clean) {
       const media = getMedia.get(id) as
@@ -107,13 +110,14 @@ export function cleanupOrphanMedia(ids: number[]): { deleted: number } {
       if (!media) continue;
       // Guard against a TOCTOU race: only remove a row whose file is still gone.
       if (fs.existsSync(mediaPathFor(media.storage_key))) continue;
-      deletePostImageFiles(media.storage_key);
+      unlinkAfterCommit.push(media.storage_key);
       delMedia.run(id);
       deleted++;
     }
   });
   // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
   tx.immediate();
+  for (const key of unlinkAfterCommit) deletePostImageFiles(key);
   return { deleted };
 }
 

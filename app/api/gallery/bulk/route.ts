@@ -85,13 +85,18 @@ export async function POST(request: Request) {
          WHERE id IN (${ownedPlaceholders})`
       ).run(...ownedIds);
     } else if (action === "delete") {
-      for (const row of owned) deleteMediaFiles(userId, row.storage_key);
       db.prepare(
         `DELETE FROM gallery_items WHERE id IN (${ownedPlaceholders})`
       ).run(...ownedIds);
     }
   });
   run();
+  // Only once the rows are gone for good. Unlinking inside the transaction means
+  // a rollback leaves the items listed but their files deleted, which no retry
+  // can undo; this order can at worst orphan a file for the maintenance sweep.
+  if (action === "delete") {
+    for (const row of owned) deleteMediaFiles(userId, row.storage_key);
+  }
 
   return NextResponse.json({ ok: true, affected: ownedIds.length });
 }

@@ -88,6 +88,9 @@ export function cleanupOrphanGalleryItems(ids: number[]): { deleted: number } {
   const delItem = db.prepare("DELETE FROM gallery_items WHERE id = ?");
 
   let deleted = 0;
+  // Unlinked after commit, never inside the transaction: a rollback would
+  // otherwise leave a surviving row whose leftovers this pass had removed.
+  const unlinkAfterCommit: { userId: number; storageKey: string }[] = [];
   const tx = db.transaction(() => {
     for (const id of clean) {
       const item = getItem.get(id) as
@@ -96,12 +99,13 @@ export function cleanupOrphanGalleryItems(ids: number[]): { deleted: number } {
       if (!item) continue;
       // Guard against a TOCTOU race: only remove a row whose file is still gone.
       if (fs.existsSync(originalPathFor(item.user_id, item.storage_key))) continue;
-      deleteMediaFiles(item.user_id, item.storage_key);
+      unlinkAfterCommit.push({ userId: item.user_id, storageKey: item.storage_key });
       delItem.run(id);
       deleted++;
     }
   });
   // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
   tx.immediate();
+  for (const f of unlinkAfterCommit) deleteMediaFiles(f.userId, f.storageKey);
   return { deleted };
 }

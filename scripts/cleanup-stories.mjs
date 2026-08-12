@@ -21,22 +21,27 @@ const expired = db
   .all();
 
 let removed = 0;
+// Collected here and unlinked after the commit: deleting inside the transaction
+// means a rollback leaves the story rows in place with their images already
+// gone. The other way round can only orphan a file.
+const unlinkAfterCommit = [];
 const del = db.transaction((rows) => {
   for (const r of rows) {
-    for (const key of [r.storage_key, r.storage_key.replace(/\.jpg$/i, "_t.jpg")]) {
-      try {
-        const p = path.join(POSTS_ROOT, key);
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-      } catch {
-        /* best effort */
-      }
-    }
+    unlinkAfterCommit.push(r.storage_key, r.storage_key.replace(/\.jpg$/i, "_t.jpg"));
     db.prepare("DELETE FROM story_views WHERE story_id = ?").run(r.id);
     db.prepare("DELETE FROM stories WHERE id = ?").run(r.id);
     removed++;
   }
 });
 del(expired);
+for (const key of unlinkAfterCommit) {
+  try {
+    const p = path.join(POSTS_ROOT, key);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  } catch {
+    /* best effort */
+  }
+}
 
 log(`done: ${removed} expired stories removed`);
 db.close();

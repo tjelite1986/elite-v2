@@ -99,6 +99,13 @@ export function cleanupOrphanShorts(ids: number[]): { deleted: number } {
   );
 
   let deleted = 0;
+  // Unlinked after commit, never inside the transaction: a rollback would
+  // otherwise leave a surviving row whose file this pass had already removed.
+  const unlinkAfterCommit: {
+    channel: ShortChannel;
+    storageKey: string;
+    posterKey: string | null;
+  }[] = [];
   const tx = db.transaction(() => {
     for (const id of clean) {
       const clip = getClip.get(id) as
@@ -112,7 +119,11 @@ export function cleanupOrphanShorts(ids: number[]): { deleted: number } {
       if (!clip) continue;
       // Guard against a TOCTOU race: only remove a row whose file is still gone.
       if (fs.existsSync(videoPathFor(clip.channel, clip.storage_key))) continue;
-      deleteShortFiles(clip.channel, clip.storage_key, clip.poster_key);
+      unlinkAfterCommit.push({
+        channel: clip.channel,
+        storageKey: clip.storage_key,
+        posterKey: clip.poster_key,
+      });
       softDelete.run(id);
       dropPlaylistItems.run(id);
       dropDupeRow.run(id);
@@ -121,6 +132,9 @@ export function cleanupOrphanShorts(ids: number[]): { deleted: number } {
   });
   // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
   tx.immediate();
+  for (const f of unlinkAfterCommit) {
+    deleteShortFiles(f.channel, f.storageKey, f.posterKey);
+  }
   return { deleted };
 }
 

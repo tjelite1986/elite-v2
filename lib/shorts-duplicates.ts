@@ -210,6 +210,15 @@ export function deleteDuplicates(shortIds: number[]): {
 
   let deleted = 0;
   let skippedBest = 0;
+  // Unlink only after the rows are committed. Deleting inside the transaction
+  // means a rollback leaves a surviving row pointing at a file that is already
+  // gone, and nothing can put it back; committing first can at worst leave an
+  // orphan file, which a maintenance sweep finds and removes.
+  const unlinkAfterCommit: {
+    channel: ShortChannel;
+    storageKey: string;
+    posterKey: string | null;
+  }[] = [];
 
   const tx = db.transaction(() => {
     for (const id of ids) {
@@ -221,7 +230,11 @@ export function deleteDuplicates(shortIds: number[]): {
         | { id: number; channel: ShortChannel; storage_key: string; poster_key: string | null }
         | undefined;
       if (!clip) continue;
-      deleteShortFiles(clip.channel, clip.storage_key, clip.poster_key);
+      unlinkAfterCommit.push({
+        channel: clip.channel,
+        storageKey: clip.storage_key,
+        posterKey: clip.poster_key,
+      });
       softDelete.run(id);
       dropGroupRow.run(id);
       deleted++;
@@ -237,6 +250,9 @@ export function deleteDuplicates(shortIds: number[]): {
   });
   // Reads before it writes: BEGIN IMMEDIATE so busy_timeout applies (see lib/db.ts).
   tx.immediate();
+  for (const f of unlinkAfterCommit) {
+    deleteShortFiles(f.channel, f.storageKey, f.posterKey);
+  }
 
   return { deleted, skippedBest };
 }
