@@ -3,15 +3,19 @@ import {
   Bookmark,
   CircleUser,
   Clapperboard,
+  Disc3,
   Hash,
+  Heart,
   Compass,
   Download,
   Film,
   Flame,
   House,
   Images,
+  ListMusic,
   ListVideo,
   MessageCircle,
+  Music4,
   Newspaper,
   Play,
   Search,
@@ -95,6 +99,17 @@ const SECTIONS: {
     ],
   },
   {
+    // The music section keeps the player's own destinations in the bar; the
+    // mini player sits just above it, so this is what you see while listening.
+    prefix: "/music",
+    items: () => [
+      { label: "Music", href: "/music", icon: Music4 },
+      { label: "Albums", href: "/music/albums", icon: Disc3 },
+      { label: "Playlists", href: "/music/playlists", icon: ListMusic },
+      { label: "Search", href: "/music/search", icon: Search },
+    ],
+  },
+  {
     prefix: "/store",
     items: () => [
       { label: "Discover", href: "/store", icon: Store },
@@ -135,6 +150,12 @@ export function getBottomNavExtras(
       { label: "Categories", href: "/shorts/tags", icon: Hash },
       { label: "Analysis", href: "/shorts/analysis", icon: Sparkles },
       { label: "Mine", href: "/shorts/mine", icon: Clapperboard },
+    ];
+  }
+  if (pathname === "/music" || pathname.startsWith("/music/")) {
+    return [
+      { label: "Artists", href: "/music/artists", icon: Users },
+      { label: "Favourites", href: "/music/favorites", icon: Heart },
     ];
   }
   if (pathname === "/store" || pathname.startsWith("/store/")) {

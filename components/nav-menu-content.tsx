@@ -18,6 +18,7 @@ import {
   LogOut,
   Mail,
   MessageCircle,
+  Music4,
   Newspaper,
   Play,
   Search,
@@ -194,6 +195,12 @@ export default function NavMenuContent({
           sub="Long-form video library"
         />
         <MenuRow href="/videos18" icon={<Film size={18} />} label="Videos 18+" />
+        <MenuRow
+          href="/music"
+          icon={<Music4 size={18} />}
+          label="Music"
+          sub="Navidrome library"
+        />
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">

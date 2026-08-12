@@ -7,6 +7,8 @@ import InstallBanner from "@/components/install-banner";
 import { ActAsBanner } from "@/components/ui/act-as-controls";
 import WebSocketProvider from "@/components/ws-provider";
 import PrivacyControls from "@/components/PrivacyControls";
+import MusicPlayerProvider from "@/components/music/player-provider";
+import MiniPlayer from "@/components/music/mini-player";
 
 // Shared layout for all authenticated pages: renders the global bottom nav
 // and provides the common dark background. Middleware already gates access, but
@@ -38,24 +40,32 @@ export default async function AuthedLayout({
           map — never free user text — so no untrusted content reaches the CSS. */}
       <style
         dangerouslySetInnerHTML={{
+          // --player-h is set by MusicPlayerProvider (0 when nothing is loaded,
+          // the mini player's height when it is), so every control anchored to
+          // --fab-offset lifts above the player strip on its own.
           __html: `:root{--accent:${appearance.accent};--app-bg:${bgCss(
             appearance.bgTheme
-          )};--fab-offset:3.5rem}`,
+          )};--player-h:0px;--fab-offset:calc(3.5rem + var(--player-h, 0px))}`,
         }}
       />
       <div
         className="relative min-h-[100dvh] w-full"
         style={{ background: "var(--app-bg)" }}
       >
-        <BottomNav
-          username={username}
-          displayName={display_name}
-          email={session.email}
-          canActAs={session.role === "admin" || !!session.imp}
-          isAdmin={session.role === "admin"}
-        >
-          {children}
-        </BottomNav>
+        {/* The music player wraps the router outlet so its single <audio>
+            element outlives every client-side navigation. */}
+        <MusicPlayerProvider>
+          <BottomNav
+            username={username}
+            displayName={display_name}
+            email={session.email}
+            canActAs={session.role === "admin" || !!session.imp}
+            isAdmin={session.role === "admin"}
+          >
+            {children}
+          </BottomNav>
+          <MiniPlayer />
+        </MusicPlayerProvider>
         <ActAsBanner
           imp={session.imp ?? null}
           actingAsEmail={session.email}

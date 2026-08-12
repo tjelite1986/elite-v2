@@ -948,6 +948,21 @@ function migrate(db: Database.Database) {
       granted_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (user_id, permission)
     );
+
+    -- One Navidrome account per Elite user per music library, provisioned on
+    -- first use (lib/navidrome-accounts.ts). Only the Subsonic salt/token pair
+    -- is kept: it is everything later calls need, so the generated password is
+    -- discarded at creation time and never written here.
+    CREATE TABLE IF NOT EXISTS music_accounts (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      library TEXT NOT NULL,
+      nd_user_id TEXT,
+      nd_username TEXT NOT NULL,
+      subsonic_salt TEXT NOT NULL,
+      subsonic_token TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, library)
+    );
   `);
 
   // Playability + transcode bookkeeping on videos, for databases created before

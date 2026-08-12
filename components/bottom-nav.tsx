@@ -85,9 +85,11 @@ export default function BottomNav({
       <div
         className={cn(
           "pt-[env(safe-area-inset-top)]",
+          // --player-h is 0 unless the music mini player is showing, in which
+          // case content has to clear the nav *and* the player strip.
           !onMessages &&
             !fullBleed &&
-            "pb-[calc(3.5rem+env(safe-area-inset-bottom))]"
+            "pb-[calc(3.5rem+var(--player-h,0px)+env(safe-area-inset-bottom))]"
         )}
       >
         {children}

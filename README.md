@@ -122,6 +122,16 @@ experience. **Here for the internals?** See
   clip on the mentioned person's profile.
 - **Books** — a shared EPUB / PDF / CBZ reader (`epubjs`, `pdfjs-dist`,
   `jszip`) with per-user reading progress.
+- **Music** — a full player over a [Navidrome](https://www.navidrome.org/)
+  library (`/music`): shelves, album and artist browsing, search, favourites,
+  playlists you can create, reorder and delete, and a mini player that keeps
+  playing while you move around the app, with a fullscreen now-playing view,
+  synced lyrics and lock-screen controls (MediaSession). Each Elite user gets
+  their own Navidrome account, created automatically on first visit, so
+  playlists, stars and Last.fm scrobbles are personal and also visible in
+  Navidrome itself. Audio and cover art are proxied by the app, so no Subsonic
+  credentials ever reach the browser. Point `NAVIDROME_URL` at your server; an
+  optional second library (`NAVIDROME_KIDS_URL`) appears as a switcher.
 - **App Store** — an in-app `/store` catalog of installable "apps" plus an APK
   archive that imports from GitHub / F-Droid / Play, auto-updates, and verifies
   APK signatures (trust-on-first-use). Adult apps are PIN-gated.
@@ -530,6 +540,8 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | `TT_MAX_PER_RUN` / `TT_RETRIES` / `TT_PROFILE_SLEEP_SECONDS` | TikTok sync pacing. |
 | `GALLERY_DL_BIN` / `YT_DLP_BIN` / `CURL_IMPERSONATE_BIN` | Paths to external download tools. `yt-dlp` is not in the image — bind-mount one and point this at it. |
 | `TPDB_API_KEY`        | ThePornDB key for the 18+ video metadata job. Optional: `.nfo` sidecars are matched without it. |
+| `NAVIDROME_URL` / `NAVIDROME_KIDS_URL` | Navidrome servers behind `/music`. The first is the main library; the second is optional and only shown when it answers. |
+| `NAVIDROME_ADMIN_USER` / `NAVIDROME_ADMIN_PASSWORD` | Navidrome admin login, used once per Elite user to create their own Navidrome account. Without it, `/music` asks each user to link an existing account instead. |
 | `GITHUB_TOKEN` / `FDROID_REPO_URL` | App Store import sources.             |
 | `APP_UPDATE_URL` / `APP_UPDATE_SOURCE` / `APP_UPDATE_SECRET` / `APP_UPDATE_PULL` / `APP_IMPORT_HOST_DIR` | App auto-update and APK drop-folder wiring. |
 | `ADULTS_EMAIL` / `PUBLIC_EMAIL` | Seeded content-owner accounts.            |
