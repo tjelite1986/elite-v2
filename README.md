@@ -542,6 +542,7 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | `TPDB_API_KEY`        | ThePornDB key for the 18+ video metadata job. Optional: `.nfo` sidecars are matched without it. |
 | `NAVIDROME_URL` / `NAVIDROME_KIDS_URL` | Navidrome servers behind `/music`. The first is the main library; the second is optional and only shown when it answers. |
 | `NAVIDROME_ADMIN_USER` / `NAVIDROME_ADMIN_PASSWORD` | Navidrome admin login, used once per Elite user to create their own Navidrome account. Without it, `/music` asks each user to link an existing account instead. |
+| `NAVIDROME_KIDS_ADMIN_USER` / `NAVIDROME_KIDS_ADMIN_PASSWORD` | Same, for the second library — a separate Navidrome server has its own user table, so its admin is a different account. Falls back to the main pair when unset. |
 | `GITHUB_TOKEN` / `FDROID_REPO_URL` | App Store import sources.             |
 | `APP_UPDATE_URL` / `APP_UPDATE_SOURCE` / `APP_UPDATE_SECRET` / `APP_UPDATE_PULL` / `APP_IMPORT_HOST_DIR` | App auto-update and APK drop-folder wiring. |
 | `ADULTS_EMAIL` / `PUBLIC_EMAIL` | Seeded content-owner accounts.            |

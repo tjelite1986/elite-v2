@@ -90,18 +90,42 @@ async function ndLogin(
   return (await res.json()) as NdLogin;
 }
 
+// Each library is a separate Navidrome server with its own user table, so the
+// admin of one is not an account on the other. Per-library credentials fall
+// back to the main pair, which is right when both point at the same server and
+// harmless when they don't (the login simply fails and the UI offers linking).
+function adminCredentials(library: MusicLibrary): {
+  user?: string;
+  password?: string;
+} {
+  if (library === "kids") {
+    return {
+      user: process.env.NAVIDROME_KIDS_ADMIN_USER || process.env.NAVIDROME_ADMIN_USER,
+      password:
+        process.env.NAVIDROME_KIDS_ADMIN_PASSWORD ||
+        process.env.NAVIDROME_ADMIN_PASSWORD,
+    };
+  }
+  return {
+    user: process.env.NAVIDROME_ADMIN_USER,
+    password: process.env.NAVIDROME_ADMIN_PASSWORD,
+  };
+}
+
 // Admin bearer tokens are reused across requests — a login costs a bcrypt
 // verification on the Navidrome side, and provisioning is otherwise a
 // once-per-user event. Refreshed well inside Navidrome's session lifetime.
 const adminTokens = new Map<string, { token: string; expires: number }>();
 const ADMIN_TOKEN_TTL_MS = 15 * 60 * 1000;
 
-async function ndAdminToken(baseUrl: string): Promise<string> {
+async function ndAdminToken(
+  baseUrl: string,
+  library: MusicLibrary
+): Promise<string> {
   const cached = adminTokens.get(baseUrl);
   if (cached && cached.expires > Date.now()) return cached.token;
 
-  const user = process.env.NAVIDROME_ADMIN_USER;
-  const password = process.env.NAVIDROME_ADMIN_PASSWORD;
+  const { user, password } = adminCredentials(library);
   if (!user || !password) {
     throw new MusicAccountError(
       "NAVIDROME_ADMIN_USER / NAVIDROME_ADMIN_PASSWORD are not set",
@@ -132,10 +156,11 @@ async function ndAdminToken(baseUrl: string): Promise<string> {
 
 async function ndAdminFetch(
   baseUrl: string,
+  library: MusicLibrary,
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  const token = await ndAdminToken(baseUrl);
+  const token = await ndAdminToken(baseUrl, library);
   const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
@@ -150,7 +175,7 @@ async function ndAdminFetch(
   // log in again rather than failing a user's first visit to /music.
   if (res.status === 401) {
     adminTokens.delete(baseUrl);
-    const fresh = await ndAdminToken(baseUrl);
+    const fresh = await ndAdminToken(baseUrl, library);
     return fetch(`${baseUrl}${path}`, {
       ...init,
       headers: {
@@ -167,10 +192,12 @@ async function ndAdminFetch(
 
 async function ndFindUser(
   baseUrl: string,
+  library: MusicLibrary,
   userName: string
 ): Promise<{ id: string } | null> {
   const res = await ndAdminFetch(
     baseUrl,
+    library,
     `/api/user?_start=0&_end=500&_sort=userName&_order=ASC`
   );
   if (!res.ok) return null;
@@ -186,11 +213,12 @@ async function ndFindUser(
 
 async function ndCreateUser(
   baseUrl: string,
+  library: MusicLibrary,
   userName: string,
   displayName: string,
   password: string
 ): Promise<string | null> {
-  const res = await ndAdminFetch(baseUrl, "/api/user", {
+  const res = await ndAdminFetch(baseUrl, library, "/api/user", {
     method: "POST",
     body: JSON.stringify({
       userName,
@@ -212,12 +240,13 @@ async function ndCreateUser(
 
 async function ndSetPassword(
   baseUrl: string,
+  library: MusicLibrary,
   userId: string,
   userName: string,
   displayName: string,
   password: string
 ): Promise<void> {
-  const res = await ndAdminFetch(baseUrl, `/api/user/${userId}`, {
+  const res = await ndAdminFetch(baseUrl, library, `/api/user/${userId}`, {
     method: "PUT",
     body: JSON.stringify({
       id: userId,
@@ -350,13 +379,26 @@ async function provision(
   // An account may already exist from an earlier provisioning whose stored
   // token was lost (DB reset, manual deletion of the row). Reset its password
   // rather than failing on the unique username.
-  const found = await ndFindUser(baseUrl, userName);
+  const found = await ndFindUser(baseUrl, library, userName);
   let ndUserId: string | null;
   if (found) {
-    await ndSetPassword(baseUrl, found.id, userName, displayName, password);
+    await ndSetPassword(
+      baseUrl,
+      library,
+      found.id,
+      userName,
+      displayName,
+      password
+    );
     ndUserId = found.id;
   } else {
-    ndUserId = await ndCreateUser(baseUrl, userName, displayName, password);
+    ndUserId = await ndCreateUser(
+      baseUrl,
+      library,
+      userName,
+      displayName,
+      password
+    );
   }
 
   const login = await ndLogin(baseUrl, userName, password);
