@@ -1,4 +1,5 @@
 import { db, ShortChannel, ShortDupeStateRow } from "./db";
+import { dismissPair } from "./media-dedup";
 import { qb, getOne, getAll } from "./kysely";
 import { deleteShortFiles } from "./shorts-storage";
 
@@ -101,7 +102,52 @@ export function getDupeGroups(channel?: ShortChannel): DupeGroup[] {
 
   // A delete elsewhere can leave a group with a single surviving member; that's
   // no longer a duplicate, so drop it from the review list.
-  return Array.from(groups.values()).filter((g) => g.members.length > 1);
+  //
+  // Groups a human has judged are filtered here rather than at scan time,
+  // because the scan rewrites this table from scratch on every run — a
+  // judgement recorded against the table itself would not survive one pass.
+  const dismissed = dismissedPairs();
+  return Array.from(groups.values())
+    .filter((g) => g.members.length > 1)
+    .filter((g) => !isFullyDismissed(g, dismissed));
+}
+
+/** Every pair a reviewer has marked "not a duplicate", as "lo:hi" keys. */
+function dismissedPairs(): Set<string> {
+  const rows = db
+    .prepare(
+      "SELECT a_id, b_id FROM media_dupe_dismissals WHERE kind = 'short'"
+    )
+    .all() as { a_id: number; b_id: number }[];
+  return new Set(rows.map((r) => `${r.a_id}:${r.b_id}`));
+}
+
+/**
+ * A group disappears only when EVERY pair in it has been dismissed. A group of
+ * three where one member really is a duplicate must keep offering that pair.
+ */
+function isFullyDismissed(group: DupeGroup, dismissed: Set<string>): boolean {
+  const ids = group.members.map((m) => m.short_id);
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const [lo, hi] = ids[i] < ids[j] ? [ids[i], ids[j]] : [ids[j], ids[i]];
+      if (!dismissed.has(`${lo}:${hi}`)) return false;
+    }
+  }
+  return true;
+}
+
+/** Mark a whole group as "not duplicates", so the scan stops offering it. */
+export function dismissDupeGroup(shortIds: number[]): number {
+  const ids = [...new Set(shortIds.filter((n) => Number.isInteger(n) && n > 0))];
+  let pairs = 0;
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      dismissPair("short", ids[i], ids[j]);
+      pairs++;
+    }
+  }
+  return pairs;
 }
 
 export function getDupeState(): ShortDupeStateRow {

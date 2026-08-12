@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import {
+  Check,
   Copy,
   Loader2,
   ScanSearch,
@@ -86,6 +87,7 @@ export default function ShortsDuplicates({
   const [msg, setMsg] = useState<string | null>(null);
   // Side-by-side player for one group, so the copies can be watched before
   // anything is deleted.
+  const [dismissing, setDismissing] = useState<string | null>(null);
   const [preview, setPreview] = useState<{
     groupKey: string;
     focusId: number;
@@ -170,6 +172,31 @@ export default function ShortsDuplicates({
       else next.add(id);
       return next;
     });
+  };
+
+  // "Not a duplicate": the scan rewrites its table on every run, so this is
+  // recorded separately and applied when groups are read. Without it a wrong
+  // match is unremovable — the only other way to make it go away is deleting a
+  // file you want to keep.
+  const dismissGroup = async (g: Group) => {
+    setDismissing(g.group_key);
+    try {
+      const res = await fetch("/api/shorts/duplicates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          shortIds: g.members.map((m) => m.short_id),
+        }),
+      });
+      if (!res.ok) return;
+      setGroups((gs) => gs.filter((x) => x.group_key !== g.group_key));
+      setPreview((p) => (p?.groupKey === g.group_key ? null : p));
+    } catch {
+      /* leave the group in place; the next load retries */
+    } finally {
+      setDismissing(null);
+    }
   };
 
   const deleteSelected = async () => {
@@ -292,6 +319,19 @@ export default function ShortsDuplicates({
                 className="ml-auto flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 font-medium text-white/80 transition active:scale-95 hover:bg-white/20"
               >
                 <Play size={12} /> Watch copies
+              </button>
+              <button
+                onClick={() => dismissGroup(g)}
+                disabled={dismissing === g.group_key}
+                title="These are different clips — stop showing this group"
+                className="flex items-center gap-1 rounded-full border border-white/15 px-2.5 py-1 font-medium text-white/70 transition active:scale-95 hover:bg-white/10 disabled:opacity-50"
+              >
+                {dismissing === g.group_key ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Check size={12} />
+                )}
+                Not a duplicate
               </button>
             </div>
 
