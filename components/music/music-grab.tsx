@@ -481,11 +481,14 @@ export default function MusicGrab({ library }: { library: MusicLibrary }) {
                   ))}
                 </select>
               </Field>
-              <Field label="Extra yt-dlp flags">
+              {/* Grabbit only accepts a safe subset of long yt-dlp flags and
+                  rejects the rest outright, so the hint has to name one that is
+                  actually on that list. */}
+              <Field label="Extra yt-dlp flags (safe subset only)">
                 <input
                   value={xargs}
                   onChange={(e) => setXargs(e.target.value)}
-                  placeholder="--playlist-items 1-5"
+                  placeholder="--limit-rate 2M"
                   className={field}
                 />
               </Field>
