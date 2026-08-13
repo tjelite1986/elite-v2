@@ -123,15 +123,21 @@ experience. **Here for the internals?** See
 - **Books** — a shared EPUB / PDF / CBZ reader (`epubjs`, `pdfjs-dist`,
   `jszip`) with per-user reading progress.
 - **Music** — a full player over a [Navidrome](https://www.navidrome.org/)
-  library (`/music`): shelves, album and artist browsing, search, favourites,
-  playlists you can create, reorder and delete, and a mini player that keeps
-  playing while you move around the app, with a fullscreen now-playing view,
-  synced lyrics and lock-screen controls (MediaSession). Each Elite user gets
-  their own Navidrome account, created automatically on first visit, so
-  playlists, stars and Last.fm scrobbles are personal and also visible in
-  Navidrome itself. Audio and cover art are proxied by the app, so no Subsonic
-  credentials ever reach the browser. Point `NAVIDROME_URL` at your server; an
-  optional second library (`NAVIDROME_KIDS_URL`) appears as a switcher.
+  library (`/music`): shelves, album, artist and genre browsing, search,
+  favourites, playlists you can create, reorder and delete, and a mini player
+  that keeps playing while you move around the app, with a fullscreen
+  now-playing view, synced lyrics and lock-screen controls (MediaSession).
+  Any track, album or artist starts a **radio** of similar songs; a **sleep
+  timer** stops playback after a set time or at the end of the current track;
+  tracks and whole albums can be **downloaded for offline playback** (stored in
+  the browser's Cache Storage and served by the service worker, Range requests
+  included); and anything can be **shared into a DM or channel**, where the link
+  renders as a playable card. Each Elite user gets their own Navidrome account,
+  created automatically on first visit, so playlists, stars and Last.fm
+  scrobbles are personal and also visible in Navidrome itself. Audio and cover
+  art are proxied by the app, so no Subsonic credentials ever reach the browser.
+  Point `NAVIDROME_URL` at your server; an optional second library
+  (`NAVIDROME_KIDS_URL`) appears as a switcher.
 - **App Store** — an in-app `/store` catalog of installable "apps" plus an APK
   archive that imports from GitHub / F-Droid / Play, auto-updates, and verifies
   APK signatures (trust-on-first-use). Adult apps are PIN-gated.

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Heart, ListMusic, Search, Shuffle, Users } from "lucide-react";
+import { Download, Heart, ListMusic, Search, Shuffle, Tags, Users } from "lucide-react";
 import type { Album, MusicLibrary, Song } from "@/lib/music-client";
 import { musicFetch } from "@/lib/music-client";
 import { useMusicPlayer } from "@/components/music/player-provider";
@@ -124,6 +124,20 @@ export default function MusicHome({
         >
           <Heart size={16} />
           Favourites
+        </Link>
+        <Link
+          href={`/music/genres?library=${library}`}
+          className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:text-white"
+        >
+          <Tags size={16} />
+          Genres
+        </Link>
+        <Link
+          href="/music/downloads"
+          className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition hover:text-white"
+        >
+          <Download size={16} />
+          Downloads
         </Link>
       </div>
 

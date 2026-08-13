@@ -1,29 +1,48 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Heart, ListPlus, Play, Shuffle } from "lucide-react";
+import {
+  CheckCircle2,
+  Download,
+  Heart,
+  ListPlus,
+  Loader2,
+  Play,
+  Radio,
+  Share2,
+  Shuffle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Album, MusicLibrary, Song } from "@/lib/music-client";
-import { formatTotal, musicFetch } from "@/lib/music-client";
+import { fetchMix, formatTotal, musicFetch } from "@/lib/music-client";
+import { useDownloads } from "@/lib/use-downloads";
 import { useMusicPlayer } from "@/components/music/player-provider";
 import { Cover, MusicSkeleton, MusicUnavailable } from "@/components/music/common";
 import SongList from "@/components/music/song-list";
 import AddToPlaylist from "@/components/music/add-to-playlist";
+import MusicShareSheet from "@/components/music/music-share-sheet";
 
 export default function AlbumView({
   albumId,
   library,
+  highlightTrack,
 }: {
   albumId: string;
   library: MusicLibrary;
+  /** ?track= from a shared song link — the row is marked and scrolled to. */
+  highlightTrack?: string | null;
 }) {
   const player = useMusicPlayer();
+  const { has, download } = useDownloads();
   const [album, setAlbum] = useState<Album | null>(null);
   const [songs, setSongs] = useState<Song[]>([]);
   const [starred, setStarred] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  // Progress of "download album": how many of its tracks are stored so far.
+  const [downloading, setDownloading] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,8 +62,36 @@ export default function AlbumView({
     };
   }, [albumId, library]);
 
+  const downloadAlbum = useCallback(async () => {
+    setDownloading(0);
+    try {
+      // Sequential on purpose: a Pi serving ten parallel full-track requests
+      // starves the person who is actually listening.
+      for (let i = 0; i < songs.length; i++) {
+        await download(songs[i], library);
+        setDownloading(i + 1);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDownloading(null);
+    }
+  }, [download, library, songs]);
+
+  const startRadio = useCallback(async () => {
+    try {
+      const mix = await fetchMix(albumId, "album", library);
+      if (mix.length) player.playQueue(mix, 0, library);
+    } catch {
+      /* the album itself is still playable from the button next to it */
+    }
+  }, [albumId, library, player]);
+
   if (error) return <MusicUnavailable message={error} library={library} />;
   if (!album) return <MusicSkeleton />;
+
+  const allDownloaded =
+    songs.length > 0 && songs.every((song) => has(song.id, library));
 
   const toggleStar = async () => {
     const next = !starred;
@@ -127,10 +174,55 @@ export default function AlbumView({
             <ListPlus size={16} />
           </button>
         </div>
+
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            onClick={startRadio}
+            className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60 transition hover:text-white"
+          >
+            <Radio size={14} />
+            Radio
+          </button>
+          <button
+            onClick={downloadAlbum}
+            disabled={downloading !== null || allDownloaded}
+            className={cn(
+              "flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs transition",
+              allDownloaded
+                ? "text-emerald-400"
+                : "text-white/60 hover:text-white disabled:opacity-60"
+            )}
+          >
+            {downloading !== null ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : allDownloaded ? (
+              <CheckCircle2 size={14} />
+            ) : (
+              <Download size={14} />
+            )}
+            {downloading !== null
+              ? `${downloading}/${songs.length}`
+              : allDownloaded
+                ? "Downloaded"
+                : "Download"}
+          </button>
+          <button
+            onClick={() => setShareOpen(true)}
+            className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60 transition hover:text-white"
+          >
+            <Share2 size={14} />
+            Share
+          </button>
+        </div>
       </div>
 
       <div className="mt-6">
-        <SongList songs={songs} library={library} variant="track" />
+        <SongList
+          songs={songs}
+          library={library}
+          variant="track"
+          highlightId={highlightTrack}
+        />
       </div>
 
       <AddToPlaylist
@@ -138,6 +230,15 @@ export default function AlbumView({
         library={library}
         open={addOpen}
         onClose={() => setAddOpen(false)}
+      />
+
+      <MusicShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        link={{ kind: "album", id: album.id, library }}
+        title={album.name}
+        subtitle={album.artist}
+        coverArt={album.coverArt}
       />
     </div>
   );

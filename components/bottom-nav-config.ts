@@ -22,6 +22,7 @@ import {
   Sparkles,
   SquarePlus,
   Store,
+  Tags,
   Users,
   Wrench,
 } from "lucide-react";
@@ -156,6 +157,8 @@ export function getBottomNavExtras(
     return [
       { label: "Artists", href: "/music/artists", icon: Users },
       { label: "Favourites", href: "/music/favorites", icon: Heart },
+      { label: "Genres", href: "/music/genres", icon: Tags },
+      { label: "Downloads", href: "/music/downloads", icon: Download },
     ];
   }
   if (pathname === "/store" || pathname.startsWith("/store/")) {

@@ -7,12 +7,18 @@ export const dynamic = "force-dynamic";
 
 export default async function AlbumPage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ library?: string }>;
+  searchParams: Promise<{ library?: string; track?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/login");
   const { id } = await props.params;
-  const { library } = await props.searchParams;
+  const { library, track } = await props.searchParams;
 
-  return <AlbumView albumId={id} library={parseLibrary(library)} />;
+  return (
+    <AlbumView
+      albumId={id}
+      library={parseLibrary(library)}
+      highlightTrack={track ?? null}
+    />
+  );
 }

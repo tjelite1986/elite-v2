@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { parseMusicLink } from "@/lib/music-share";
+import MusicLinkCard from "@/components/music/music-link-card";
 
 interface Preview {
   url: string;
@@ -21,7 +23,15 @@ export default function LinkPreview({ url }: { url: string }) {
   );
   const [done, setDone] = useState(memo.has(url));
 
+  // A link into our own /music section is not an Open Graph page — the section
+  // is behind auth, so scraping it would return the login screen. It gets a
+  // playable card built from the music API instead.
+  // Memoised: a fresh object every render would re-run the effect below on
+  // every parent repaint.
+  const musicLink = useMemo(() => parseMusicLink(url), [url]);
+
   useEffect(() => {
+    if (musicLink) return;
     if (memo.has(url)) {
       setPreview(memo.get(url) ?? null);
       setDone(true);
@@ -41,8 +51,9 @@ export default function LinkPreview({ url }: { url: string }) {
     return () => {
       active = false;
     };
-  }, [url]);
+  }, [musicLink, url]);
 
+  if (musicLink) return <MusicLinkCard link={musicLink} />;
   if (!done || !preview || (!preview.title && !preview.image)) return null;
 
   let host = preview.siteName;

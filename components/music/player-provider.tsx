@@ -22,6 +22,8 @@ import { coverUrl, streamUrl } from "@/lib/music-client";
 // ---------------------------------------------------------------------------
 
 export type RepeatMode = "off" | "all" | "one";
+/** Minutes, or "track" for "stop when this track ends". */
+export type SleepTimer = number | "track";
 
 const STORAGE_KEY = "elite-music-player";
 const SAVE_INTERVAL_MS = 5000;
@@ -51,6 +53,10 @@ interface MusicPlayerValue {
   repeat: RepeatMode;
   expanded: boolean;
   error: string | null;
+  /** What the sleep timer is set to, or null when it is off. */
+  sleepTimer: SleepTimer | null;
+  /** Seconds left on a minute-based timer; null for "track" or when off. */
+  sleepRemaining: number | null;
 
   playQueue: (songs: Song[], startIndex: number, library: MusicLibrary) => void;
   playNow: (song: Song, library: MusicLibrary) => void;
@@ -69,6 +75,7 @@ interface MusicPlayerValue {
   clearQueue: () => void;
   setExpanded: (open: boolean) => void;
   markStarred: (songId: string, starred: boolean) => void;
+  setSleepTimer: (timer: SleepTimer | null) => void;
 }
 
 const MusicPlayerContext = createContext<MusicPlayerValue | null>(null);
@@ -79,6 +86,15 @@ export function useMusicPlayer(): MusicPlayerValue {
     throw new Error("useMusicPlayer must be used inside MusicPlayerProvider");
   }
   return ctx;
+}
+
+/**
+ * The player if there is one, null otherwise. For components that can appear
+ * outside the authed layout — a shared music link inside a chat shouldn't be
+ * able to take the conversation down with it.
+ */
+export function useOptionalMusicPlayer(): MusicPlayerValue | null {
+  return useContext(MusicPlayerContext);
 }
 
 /** Fisher-Yates over the indices, with `first` pulled to the front. */
@@ -112,6 +128,8 @@ export default function MusicPlayerProvider({
   const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
+  const [sleepTimer, setSleepTimerState] = useState<SleepTimer | null>(null);
+  const [sleepRemaining, setSleepRemaining] = useState<number | null>(null);
 
   // Playback order when shuffling: positions into `queue`. Regenerated whenever
   // shuffle is switched on or a new queue starts, so the same shuffle survives
@@ -305,7 +323,53 @@ export default function MusicPlayerProvider({
     advance(-1, false);
   }, [advance]);
 
+  // ------------------------------------------------------------------
+  // Sleep timer. The deadline is an absolute timestamp, not a countdown:
+  // a backgrounded tab has its intervals throttled, and a timer that drifts
+  // by ten minutes because the screen was off is not a sleep timer.
+  // ------------------------------------------------------------------
+  const sleepAtRef = useRef<number | null>(null);
+
+  const stopForSleep = useCallback(() => {
+    shouldPlayRef.current = false;
+    audioRef.current?.pause();
+    sleepAtRef.current = null;
+    setSleepTimerState(null);
+    setSleepRemaining(null);
+  }, []);
+
+  const setSleepTimer = useCallback((timer: SleepTimer | null) => {
+    setSleepTimerState(timer);
+    if (typeof timer === "number") {
+      sleepAtRef.current = Date.now() + timer * 60_000;
+      setSleepRemaining(timer * 60);
+    } else {
+      sleepAtRef.current = null;
+      setSleepRemaining(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof sleepTimer !== "number") return;
+    const tick = () => {
+      const at = sleepAtRef.current;
+      if (at == null) return;
+      const left = Math.max(0, Math.round((at - Date.now()) / 1000));
+      setSleepRemaining(left);
+      if (left === 0) stopForSleep();
+    };
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [sleepTimer, stopForSleep]);
+
   const handleEnded = useCallback(() => {
+    // "Stop after this track" is checked before repeat: repeat one would
+    // otherwise restart the track forever and the timer would never fire.
+    if (sleepTimer === "track") {
+      stopForSleep();
+      return;
+    }
     const audio = audioRef.current;
     if (repeat === "one" && audio) {
       audio.currentTime = 0;
@@ -314,7 +378,7 @@ export default function MusicPlayerProvider({
     }
     shouldPlayRef.current = true;
     advance(1, true);
-  }, [advance, repeat]);
+  }, [advance, repeat, sleepTimer, stopForSleep]);
 
   // ------------------------------------------------------------------
   // Public actions
@@ -630,6 +694,8 @@ export default function MusicPlayerProvider({
       repeat,
       expanded,
       error,
+      sleepTimer,
+      sleepRemaining,
       playQueue,
       playNow,
       togglePlay,
@@ -647,6 +713,7 @@ export default function MusicPlayerProvider({
       clearQueue,
       setExpanded,
       markStarred,
+      setSleepTimer,
     }),
     [
       queue,
@@ -663,6 +730,8 @@ export default function MusicPlayerProvider({
       repeat,
       expanded,
       error,
+      sleepTimer,
+      sleepRemaining,
       playQueue,
       playNow,
       togglePlay,
@@ -679,6 +748,7 @@ export default function MusicPlayerProvider({
       removeAt,
       clearQueue,
       markStarred,
+      setSleepTimer,
     ]
   );
 

@@ -11,13 +11,16 @@
 // activate self-heals every device once.
 const IMG_CACHE = "elite-img-v3";
 const IMG_LIMIT = 600;
+// Music the user explicitly downloaded for offline playback. Written by the
+// page (lib/music-offline.ts), only read here — so this worker never evicts it.
+const MUSIC_CACHE = "elite-music-offline-v1";
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) =>
   event.waitUntil(
     (async () => {
       for (const name of await caches.keys()) {
-        if (name !== IMG_CACHE) await caches.delete(name);
+        if (name !== IMG_CACHE && name !== MUSIC_CACHE) await caches.delete(name);
       }
       await self.clients.claim();
     })()
@@ -39,6 +42,52 @@ async function trimCache(cache) {
   for (let i = 0; i < overflow; i++) await cache.delete(keys[i]);
 }
 
+function isDownloadedMusic(url) {
+  return /^\/api\/music\/(stream|cover)\//.test(url.pathname);
+}
+
+/**
+ * Serve a downloaded track from the cache, answering a Range request out of the
+ * stored bytes. The cached entry is always a full 200 response (Cache.put
+ * rejects a 206), so the 206 an <audio> element needs for seeking has to be
+ * assembled here.
+ */
+async function serveFromMusicCache(req) {
+  const cache = await caches.open(MUSIC_CACHE);
+  // Ignore the request's Vary/headers — the entry was stored by a plain fetch.
+  const hit = await cache.match(req, { ignoreVary: true });
+  if (!hit) return null;
+
+  const range = req.headers.get("range");
+  if (!range) return hit;
+
+  const buffer = await hit.arrayBuffer();
+  const total = buffer.byteLength;
+  const match = /bytes=(\d*)-(\d*)/.exec(range);
+  if (!match) return new Response(buffer, { status: 200, headers: hit.headers });
+
+  let start = match[1] ? Number(match[1]) : 0;
+  let end = match[2] ? Number(match[2]) : total - 1;
+  if (!Number.isFinite(start) || start < 0) start = 0;
+  if (!Number.isFinite(end) || end >= total) end = total - 1;
+  if (start > end) {
+    return new Response(null, {
+      status: 416,
+      headers: { "content-range": `bytes */${total}` },
+    });
+  }
+
+  return new Response(buffer.slice(start, end + 1), {
+    status: 206,
+    headers: {
+      "content-type": hit.headers.get("content-type") || "audio/mpeg",
+      "content-length": String(end - start + 1),
+      "content-range": `bytes ${start}-${end}/${total}`,
+      "accept-ranges": "bytes",
+    },
+  });
+}
+
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
@@ -48,7 +97,22 @@ self.addEventListener("fetch", (event) => {
   } catch {
     return;
   }
-  if (url.origin !== self.location.origin || !isCacheableImage(url)) return;
+  if (url.origin !== self.location.origin) return;
+
+  // Downloaded music wins over the network: that is the whole point of having
+  // downloaded it, and it keeps playback going when the Pi is unreachable.
+  if (isDownloadedMusic(url)) {
+    event.respondWith(
+      (async () => {
+        const cached = await serveFromMusicCache(req).catch(() => null);
+        if (cached) return cached;
+        return fetch(req);
+      })()
+    );
+    return;
+  }
+
+  if (!isCacheableImage(url)) return;
 
   // Stale-while-revalidate: serve the cached copy instantly (fast grids) but
   // always refetch in the background and update the cache, so a replaced cover

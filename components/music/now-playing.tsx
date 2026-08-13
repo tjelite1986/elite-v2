@@ -3,14 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  CheckCircle2,
   ChevronDown,
+  Download,
   Heart,
+  Info,
   ListMusic,
   Mic2,
+  MoonStar,
+  MoreVertical,
   Pause,
   Play,
+  Radio,
   Repeat,
   Repeat1,
+  Share2,
   Shuffle,
   SkipBack,
   SkipForward,
@@ -21,8 +28,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
-import { coverUrl, formatDuration, musicFetch } from "@/lib/music-client";
+import { coverUrl, fetchMix, formatDuration, musicFetch } from "@/lib/music-client";
+import { useDownloads } from "@/lib/use-downloads";
 import { useMusicPlayer } from "@/components/music/player-provider";
+import type { SleepTimer } from "@/components/music/player-provider";
+import MusicShareSheet from "@/components/music/music-share-sheet";
+import SongInfo from "@/components/music/song-info";
 
 interface LyricLine {
   start: number | null;
@@ -46,8 +57,14 @@ export default function NowPlaying() {
     muted,
     volume,
     expanded,
+    sleepTimer,
+    sleepRemaining,
   } = player;
 
+  const { has, download, remove } = useDownloads();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [panel, setPanel] = useState<"queue" | "lyrics">("queue");
   const [lyrics, setLyrics] = useState<{ synced: boolean; lines: LyricLine[] } | null>(
     null
@@ -140,18 +157,31 @@ export default function NowPlaying() {
           <ChevronDown size={22} />
         </button>
         <span className="text-xs uppercase tracking-wider text-white/40">
-          {library === "kids" ? "Kids library" : "Playing from library"}
+          {sleepTimer
+            ? `Sleep ${sleepLabel(sleepTimer, sleepRemaining)}`
+            : library === "kids"
+              ? "Kids library"
+              : "Playing from library"}
         </span>
-        <button
-          onClick={toggleStar}
-          aria-label={current.starred ? "Remove from favourites" : "Add to favourites"}
-          className={cn(
-            "rounded-full p-2 transition hover:bg-white/10",
-            current.starred ? "text-rose-400" : "text-white/70 hover:text-white"
-          )}
-        >
-          <Heart size={20} fill={current.starred ? "currentColor" : "none"} />
-        </button>
+        <div className="flex items-center">
+          <button
+            onClick={toggleStar}
+            aria-label={current.starred ? "Remove from favourites" : "Add to favourites"}
+            className={cn(
+              "rounded-full p-2 transition hover:bg-white/10",
+              current.starred ? "text-rose-400" : "text-white/70 hover:text-white"
+            )}
+          >
+            <Heart size={20} fill={current.starred ? "currentColor" : "none"} />
+          </button>
+          <button
+            onClick={() => setMenuOpen(true)}
+            aria-label="More"
+            className="rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+          >
+            <MoreVertical size={20} />
+          </button>
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col px-5">
@@ -377,6 +407,200 @@ export default function NowPlaying() {
             </p>
           )}
         </div>
+      </div>
+
+      {menuOpen && (
+        <NowPlayingMenu
+          onClose={() => setMenuOpen(false)}
+          onShare={() => {
+            setMenuOpen(false);
+            setShareOpen(true);
+          }}
+          onInfo={() => {
+            setMenuOpen(false);
+            setInfoOpen(true);
+          }}
+          downloaded={has(current.id, library)}
+          onDownload={async () => {
+            if (has(current.id, library)) await remove(current.id, library);
+            else await download(current, library);
+          }}
+          onRadio={async () => {
+            const songs = await fetchMix(current.id, "song", library);
+            if (songs.length) player.playQueue(songs, 0, library);
+          }}
+          sleepTimer={sleepTimer}
+          onSleep={player.setSleepTimer}
+        />
+      )}
+
+      {shareOpen && (
+        <MusicShareSheet
+          open
+          onClose={() => setShareOpen(false)}
+          link={{ kind: "song", id: current.id, library }}
+          albumId={current.albumId}
+          title={current.title}
+          subtitle={current.artist}
+          coverArt={current.coverArt}
+        />
+      )}
+
+      {infoOpen && (
+        <SongInfo
+          song={current}
+          library={library}
+          onClose={() => setInfoOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+const SLEEP_OPTIONS: { value: SleepTimer; label: string }[] = [
+  { value: 15, label: "15 minutes" },
+  { value: 30, label: "30 minutes" },
+  { value: 45, label: "45 minutes" },
+  { value: 60, label: "1 hour" },
+  { value: "track", label: "End of this track" },
+];
+
+function sleepLabel(timer: SleepTimer, remaining: number | null): string {
+  if (timer === "track") return "after this track";
+  if (remaining == null) return "on";
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+// The overflow menu behind the now-playing header: the actions that don't earn
+// a permanent button but shouldn't send you back to a list to find them.
+function NowPlayingMenu({
+  onClose,
+  onShare,
+  onInfo,
+  onRadio,
+  onDownload,
+  downloaded,
+  sleepTimer,
+  onSleep,
+}: {
+  onClose: () => void;
+  onShare: () => void;
+  onInfo: () => void;
+  onRadio: () => Promise<void>;
+  onDownload: () => Promise<void>;
+  downloaded: boolean;
+  sleepTimer: SleepTimer | null;
+  onSleep: (timer: SleepTimer | null) => void;
+}) {
+  const [busy, setBusy] = useState<"radio" | "download" | null>(null);
+  const [sleepOpen, setSleepOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useBackDismiss(true, onClose);
+
+  const run = async (kind: "radio" | "download", action: () => Promise<void>) => {
+    setBusy(kind);
+    setError(null);
+    try {
+      await action();
+      if (kind === "radio") onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const rowClass =
+    "flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-white/5";
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full rounded-t-2xl border-t border-white/10 bg-[#16161c] pb-[env(safe-area-inset-bottom)]"
+      >
+        {error && <p className="px-4 pt-3 text-xs text-rose-400">{error}</p>}
+
+        {sleepOpen ? (
+          <>
+            <p className="border-b border-white/10 px-4 py-3 text-sm font-medium">
+              Sleep timer
+            </p>
+            {SLEEP_OPTIONS.map((option) => (
+              <button
+                key={String(option.value)}
+                onClick={() => {
+                  onSleep(option.value);
+                  onClose();
+                }}
+                className={cn(
+                  rowClass,
+                  sleepTimer === option.value && "text-[var(--accent,#3b82f6)]"
+                )}
+              >
+                <MoonStar size={17} className="text-white/50" />
+                {option.label}
+              </button>
+            ))}
+            {sleepTimer && (
+              <button
+                onClick={() => {
+                  onSleep(null);
+                  onClose();
+                }}
+                className={cn(rowClass, "text-rose-400")}
+              >
+                <X size={17} />
+                Turn off
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => run("radio", onRadio)}
+              className={rowClass}
+              disabled={busy !== null}
+            >
+              <Radio size={17} className="text-white/50" />
+              {busy === "radio" ? "Building radio…" : "Start radio from this track"}
+            </button>
+            <button
+              onClick={() => run("download", onDownload)}
+              className={rowClass}
+              disabled={busy !== null}
+            >
+              {downloaded ? (
+                <CheckCircle2 size={17} className="text-emerald-400" />
+              ) : (
+                <Download size={17} className="text-white/50" />
+              )}
+              {busy === "download"
+                ? "Working…"
+                : downloaded
+                  ? "Remove download"
+                  : "Download for offline"}
+            </button>
+            <button onClick={() => setSleepOpen(true)} className={rowClass}>
+              <MoonStar size={17} className="text-white/50" />
+              Sleep timer
+              {sleepTimer && (
+                <span className="ml-auto text-xs text-[var(--accent,#3b82f6)]">On</span>
+              )}
+            </button>
+            <button onClick={onShare} className={rowClass}>
+              <Share2 size={17} className="text-white/50" />
+              Share
+            </button>
+            <button onClick={onInfo} className={rowClass}>
+              <Info size={17} className="text-white/50" />
+              Song info
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Heart, Play, Shuffle, User } from "lucide-react";
+import { Heart, Play, Radio, Share2, Shuffle, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Album, Artist, MusicLibrary, Song } from "@/lib/music-client";
-import { musicFetch } from "@/lib/music-client";
+import { fetchMix, musicFetch } from "@/lib/music-client";
+import MusicShareSheet from "@/components/music/music-share-sheet";
 import { useMusicPlayer } from "@/components/music/player-provider";
 import {
   AlbumCard,
@@ -36,6 +37,7 @@ export default function ArtistView({
   const [starred, setStarred] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bioOpen, setBioOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,8 +115,36 @@ export default function ArtistView({
           >
             <Heart size={16} fill={starred ? "currentColor" : "none"} />
           </button>
+          <button
+            onClick={async () => {
+              const mix = await fetchMix(data.artist.id, "artist", library).catch(
+                () => [] as Song[]
+              );
+              if (mix.length) player.playQueue(mix, 0, library);
+            }}
+            aria-label="Start artist radio"
+            className="rounded-full border border-white/10 p-2.5 text-white/70 transition hover:text-white"
+          >
+            <Radio size={16} />
+          </button>
+          <button
+            onClick={() => setShareOpen(true)}
+            aria-label="Share artist"
+            className="rounded-full border border-white/10 p-2.5 text-white/70 transition hover:text-white"
+          >
+            <Share2 size={16} />
+          </button>
         </div>
       </div>
+
+      <MusicShareSheet
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        link={{ kind: "artist", id: data.artist.id, library }}
+        title={data.artist.name}
+        subtitle={`${data.albums.length} albums`}
+        coverArt={data.artist.coverArt}
+      />
 
       {data.biography && (
         <div className="px-4 pt-5">

@@ -40,6 +40,23 @@ export function formatTotal(seconds: number | null | undefined): string {
   return h > 0 ? `${h} h ${m} min` : `${m} min`;
 }
 
+/**
+ * A radio queue seeded by one song, album or artist. The server does the
+ * similar-song lookup and the genre fallback, so every caller gets a queue that
+ * is either playable or empty — never a two-track "radio".
+ */
+export async function fetchMix(
+  id: string,
+  type: "song" | "album" | "artist",
+  library: MusicLibrary
+): Promise<Song[]> {
+  const { songs } = await musicFetch<{ songs: Song[] }>(
+    `/api/music/mix?type=${type}&id=${encodeURIComponent(id)}`,
+    library
+  );
+  return songs;
+}
+
 /** Shared fetch shape for the music API: always JSON, errors surfaced as text. */
 export async function musicFetch<T>(
   path: string,

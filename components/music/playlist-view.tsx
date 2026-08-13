@@ -9,6 +9,7 @@ import {
   ListMusic,
   Pencil,
   Play,
+  Share2,
   Shuffle,
   Trash2,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { formatDuration, formatTotal, musicFetch } from "@/lib/music-client";
 import { useMusicPlayer } from "@/components/music/player-provider";
 import { Cover, MusicSkeleton, MusicUnavailable } from "@/components/music/common";
 import SongList from "@/components/music/song-list";
+import MusicShareSheet from "@/components/music/music-share-sheet";
 
 // One playlist, with in-place editing: rename, remove tracks, and reorder.
 // Reordering writes the full ordered id list back (Subsonic has no move
@@ -38,6 +40,7 @@ export default function PlaylistView({
   const [draft, setDraft] = useState<Song[]>([]);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -199,6 +202,13 @@ export default function PlaylistView({
             {editing ? <Check size={16} /> : <Pencil size={16} />}
           </button>
           <button
+            onClick={() => setShareOpen(true)}
+            aria-label="Share playlist"
+            className="rounded-full border border-white/10 p-2.5 text-white/70 transition hover:text-white"
+          >
+            <Share2 size={16} />
+          </button>
+          <button
             onClick={remove}
             disabled={busy}
             aria-label="Delete playlist"
@@ -207,6 +217,15 @@ export default function PlaylistView({
             <Trash2 size={16} />
           </button>
         </div>
+
+        <MusicShareSheet
+          open={shareOpen}
+          onClose={() => setShareOpen(false)}
+          link={{ kind: "playlist", id: playlist.id, library }}
+          title={playlist.name}
+          subtitle={`${songs.length} ${songs.length === 1 ? "track" : "tracks"}`}
+          coverArt={playlist.coverArt ?? playlist.id}
+        />
         {editing && (
           <button
             onClick={() => setEditing(false)}

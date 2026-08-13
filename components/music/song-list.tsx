@@ -1,13 +1,18 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  CheckCircle2,
   Disc3,
+  Download,
   Heart,
+  Info,
   ListPlus,
   MoreVertical,
   Play,
+  Radio,
+  Share2,
   Trash2,
   User,
   Volume2,
@@ -15,10 +20,13 @@ import {
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import type { MusicLibrary, Song } from "@/lib/music-client";
-import { formatDuration, musicFetch } from "@/lib/music-client";
+import { fetchMix, formatDuration, musicFetch } from "@/lib/music-client";
+import { useDownloads } from "@/lib/use-downloads";
 import { useMusicPlayer } from "@/components/music/player-provider";
 import { Cover } from "@/components/music/common";
 import AddToPlaylist from "@/components/music/add-to-playlist";
+import MusicShareSheet from "@/components/music/music-share-sheet";
+import SongInfo from "@/components/music/song-info";
 
 // The one song list used by every music page. Tapping a row starts the whole
 // list as the queue from that position, which is what makes an album, a
@@ -27,6 +35,7 @@ export default function SongList({
   songs,
   library,
   variant = "track",
+  highlightId,
   onRemove,
   onStarChange,
 }: {
@@ -34,6 +43,8 @@ export default function SongList({
   library: MusicLibrary;
   /** "track" shows the track number (album view), "cover" shows artwork. */
   variant?: "track" | "cover";
+  /** The track a shared link pointed at: marked and scrolled to once. */
+  highlightId?: string | null;
   /** Present on the playlist view, where a row can be taken out of the list. */
   onRemove?: (index: number) => void;
   onStarChange?: (songId: string, starred: boolean) => void;
@@ -41,12 +52,26 @@ export default function SongList({
   const player = useMusicPlayer();
   const [menuFor, setMenuFor] = useState<{ song: Song; index: number } | null>(null);
   const [playlistFor, setPlaylistFor] = useState<Song | null>(null);
+  const [shareFor, setShareFor] = useState<Song | null>(null);
+  const [infoFor, setInfoFor] = useState<Song | null>(null);
   const [starred, setStarred] = useState<Record<string, boolean>>({});
 
   const isStarred = useCallback(
     (song: Song) => starred[song.id] ?? song.starred,
     [starred]
   );
+
+  // Bring the shared track into view once the list has rendered. Only on the
+  // first paint that contains it — re-scrolling on every state change would
+  // fight the user's own scrolling.
+  const scrolledTo = useRef<string | null>(null);
+  useEffect(() => {
+    if (!highlightId || scrolledTo.current === highlightId) return;
+    const el = document.getElementById(`song-${highlightId}`);
+    if (!el) return;
+    scrolledTo.current = highlightId;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [highlightId, songs]);
 
   const toggleStar = useCallback(
     async (song: Song) => {
@@ -74,7 +99,14 @@ export default function SongList({
         {songs.map((song, i) => {
           const active = player.current?.id === song.id;
           return (
-            <li key={`${song.id}-${i}`} className="flex items-center gap-3 px-4 py-2">
+            <li
+              key={`${song.id}-${i}`}
+              id={`song-${song.id}`}
+              className={cn(
+                "flex items-center gap-3 px-4 py-2",
+                highlightId === song.id && "bg-white/[0.06]"
+              )}
+            >
               <button
                 onClick={() => player.playQueue(songs, i, library)}
                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
@@ -150,6 +182,14 @@ export default function SongList({
             setPlaylistFor(menuFor.song);
             setMenuFor(null);
           }}
+          onShare={() => {
+            setShareFor(menuFor.song);
+            setMenuFor(null);
+          }}
+          onInfo={() => {
+            setInfoFor(menuFor.song);
+            setMenuFor(null);
+          }}
           onRemove={onRemove}
         />
       )}
@@ -160,6 +200,26 @@ export default function SongList({
         open={Boolean(playlistFor)}
         onClose={() => setPlaylistFor(null)}
       />
+
+      {shareFor && (
+        <MusicShareSheet
+          open
+          onClose={() => setShareFor(null)}
+          link={{ kind: "song", id: shareFor.id, library }}
+          albumId={shareFor.albumId}
+          title={shareFor.title}
+          subtitle={shareFor.artist}
+          coverArt={shareFor.coverArt}
+        />
+      )}
+
+      {infoFor && (
+        <SongInfo
+          song={infoFor}
+          library={library}
+          onClose={() => setInfoFor(null)}
+        />
+      )}
     </>
   );
 }
@@ -170,6 +230,8 @@ function SongMenu({
   library,
   onClose,
   onAddToPlaylist,
+  onShare,
+  onInfo,
   onRemove,
 }: {
   song: Song;
@@ -177,10 +239,47 @@ function SongMenu({
   library: MusicLibrary;
   onClose: () => void;
   onAddToPlaylist: () => void;
+  onShare: () => void;
+  onInfo: () => void;
   onRemove?: (index: number) => void;
 }) {
   const player = useMusicPlayer();
+  const { has, download, remove } = useDownloads();
+  const [busy, setBusy] = useState<"radio" | "download" | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
   useBackDismiss(true, onClose);
+
+  const downloaded = has(song.id, library);
+
+  // The sheet stays open while these run: both take a moment, and closing it
+  // first would leave the tap looking like it did nothing.
+  const startRadio = async () => {
+    setBusy("radio");
+    setFailed(null);
+    try {
+      const songs = await fetchMix(song.id, "song", library);
+      if (!songs.length) throw new Error("No similar tracks found");
+      player.playQueue(songs, 0, library);
+      onClose();
+    } catch (e) {
+      setFailed((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggleDownload = async () => {
+    setBusy("download");
+    setFailed(null);
+    try {
+      if (downloaded) await remove(song.id, library);
+      else await download(song, library);
+    } catch (e) {
+      setFailed((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const Row = ({
     icon,
@@ -188,12 +287,15 @@ function SongMenu({
     onClick,
     href,
     danger,
+    keepOpen,
   }: {
     icon: React.ReactNode;
     label: string;
     onClick?: () => void;
     href?: string;
     danger?: boolean;
+    /** For actions that report back into the sheet (radio, download). */
+    keepOpen?: boolean;
   }) => {
     const className = cn(
       "flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-white/5",
@@ -208,7 +310,7 @@ function SongMenu({
       <button
         onClick={() => {
           onClick?.();
-          onClose();
+          if (!keepOpen) onClose();
         }}
         className={className}
       >
@@ -239,6 +341,8 @@ function SongMenu({
           </div>
         </div>
 
+        {failed && <p className="px-4 pt-2 text-xs text-rose-400">{failed}</p>}
+
         <Row
           icon={<Play size={17} />}
           label="Play next"
@@ -249,7 +353,35 @@ function SongMenu({
           label="Add to queue"
           onClick={() => player.enqueue([song], library)}
         />
+        <Row
+          icon={<Radio size={17} />}
+          label={busy === "radio" ? "Building radio…" : "Start radio"}
+          onClick={startRadio}
+          keepOpen
+        />
         <Row icon={<ListPlus size={17} />} label="Add to playlist" onClick={onAddToPlaylist} />
+        <Row
+          icon={
+            downloaded ? (
+              <CheckCircle2 size={17} className="text-emerald-400" />
+            ) : (
+              <Download size={17} />
+            )
+          }
+          label={
+            busy === "download"
+              ? downloaded
+                ? "Removing…"
+                : "Downloading…"
+              : downloaded
+                ? "Remove download"
+                : "Download"
+          }
+          onClick={toggleDownload}
+          keepOpen
+        />
+        <Row icon={<Share2 size={17} />} label="Share" onClick={onShare} />
+        <Row icon={<Info size={17} />} label="Song info" onClick={onInfo} />
         {song.albumId && (
           <Row
             icon={<Disc3 size={17} />}
