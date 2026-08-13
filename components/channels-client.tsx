@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useWs } from "@/components/ws-provider";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import LinkifyText, { firstUrl } from "@/components/linkify-text";
+import { isSoleMusicLink } from "@/lib/music-share";
 import LinkPreview from "@/components/link-preview";
 import MentionInput from "@/components/mention-input";
 import PostAvatar from "@/components/post-avatar";
@@ -363,14 +364,18 @@ export default function ChannelsClient({ meId }: { meId: number }) {
                             </div>
                           ) : (
                             <>
-                              <div className="whitespace-pre-wrap break-words">
-                                <LinkifyText text={m.body} />
-                                {m.edited_at && (
-                                  <span className="ml-1 text-[10px] text-white/40">
-                                    (edited)
-                                  </span>
-                                )}
-                              </div>
+                              {(!isSoleMusicLink(m.body) || m.edited_at) && (
+                                <div className="whitespace-pre-wrap break-words">
+                                  {!isSoleMusicLink(m.body) && (
+                                    <LinkifyText text={m.body} />
+                                  )}
+                                  {m.edited_at && (
+                                    <span className="ml-1 text-[10px] text-white/40">
+                                      (edited)
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                               {firstUrl(m.body) && (
                                 <LinkPreview url={firstUrl(m.body)!} />
                               )}

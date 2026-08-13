@@ -43,6 +43,17 @@ export function musicShareUrl(link: MusicLink, albumId?: string | null): string 
 }
 
 /**
+ * True when the whole message is one music link and nothing else. The chat then
+ * shows only the card: the URL carries an opaque Navidrome id and wraps over
+ * three lines, so printing it above the card is noise, not information.
+ */
+export function isSoleMusicLink(text: string): boolean {
+  const trimmed = text.trim();
+  if (/\s/.test(trimmed)) return false;
+  return parseMusicLink(trimmed) !== null;
+}
+
+/**
  * Recognise one of our own music links. Returns null for anything else —
  * including music links from another host, which are somebody else's library.
  */

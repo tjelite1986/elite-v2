@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import LinkifyText, { firstUrl } from "@/components/linkify-text";
+import { isSoleMusicLink } from "@/lib/music-share";
 import LinkPreview from "@/components/link-preview";
 import MentionInput from "@/components/mention-input";
 import {
@@ -685,7 +686,7 @@ export default function MessengerClient({
                       <div className="italic text-white/40">Message deleted</div>
                     ) : (
                       <>
-                    {m.body && (
+                    {m.body && !isSoleMusicLink(m.body) && (
                       <div className="whitespace-pre-wrap break-words">
                         <LinkifyText text={m.body} />
                       </div>

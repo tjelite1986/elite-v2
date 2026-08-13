@@ -36,7 +36,14 @@ const ICONS = {
  * the point of sharing a track is that the other person can hear it without
  * leaving the conversation.
  */
-export default function MusicLinkCard({ link }: { link: MusicLink }) {
+export default function MusicLinkCard({
+  link,
+  url,
+}: {
+  link: MusicLink;
+  /** The original text of the link, shown if the card cannot be built. */
+  url?: string;
+}) {
   const player = useOptionalMusicPlayer();
   const key = `${link.library}:${link.kind}:${link.id}`;
   const [item, setItem] = useState<ResolvedItem | null>(memo.get(key) ?? null);
@@ -72,7 +79,24 @@ export default function MusicLinkCard({ link }: { link: MusicLink }) {
     };
   }, [key, link.id, link.kind, link.library]);
 
-  if (!done || !item) return null;
+  // The chat hides the raw URL when the message is only a music link, so this
+  // component owns both the waiting state and the failure state — returning
+  // nothing would turn the message into an empty bubble.
+  if (!done) {
+    return (
+      <div className="mt-1.5 h-16 animate-pulse rounded-xl border border-white/10 bg-black/20" />
+    );
+  }
+  if (!item) {
+    return (
+      <Link
+        href={musicPath(link)}
+        className="mt-1.5 block break-all text-sm text-blue-300 underline underline-offset-2"
+      >
+        {url ?? "Open in Music"}
+      </Link>
+    );
+  }
 
   const Icon = ICONS[item.kind];
 

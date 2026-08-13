@@ -53,7 +53,7 @@ export default function LinkPreview({ url }: { url: string }) {
     };
   }, [musicLink, url]);
 
-  if (musicLink) return <MusicLinkCard link={musicLink} />;
+  if (musicLink) return <MusicLinkCard link={musicLink} url={url} />;
   if (!done || !preview || (!preview.title && !preview.image)) return null;
 
   let host = preview.siteName;
