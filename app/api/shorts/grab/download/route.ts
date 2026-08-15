@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { assertDownloadableUrl } from "@/lib/shorts-download";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -15,8 +16,19 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   const sp = new URL(req.url).searchParams;
+  const targetUrl = sp.get("url") || "";
+  // SSRF guard: only pass on public http(s) URLs (the host must not resolve
+  // to a private/loopback address) before GRABBIT fetches them.
+  try {
+    await assertDownloadableUrl(targetUrl);
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : "Invalid URL." },
+      { status: 400 }
+    );
+  }
   const qs = new URLSearchParams({
-    url: sp.get("url") || "",
+    url: targetUrl,
     channel: sp.get("channel") === "18plus" ? "18plus" : "main",
     device: "0",
   });

@@ -40,6 +40,11 @@ export async function GET(
   if (!row) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  // Defense-in-depth: file_rel is server-written by the import pipeline, but
+  // never let a stray "../" or absolute path escape IMPORT_ROOT.
+  if (row.file_rel.includes("..") || row.file_rel.startsWith("/")) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   try {
     const buffer = fs.readFileSync(path.join(IMPORT_ROOT, row.file_rel));

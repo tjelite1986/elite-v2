@@ -525,13 +525,15 @@ function mergeProfileLinks(handle: string, urls: string[]): void {
 async function downloadToBuffer(url: string): Promise<Buffer | null> {
   // Reject non-http(s) URLs and pass "--" so curl can't read a URL that starts
   // with "-" as a flag (argument injection); the avatar URL comes from a remote
-  // API response, so treat it as untrusted.
+  // API response, so treat it as untrusted. --max-redirs 0 keeps a 3xx from
+  // that same untrusted response from redirecting curl at a private address
+  // after safeHttpUrl only validated the initial URL.
   const safe = safeHttpUrl(url);
   if (!safe) return null;
   try {
     const { stdout } = await execFileAsync(
       "curl",
-      ["-s", "-L", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
+      ["-s", "--max-redirs", "0", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
       { maxBuffer: 32 * 1024 * 1024, timeout: 25_000, encoding: "buffer" }
     );
     return stdout;

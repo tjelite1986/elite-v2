@@ -6,6 +6,7 @@ import type { VideoPerformerRow, VideoRow } from "./db";
 import { posterFilePath, videoFilePath } from "./videos-storage";
 import { tpdbConfigured } from "./tpdb";
 import { safeHttpUrl } from "./safe-url";
+import { assertPublicUrl } from "./link-preview";
 
 // Performer profiles for the 18+ video library. Deliberately its own table
 // rather than users or post_creators: these are people a film credits, with no
@@ -276,6 +277,7 @@ export async function enrichPerformer(
   let imageKey = row.image_key;
   if (found.image && (replaceImages || !imageKey)) {
     try {
+      await assertPublicUrl(new URL(found.image));
       const res = await fetch(found.image, { signal: AbortSignal.timeout(30_000) });
       if (res.ok) {
         const buf = Buffer.from(await res.arrayBuffer());
@@ -438,6 +440,7 @@ async function importGallery(
   let idx = 0;
   for (const poster of ordered) {
     try {
+      await assertPublicUrl(new URL(poster.url));
       const res = await fetch(poster.url, { signal: AbortSignal.timeout(30_000) });
       if (!res.ok) continue;
       const buf = Buffer.from(await res.arrayBuffer());

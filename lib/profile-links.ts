@@ -186,6 +186,29 @@ export function addAlias(handle: string, alias: string): AddAliasResult {
       status: 409,
     };
   }
+  // An existing content-only creator profile (shorts or posts) must not be
+  // hijacked as someone else's alias either — same class of claim as a member
+  // account, just a different table.
+  const shortProfile = db
+    .prepare("SELECT 1 FROM short_profiles WHERE norm_handle(name) = ?")
+    .get(member);
+  if (shortProfile) {
+    return {
+      ok: false,
+      error: "That name belongs to an existing creator profile.",
+      status: 409,
+    };
+  }
+  const creatorProfile = db
+    .prepare("SELECT 1 FROM post_creators WHERE norm_handle(username) = ?")
+    .get(member);
+  if (creatorProfile) {
+    return {
+      ok: false,
+      error: "That name belongs to an existing creator profile.",
+      status: 409,
+    };
+  }
   // A name already aliased to a different face can't be stolen.
   const existing = db
     .prepare("SELECT primary_handle FROM profile_links WHERE member_handle = ?")
