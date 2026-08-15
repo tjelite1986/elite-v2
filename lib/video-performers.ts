@@ -536,7 +536,7 @@ export function performerVideos(slug: string, userId: number) {
          FROM videos v
          JOIN video_performer_links l ON l.video_id = v.id
          LEFT JOIN video_progress pr ON pr.video_id = v.id AND pr.user_id = @userId
-        WHERE l.performer_slug = @slug
+        WHERE l.performer_slug = @slug AND v.channel = 'adults'
         ORDER BY v.meta_date DESC, v.added_at DESC`
     )
     .all({ slug, userId }) as (VideoRow & { position: number; percent: number })[];
