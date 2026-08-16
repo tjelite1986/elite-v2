@@ -53,7 +53,7 @@ export default function OwnPostsManager({ userId }: { userId: number }) {
 
   return (
     <>
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex items-center justify-between gap-3 px-4">
         <span className="text-sm text-white/50">
           {selecting
             ? "Tap posts to combine — the first becomes the cover."
@@ -76,7 +76,7 @@ export default function OwnPostsManager({ userId }: { userId: number }) {
         )}
       </div>
 
-      {msg && <p className="mb-2 text-xs text-red-300">{msg}</p>}
+      {msg && <p className="mb-2 px-4 text-xs text-red-300">{msg}</p>}
 
       <PostGrid
         query={{ scope: "user", id: String(userId) }}

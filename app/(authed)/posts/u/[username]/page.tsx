@@ -64,8 +64,10 @@ export default async function PostsProfilePage(
     : postCountForCreator(targetId);
 
   return (
-    <div className="mx-auto max-w-2xl px-4 pb-24 pt-6 text-white">
-      <header className="mb-6 flex items-start gap-5">
+    // Full-bleed like the feed: only the profile header keeps its own padding,
+    // the grid below spans the full width like everywhere else.
+    <div className="w-full pb-24 pt-6 text-white">
+      <header className="mb-6 flex items-start gap-5 px-4">
         <PostAvatar username={username} size={80} className="text-xl" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">
@@ -94,7 +96,7 @@ export default async function PostsProfilePage(
       </header>
 
       {(displayName || bio) && (
-        <div className="mb-5">
+        <div className="mb-5 px-4">
           {displayName && <div className="text-sm font-semibold">{displayName}</div>}
           {bio && (
             <BioText

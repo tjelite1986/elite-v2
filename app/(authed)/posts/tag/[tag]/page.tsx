@@ -18,7 +18,9 @@ export default async function PostsTagPage(
   const tag = decodeURIComponent(params.tag).toLowerCase();
 
   return (
-    <div className="mx-auto max-w-2xl px-1 pb-24 pt-6 text-white">
+    // Full-bleed like the feed, so grid tiles and single-column cards are the
+    // same size here as everywhere else.
+    <div className="w-full pb-24 pt-6 text-white">
       <h1 className="mb-4 px-3 text-lg font-semibold">#{tag}</h1>
       <PostGrid
         query={{ scope: "tag", tag }}

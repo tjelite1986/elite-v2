@@ -33,8 +33,10 @@ export default async function PostPermalinkPage(
     isAdmin || (post.author.type === "user" && post.author.id === viewerId);
 
   return (
-    <div className="mx-auto max-w-md px-1 pb-24 pt-6 text-white">
-      <div className="mb-2 flex items-center justify-between gap-3 px-2">
+    // Full-bleed like the feed: the post photo keeps the same size here as it
+    // has everywhere else instead of being capped to a narrow column.
+    <div className="w-full pb-24 pt-6 text-white">
+      <div className="mb-2 flex items-center justify-between gap-3 px-4">
         <Link
           href="/posts"
           className="inline-flex items-center gap-1 text-sm text-white/60 hover:text-white"
