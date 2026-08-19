@@ -22,6 +22,7 @@
 // Runs from the in-app Background Jobs panel (job id `telegram-appstore`).
 
 import Database from "better-sqlite3";
+import { setMaxListeners } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { TelegramClient } from "teleproto";
@@ -53,6 +54,10 @@ const INITIAL_LIMIT = num("TELEGRAM_INITIAL_LIMIT", 20);
 const MIN_FREE_BYTES = num("TELEGRAM_MIN_FREE_GB", 5) * 1024 * 1024 * 1024;
 
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
+
+// One abort listener per download chunk worker trips the default cap of 10 and
+// prints a bogus leak warning into the job output.
+setMaxListeners(50);
 
 if (!apiId || !apiHash || !session) {
   log("TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION not set — nothing to do");

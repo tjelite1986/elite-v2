@@ -59,6 +59,15 @@ if (!apiId || !apiHash) {
   process.exit(1);
 }
 
+// Without a terminal on stdin readline closes immediately and the login loop
+// retries forever ("readline was closed"), so refuse to start instead.
+if (!stdin.isTTY) {
+  console.error(
+    "This script needs an interactive terminal — run it from a normal shell or SSH session."
+  );
+  process.exit(1);
+}
+
 const rl = readline.createInterface({ input: stdin, output: stdout });
 const ask = (q) => rl.question(q);
 
@@ -71,7 +80,12 @@ try {
     phoneNumber: () => ask("Phone number (international format, e.g. +46701234567): "),
     phoneCode: () => ask("Login code from Telegram: "),
     password: () => ask("Two-step verification password (blank if unused): "),
-    onError: (err) => console.error("Login error:", err.message),
+    // Returning true stops the retry loop: a wrong code or a closed prompt
+    // should end the run, not spin.
+    onError: (err) => {
+      console.error("Login error:", err.message);
+      return true;
+    },
   });
 
   const me = await client.getMe();
