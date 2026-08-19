@@ -37,6 +37,14 @@ export interface ParsedApkName {
 //   { name: "CCleaner Pro", version: "26.12.1", packageName: null }
 // "com.fikfap.app-4.1.0.apk" →
 //   { name: "com fikfap app", version: "4.1.0", packageName: "com.fikfap.app" }
+// Mod APKs commonly ship a placeholder versionName — "9999", "9.9.9" — so the
+// app never considers itself outdated. Promoting that makes every later real
+// version compare as older, so the filename's version wins over one of these.
+export function isPlaceholderVersion(version: string | null | undefined): boolean {
+  if (!version) return false;
+  return /^9+(\.9+)*$/.test(version.trim());
+}
+
 export function parseApkFilename(fileName: string): ParsedApkName {
   let base = fileName.replace(APK_EXT, "").replace(/[_+]/g, " ");
 
@@ -474,6 +482,7 @@ async function runAppstoreImportInner(): Promise<AppImportSummary> {
     const signer = extractSignerSha256(abs);
     const packageName = manifest.packageName || parsed.packageName;
     const version =
+      (isPlaceholderVersion(manifest.versionName) ? parsed.version : null) ||
       manifest.versionName ||
       parsed.version ||
       (manifest.versionCode ? `vc${manifest.versionCode}` : null) ||
