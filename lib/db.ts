@@ -1638,6 +1638,7 @@ function migrate(db: Database.Database) {
       file_size INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL,                      -- downloaded | skipped | failed
       note TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,       -- download tries, capped by the sync script
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(channel, message_id)
     );
@@ -1645,6 +1646,21 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_telegram_files_doc
       ON telegram_files(document_id, status);
   `);
+
+  // `attempts` arrived after the table shipped, so an existing database needs it
+  // added here.
+  try {
+    const tgCols = (
+      db.prepare("PRAGMA table_info(telegram_files)").all() as { name: string }[]
+    ).map((c) => c.name);
+    if (!tgCols.includes("attempts")) {
+      db.exec(
+        "ALTER TABLE telegram_files ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
+      );
+    }
+  } catch (err) {
+    if (!/duplicate column/i.test((err as Error).message)) throw err;
+  }
 
   // Background-job scheduler. Each row is one job from lib/jobs-runtime.mjs the
   // admin can enable/disable and schedule from the in-app Background Jobs panel,

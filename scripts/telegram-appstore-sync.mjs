@@ -56,8 +56,8 @@ const MIN_FREE_BYTES = num("TELEGRAM_MIN_FREE_GB", 5) * 1024 * 1024 * 1024;
 const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
 
 // One abort listener per download chunk worker trips the default cap of 10 and
-// prints a bogus leak warning into the job output.
-setMaxListeners(50);
+// prints a bogus leak warning into the job output; a 200 MB file uses dozens.
+setMaxListeners(200);
 
 if (!apiId || !apiHash || !session) {
   log("TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION not set — nothing to do");
@@ -121,11 +121,20 @@ const seenDocument = db.prepare(
   "SELECT 1 FROM telegram_files WHERE document_id = ? AND status = 'downloaded'"
 );
 const recordFile = db.prepare(`
-  INSERT INTO telegram_files (channel, message_id, document_id, file_name, file_size, status, note)
-  VALUES (@channel, @messageId, @documentId, @fileName, @fileSize, @status, @note)
+  INSERT INTO telegram_files (channel, message_id, document_id, file_name, file_size, status, note, attempts)
+  VALUES (@channel, @messageId, @documentId, @fileName, @fileSize, @status, @note, @attempts)
   ON CONFLICT(channel, message_id) DO UPDATE SET
-    status = excluded.status, note = excluded.note, document_id = excluded.document_id
+    status = excluded.status, note = excluded.note,
+    document_id = excluded.document_id, attempts = excluded.attempts
 `);
+const attemptsOf = db.prepare(
+  "SELECT attempts FROM telegram_files WHERE channel = ? AND message_id = ?"
+);
+// The cursor moves past a failed message, so nothing but this list would ever
+// pick it up again.
+const failedRows = db.prepare(
+  "SELECT message_id FROM telegram_files WHERE channel = ? AND status = 'failed' AND attempts < ? ORDER BY message_id LIMIT 20"
+);
 
 // --- Helpers ---------------------------------------------------------------
 // The document attributes carry the real upload filename; the import pipeline
@@ -166,8 +175,78 @@ const client = new TelegramClient(new StringSession(session), apiId, apiHash, {
   connectionRetries: 3,
 });
 
+// Cross-run download tries per message. A transient MTProto failure (a purged
+// sender slot, a dropped connection) is retried on the next run; after this
+// many tries the file is left alone.
+const MAX_ATTEMPTS = 3;
+// Tries within one run, before the message is written off as failed.
+const DOWNLOAD_TRIES = 3;
+
+const HANDLED = "handled";
+const IGNORED = "ignored";
+const NO_SPACE = "nospace";
+
 let downloaded = 0;
 let exitCode = 0;
+
+const mb = (bytes) => (bytes / 1048576).toFixed(1);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function processMessage(channel, message) {
+  const info = documentInfo(message);
+  if (!info || !APK_EXT.test(info.fileName)) return IGNORED;
+
+  const row = {
+    channel,
+    messageId: message.id,
+    documentId: info.documentId,
+    fileName: info.fileName,
+    fileSize: info.fileSize,
+    status: "skipped",
+    note: null,
+    attempts: attemptsOf.get(channel, message.id)?.attempts || 0,
+  };
+
+  if (seenDocument.get(info.documentId)) {
+    row.note = "duplicate document";
+    recordFile.run(row);
+    log(`${channel}#${message.id}: ${info.fileName} — already downloaded, skipped`);
+    return HANDLED;
+  }
+
+  if (info.fileSize > MAX_BYTES) {
+    row.note = `over size cap (${mb(info.fileSize)} MB)`;
+    recordFile.run(row);
+    log(`${channel}#${message.id}: ${info.fileName} — ${row.note}, skipped`);
+    return HANDLED;
+  }
+
+  if (freeBytes(DROP_DIR) - info.fileSize < MIN_FREE_BYTES) {
+    // Leave the ledger untouched so the file is picked up once there is room.
+    log(`${channel}: not enough free disk space — stopping`);
+    return NO_SPACE;
+  }
+
+  row.attempts += 1;
+  try {
+    const name = await download(message, info);
+    row.status = "downloaded";
+    row.note = name;
+    recordFile.run(row);
+    downloaded += 1;
+    log(`${channel}#${message.id}: ${name} (${mb(info.fileSize)} MB) -> import folder`);
+  } catch (err) {
+    row.status = "failed";
+    row.note = err.message.slice(0, 300);
+    recordFile.run(row);
+    exitCode = 1;
+    log(
+      `${channel}#${message.id}: ${info.fileName} FAILED ` +
+        `(try ${row.attempts}/${MAX_ATTEMPTS}) — ${err.message}`
+    );
+  }
+  return HANDLED;
+}
 
 async function syncChannel(channel) {
   insSource.run(channel);
@@ -178,6 +257,20 @@ async function syncChannel(channel) {
   }
 
   const entity = await client.getEntity(channel);
+
+  // Earlier failures first: they sit behind the cursor, so the scan below will
+  // never reach them again.
+  const retryIds = failedRows.all(channel, MAX_ATTEMPTS).map((r) => r.message_id);
+  if (retryIds.length) {
+    log(`${channel}: retrying ${retryIds.length} earlier failure(s)`);
+    const retries = await client.getMessages(entity, { ids: retryIds });
+    for (const message of retries) {
+      if (!message) continue;
+      if (downloaded >= MAX_FILES) break;
+      if ((await processMessage(channel, message)) === NO_SPACE) return;
+    }
+  }
+
   const firstSync = source.last_message_id === 0;
 
   // First sync only looks at the newest INITIAL_LIMIT posts — a channel's full
@@ -203,51 +296,9 @@ async function syncChannel(channel) {
       log(`${channel}: run cap of ${MAX_FILES} file(s) reached — resuming next run`);
       break;
     }
-
-    const info = documentInfo(message);
-    if (info && APK_EXT.test(info.fileName) && !seenMessage.get(channel, message.id)) {
-      const row = {
-        channel,
-        messageId: message.id,
-        documentId: info.documentId,
-        fileName: info.fileName,
-        fileSize: info.fileSize,
-        status: "skipped",
-        note: null,
-      };
-
-      if (seenDocument.get(info.documentId)) {
-        row.note = "duplicate document";
-        recordFile.run(row);
-        log(`${channel}#${message.id}: ${info.fileName} — already downloaded, skipped`);
-      } else if (info.fileSize > MAX_BYTES) {
-        row.note = `over size cap (${(info.fileSize / 1048576).toFixed(1)} MB)`;
-        recordFile.run(row);
-        log(`${channel}#${message.id}: ${info.fileName} — ${row.note}, skipped`);
-      } else if (freeBytes(DROP_DIR) - info.fileSize < MIN_FREE_BYTES) {
-        // Leave the cursor where it is so the file is retried once there is room.
-        log(`${channel}: not enough free disk space — stopping`);
-        break;
-      } else {
-        try {
-          const name = await download(message, info);
-          row.status = "downloaded";
-          row.note = name;
-          recordFile.run(row);
-          downloaded += 1;
-          log(
-            `${channel}#${message.id}: ${name} (${(info.fileSize / 1048576).toFixed(1)} MB) -> import folder`
-          );
-        } catch (err) {
-          row.status = "failed";
-          row.note = err.message.slice(0, 300);
-          recordFile.run(row);
-          exitCode = 1;
-          log(`${channel}#${message.id}: ${info.fileName} FAILED — ${err.message}`);
-        }
-      }
+    if (!seenMessage.get(channel, message.id)) {
+      if ((await processMessage(channel, message)) === NO_SPACE) break;
     }
-
     cursor = message.id;
   }
 
@@ -257,6 +308,7 @@ async function syncChannel(channel) {
 
 // Downloads to a hidden .part file first so the import job never sees a
 // half-written APK, then renames into place (same filesystem, atomic).
+// A dropped sender slot mid-transfer is a retry signal, not a dead file.
 async function download(message, info) {
   fs.mkdirSync(DROP_DIR, { recursive: true });
   let fileName = safeName(info.fileName);
@@ -267,18 +319,26 @@ async function download(message, info) {
   const partPath = path.join(DROP_DIR, `.${fileName}.part`);
   const finalPath = path.join(DROP_DIR, fileName);
 
-  try {
-    await client.downloadMedia(message, { outputFile: partPath });
-    const size = fs.statSync(partPath).size;
-    if (size !== info.fileSize) {
-      throw new Error(`size mismatch: got ${size}, expected ${info.fileSize}`);
+  let lastError;
+  for (let attempt = 1; attempt <= DOWNLOAD_TRIES; attempt += 1) {
+    try {
+      await client.downloadMedia(message, { outputFile: partPath });
+      const size = fs.statSync(partPath).size;
+      if (size !== info.fileSize) {
+        throw new Error(`size mismatch: got ${size}, expected ${info.fileSize}`);
+      }
+      fs.renameSync(partPath, finalPath);
+      return fileName;
+    } catch (err) {
+      lastError = err;
+      fs.rmSync(partPath, { force: true });
+      if (attempt < DOWNLOAD_TRIES) {
+        log(`  ${fileName}: ${err.message} — retry ${attempt + 1}/${DOWNLOAD_TRIES}`);
+        await sleep(3000 * attempt);
+      }
     }
-    fs.renameSync(partPath, finalPath);
-    return fileName;
-  } catch (err) {
-    fs.rmSync(partPath, { force: true });
-    throw err;
   }
+  throw lastError;
 }
 
 try {
