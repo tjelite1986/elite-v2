@@ -1612,6 +1612,40 @@ function migrate(db: Database.Database) {
     );
   `);
 
+  // Telegram APK feed: scripts/telegram-appstore-sync.mjs reads the configured
+  // public channels and drops new .apk/.xapk documents into the app-store
+  // import folder, where the existing folder-import pipeline takes over.
+  // `telegram_sources` holds the per-channel cursor (last message id seen) and
+  // `telegram_files` the per-document ledger that keeps a repost of the same
+  // file from being downloaded twice.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS telegram_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL UNIQUE,              -- channel username, no @
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_message_id INTEGER NOT NULL DEFAULT 0,
+      last_synced_at TEXT,
+      last_status TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS telegram_files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL,
+      message_id INTEGER NOT NULL,
+      document_id TEXT,                          -- stable per uploaded file
+      file_name TEXT NOT NULL,
+      file_size INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,                      -- downloaded | skipped | failed
+      note TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(channel, message_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_telegram_files_doc
+      ON telegram_files(document_id, status);
+  `);
+
   // Background-job scheduler. Each row is one job from lib/jobs-runtime.mjs the
   // admin can enable/disable and schedule from the in-app Background Jobs panel,
   // replacing the host systemd timers. The runtime (server.mjs) owns the writes;
