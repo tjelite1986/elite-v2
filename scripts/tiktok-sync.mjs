@@ -153,10 +153,13 @@ function downloadProfile(localHandle, ttUsername) {
   const url = `https://www.tiktok.com/@${ttUsername}`;
 
   // --- gallery-dl ---------------------------------------------------------
+  // "/posts" instead of the bare profile: the profile URL also dispatches the
+  // avatar extractor, and that avatar lands as a post of its own.
+  const gdUrl = `${url}/posts`;
   const gdArchive = path.join(dir, ".gallery-dl-archive.sqlite");
   const rangeUpper = Math.min(before + MAX_PER_RUN, 500);
   const gdArgs = [
-    url,
+    gdUrl,
     "-D",
     dir,
     "--range",
@@ -200,6 +203,9 @@ function downloadProfile(localHandle, ttUsername) {
       path.join(dir, "%(id)s.%(ext)s"),
       "--download-archive",
       ytArchive,
+      // <id>.info.json next to <id>.mp4 — import-posts reads it for the
+      // caption, so the fallback path is not the one that loses the text.
+      "--write-info-json",
       "--no-warnings",
       "--ignore-errors",
       "--max-downloads",

@@ -40,6 +40,7 @@ import { ShareDialog, type SharePayload } from "@/components/share-dialog";
 import SmartAlbumBuilder from "@/components/smart-album-builder";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useConfirm } from "@/components/confirm-dialog";
+import { playOrPlayMuted } from "@/lib/video-autoplay";
 
 interface Item {
   id: number;
@@ -1516,6 +1517,7 @@ export default function GalleryClient() {
           {isVideoItem(lightboxItem) ? (
             <video
               key={lightboxItem.id}
+              ref={playOrPlayMuted}
               src={`/api/gallery/${lightboxItem.id}/media?variant=original&v=${lightboxItem.media_version}`}
               poster={`/api/gallery/${lightboxItem.id}/media?variant=preview&v=${lightboxItem.media_version}`}
               controls

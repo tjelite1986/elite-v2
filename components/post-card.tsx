@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { SOURCE_RE } from "@/lib/shorts-caption";
 import PostAvatar from "@/components/post-avatar";
+import PostInlineVideo from "@/components/post-inline-video";
 import Markdown from "@/components/markdown";
 import MentionInput from "@/components/mention-input";
 import type { FeedPost } from "@/lib/posts";
@@ -182,15 +183,12 @@ export default function PostCard({
         >
           {post.media.map((m, i) =>
             m.is_video ? (
-              // Videos play inline (native controls), so they get no tap/like
-              // handlers — the controls own the clicks.
-              <video
+              // Videos play inline (muted autoplay in view, native controls), so
+              // they get no tap/like handlers — the controls own the clicks.
+              <PostInlineVideo
                 key={m.id}
                 src={`/api/posts/media/${m.id}`}
                 poster={`/api/posts/media/${m.id}?size=thumb`}
-                controls
-                playsInline
-                preload="none"
                 className="aspect-square w-full shrink-0 snap-center bg-black object-contain"
               />
             ) : (

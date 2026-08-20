@@ -20,6 +20,7 @@ import { CommentsSheet } from "@/components/post-card";
 import EditCaptionSheet from "@/components/edit-caption-sheet";
 import PostAvatar from "@/components/post-avatar";
 import Markdown from "@/components/markdown";
+import { playOrPlayMuted } from "@/lib/video-autoplay";
 import type { FeedPost } from "@/lib/posts";
 
 export interface LightboxViewer {
@@ -279,6 +280,7 @@ export default function PostLightbox({
           (post.media[photoIndex].is_video ? (
             <video
               key={post.media[photoIndex].id}
+              ref={playOrPlayMuted}
               src={`/api/posts/media/${post.media[photoIndex].id}`}
               poster={`/api/posts/media/${post.media[photoIndex].id}?size=thumb`}
               controls

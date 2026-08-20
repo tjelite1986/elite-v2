@@ -213,18 +213,35 @@ function dateKey(name) {
   return null;
 }
 
-// Two sidecar conventions land here, and both are read:
-//   <file>.json   gallery-dl's --write-metadata, caption in "description"
-//   <stem>.json   the piko Instagram patch (phone downloads), caption in "caption"
+// Three sidecar conventions land here, and all of them are read:
+//   <file>.json        gallery-dl's --write-metadata, caption in "description"
+//                      (Instagram) or "desc" (TikTok)
+//   <stem>.json        the piko Instagram patch (phone downloads), caption in
+//                      "caption"
+//   <stem>.info.json   yt-dlp's --write-info-json, caption in "description";
+//                      the TikTok sync falls back to yt-dlp when gallery-dl
+//                      comes back empty
 // The second arrives via the per-user drop tree, which routes videos into this
 // folder and moves the sidecar along with them.
 function sidecarPath(srcPath) {
   const withExt = `${srcPath}.json`;
   if (fs.existsSync(withExt)) return withExt;
   const dot = srcPath.lastIndexOf(".");
-  const stem = dot > 0 ? srcPath.slice(0, dot) + ".json" : null;
-  if (stem && stem !== srcPath && fs.existsSync(stem)) return stem;
+  if (dot <= 0) return null;
+  for (const cand of [`${srcPath.slice(0, dot)}.json`, `${srcPath.slice(0, dot)}.info.json`]) {
+    if (cand !== srcPath && fs.existsSync(cand)) return cand;
+  }
   return null;
+}
+
+// Permalink for a gallery-dl TikTok item — its metadata carries no post_url,
+// only the pieces one is built from.
+function tiktokPermalink(d) {
+  if (d.category !== "tiktok" || !d.post_type) return ""; // no post_type = the profile avatar
+  const user = typeof d.user === "string" ? d.user : d.author?.uniqueId;
+  if (!user || !d.id) return "";
+  const kind = d.post_type === "image" ? "photo" : "video";
+  return `https://www.tiktok.com/@${user}/${kind}/${d.id}`;
 }
 
 function readSidecar(srcPath) {
@@ -235,17 +252,29 @@ function readSidecar(srcPath) {
     let caption =
       typeof d.description === "string" ? d.description
         : typeof d.caption === "string" ? d.caption
+        // gallery-dl's TikTok metadata calls the caption "desc"; without this
+        // branch every TikTok post lands with no text and no hashtags.
+        : typeof d.desc === "string" ? d.desc
         : null;
     caption = caption ? caption.trim() : null;
     // Same caption grammar as the rest of the library: the permalink goes in as a
     // trailing "Source:" row, which is what the readers parse back out.
-    const source = typeof d.post_url === "string" ? d.post_url.trim() : "";
+    const source =
+      (typeof d.post_url === "string" && d.post_url.trim()) ||
+      (typeof d.webpage_url === "string" && d.webpage_url.trim()) ||
+      tiktokPermalink(d);
     if (source && !/(^|\n)\s*Source:\s*\S+/i.test(caption ?? "")) {
       caption = caption ? `${caption}\n\nSource: ${source}` : `Source: ${source}`;
     }
     return {
       caption: caption || null,
-      shortcode: d.post_shortcode || d.shortcode || null,
+      // TikTok has no shortcode; its item id groups a photo slideshow's frames
+      // into one post the way an Instagram shortcode groups a carousel. The
+      // prefix keeps the two id spaces from ever colliding.
+      shortcode:
+        d.post_shortcode ||
+        d.shortcode ||
+        (d.category === "tiktok" && d.id ? `tt${d.id}` : null),
     };
   } catch {
     return null;
