@@ -42,6 +42,11 @@ const YT_DLP = process.env.YT_DLP_BIN || "yt-dlp";
 const LOCK = "/tmp/elitev2-tiktok-sync.lock";
 const MAX_PER_RUN = Number(process.env.TT_MAX_PER_RUN) || 30;
 const RETRIES = Number(process.env.TT_RETRIES) || 2;
+// Randomized pause between HTTP requests, in seconds ("min-max"). Kept well
+// below Instagram's 3-8: TikTok's listing is paginated 15 items at a time, so a
+// 1500-clip account costs a hundred requests before the first byte of media is
+// fetched and every second here is multiplied by that.
+const SLEEP_REQUEST = process.env.TT_SLEEP_REQUEST || "1.0-3.0";
 // Between-profile pause range in seconds ("min-max"), default 10-20s.
 const PROFILE_SLEEP = process.env.TT_PROFILE_SLEEP_SECONDS || "10-20";
 // gallery-dl/yt-dlp need a writable HOME for their cache; the container's nextjs
@@ -166,6 +171,11 @@ function downloadProfile(localHandle, ttUsername) {
     `1-${rangeUpper}`,
     "--download-archive",
     gdArchive,
+    // Space out HTTP requests (randomized) so a 36-profile run stays under
+    // TikTok's rate limit — the sync downloads without a cookie, so a burst is
+    // answered with an empty listing rather than an error we could report.
+    "--sleep-request",
+    SLEEP_REQUEST,
     "--retries",
     String(RETRIES),
     // Write a <file>.json sidecar per item so import-posts can set captions.
@@ -178,7 +188,7 @@ function downloadProfile(localHandle, ttUsername) {
   try {
     execFileSync(GALLERY_DL, gdArgs, {
       stdio: ["ignore", "ignore", "pipe"],
-      timeout: 5 * 60 * 1000,
+      timeout: 10 * 60 * 1000,
       env: RUN_ENV,
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
@@ -203,6 +213,10 @@ function downloadProfile(localHandle, ttUsername) {
       path.join(dir, "%(id)s.%(ext)s"),
       "--download-archive",
       ytArchive,
+      // Same breather as gallery-dl gets; yt-dlp takes a single number, so one
+      // value is drawn from the range per run.
+      "--sleep-requests",
+      (randMsFromRange(SLEEP_REQUEST, 1, 3) / 1000).toFixed(1),
       // <id>.info.json next to <id>.mp4 — import-posts reads it for the
       // caption, so the fallback path is not the one that loses the text.
       "--write-info-json",
@@ -215,7 +229,7 @@ function downloadProfile(localHandle, ttUsername) {
     try {
       execFileSync(YT_DLP, ytArgs, {
         stdio: ["ignore", "ignore", "pipe"],
-        timeout: 5 * 60 * 1000,
+        timeout: 10 * 60 * 1000,
         env: RUN_ENV,
         encoding: "utf8",
         maxBuffer: 16 * 1024 * 1024,
