@@ -47,6 +47,10 @@ const RETRIES = Number(process.env.TT_RETRIES) || 2;
 // 1500-clip account costs a hundred requests before the first byte of media is
 // fetched and every second here is multiplied by that.
 const SLEEP_REQUEST = process.env.TT_SLEEP_REQUEST || "1.0-3.0";
+// Per-download-tool budget. A 1500-clip account measured 298s to page its
+// listing at the pause above and 722s for the whole gallery-dl phase, so 10
+// minutes truncated the largest profile every run. 20 leaves real headroom.
+const TIMEOUT_MS = (Number(process.env.TT_TIMEOUT_MINUTES) || 20) * 60 * 1000;
 // Between-profile pause range in seconds ("min-max"), default 10-20s.
 const PROFILE_SLEEP = process.env.TT_PROFILE_SLEEP_SECONDS || "10-20";
 // gallery-dl/yt-dlp need a writable HOME for their cache; the container's nextjs
@@ -185,18 +189,31 @@ function downloadProfile(localHandle, ttUsername) {
   if (cookie) gdArgs.push("--cookies", cookie);
 
   let lastErr = null;
+  // A timeout is NOT a per-item failure: the process was killed mid-catalogue,
+  // so everything past that point was silently never looked at. Tracked apart
+  // from lastErr because the "some files landed, call it fine" rule below must
+  // not swallow it.
+  let timedOut = false;
   try {
     execFileSync(GALLERY_DL, gdArgs, {
       stdio: ["ignore", "ignore", "pipe"],
-      timeout: 10 * 60 * 1000,
+      timeout: TIMEOUT_MS,
       env: RUN_ENV,
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
     });
   } catch (err) {
-    const stderr = `${err.stderr || ""}\n${err.message || ""}`;
-    const m = stderr.match(/\[[a-z]+\]\[error\][^\n]*/i);
-    lastErr = (m ? m[0] : err.message || "gallery-dl failed").slice(0, 300);
+    if (err.code === "ETIMEDOUT" || err.signal) {
+      timedOut = true;
+      lastErr =
+        err.code === "ETIMEDOUT"
+          ? `gallery-dl timed out after ${Math.round(TIMEOUT_MS / 60000)} min (partial catalogue)`
+          : `gallery-dl killed by ${err.signal} (partial catalogue)`;
+    } else {
+      const stderr = `${err.stderr || ""}\n${err.message || ""}`;
+      const m = stderr.match(/\[[a-z]+\]\[error\][^\n]*/i);
+      lastErr = (m ? m[0] : err.message || "gallery-dl failed").slice(0, 300);
+    }
   }
 
   let after = countFiles(dir);
@@ -205,7 +222,7 @@ function downloadProfile(localHandle, ttUsername) {
   // --- yt-dlp fallback ----------------------------------------------------
   // gallery-dl's TikTok support is fragile; when it produced nothing, retry
   // with yt-dlp (videos only — photo slideshows stay gallery-dl's domain).
-  if (added === 0 && mode !== "photos") {
+  if (added === 0 && !timedOut && mode !== "photos") {
     const ytArchive = path.join(dir, ".yt-dlp-archive.txt");
     const ytArgs = [
       url,
@@ -229,7 +246,7 @@ function downloadProfile(localHandle, ttUsername) {
     try {
       execFileSync(YT_DLP, ytArgs, {
         stdio: ["ignore", "ignore", "pipe"],
-        timeout: 10 * 60 * 1000,
+        timeout: TIMEOUT_MS,
         env: RUN_ENV,
         encoding: "utf8",
         maxBuffer: 16 * 1024 * 1024,
@@ -237,7 +254,13 @@ function downloadProfile(localHandle, ttUsername) {
     } catch (err) {
       // yt-dlp exits non-zero on --max-downloads; only record if nothing landed.
       const stderr = `${err.stderr || ""}\n${err.message || ""}`;
-      if (!/max-downloads/i.test(stderr)) {
+      if (err.code === "ETIMEDOUT" || err.signal) {
+        timedOut = true;
+        lastErr =
+          err.code === "ETIMEDOUT"
+            ? `yt-dlp timed out after ${Math.round(TIMEOUT_MS / 60000)} min (partial catalogue)`
+            : `yt-dlp killed by ${err.signal} (partial catalogue)`;
+      } else if (!/max-downloads/i.test(stderr)) {
         const m = stderr.match(/ERROR:[^\n]*/i);
         if (m) lastErr = m[0].slice(0, 300);
       }
@@ -246,7 +269,11 @@ function downloadProfile(localHandle, ttUsername) {
     added = Math.max(0, after - before);
   }
 
-  return { added, error: added > 0 ? null : lastErr };
+  // "Files landed, so the run was fine" holds for a per-item error and NOT for a
+  // kill: a truncated catalogue has to reach the log and profile_extras, or it
+  // reads exactly like an account with nothing new — the same silence a
+  // rate-limited TikTok produces.
+  return { added, error: timedOut || added === 0 ? lastErr : null };
 }
 
 // --- Main ------------------------------------------------------------------
