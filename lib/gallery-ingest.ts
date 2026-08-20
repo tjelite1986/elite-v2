@@ -7,6 +7,8 @@ import { blurhashFromFile } from "./blurhash-encode";
 import { parseFilenameDate } from "./filename-date";
 import {
   isSupportedImage,
+  assertRealImage,
+  assertRealVideo,
   isSupportedVideo,
   isHeifBuffer,
   heicToJpeg,
@@ -50,6 +52,7 @@ export async function ingestImage(
   fallbackMs: number | null = null
 ): Promise<number | null> {
   if (!isSupportedImage(filename, mime)) return null;
+  assertRealImage(buffer, filename);
 
   const heic = isHeifBuffer(buffer);
   const processBuffer = heic ? heicToJpeg(buffer) : buffer;
@@ -95,6 +98,10 @@ export async function ingestVideo(
   fallbackMs: number | null = null
 ): Promise<number | null> {
   if (!isSupportedVideo(filename, mime)) return null;
+  // The name and the claimed mime are the source's claims; verify the bytes
+  // before anything is copied, so an error page or login wall served as
+  // "clip.mp4" is refused instead of stored as a broken item.
+  assertRealVideo(source, filename);
 
   // ffprobe/ffmpeg need a file path, and we must know taken_at (which decides
   // the originals/<yyyy>/<mm> folder) before planning the final path — so probe

@@ -122,37 +122,79 @@ export function sniffVideoContainer(head: Buffer): string | null {
   return null;
 }
 
+// Image signatures, for the gallery side where an ingest may legitimately be a
+// picture. AVIF/HEIC/HEIF are ISO-BMFF containers like mp4, so they lead with
+// "ftyp" and are covered by the box-type check rather than a magic of their own.
+export function sniffImageContainer(head: Buffer): string | null {
+  if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) {
+    return "jpeg";
+  }
+  if (
+    head.length >= 8 &&
+    head[0] === 0x89 &&
+    head.toString("latin1", 1, 4) === "PNG" &&
+    head[4] === 0x0d &&
+    head[5] === 0x0a &&
+    head[6] === 0x1a &&
+    head[7] === 0x0a
+  ) {
+    return "png";
+  }
+  // "GIF8" covers both 87a and 89a.
+  if (head.length >= 4 && head.toString("latin1", 0, 4) === "GIF8") return "gif";
+  if (
+    head.length >= 12 &&
+    head.toString("latin1", 0, 4) === "RIFF" &&
+    head.toString("latin1", 8, 12) === "WEBP"
+  ) {
+    return "webp";
+  }
+  if (head.length >= 12 && head.toString("latin1", 4, 8) === "ftyp") {
+    return "iso-bmff"; // avif / heic / heif
+  }
+  return null;
+}
+
 // Name what we got instead, so the failure reads as "the source fobbed us off
 // with a login page" rather than a generic rejection.
-function describeNonVideo(head: Buffer): string {
+function describeNonMedia(head: Buffer): string {
   const text = head.toString("latin1").trimStart().toLowerCase();
   if (text.startsWith("<!doctype") || text.startsWith("<html") || text.startsWith("<?xml")) {
     return "an HTML page (usually a login wall, captcha or error page served instead of the file)";
   }
   if (text.startsWith("{") || text.startsWith("[")) return "a JSON response";
   if (head.length === 0) return "an empty file";
-  return "no recognised video container signature";
+  return "no recognised container signature";
+}
+
+// Read just the leading bytes, from a Buffer or without slurping a multi-GB file.
+function readHead(source: Buffer | string): Buffer {
+  if (typeof source !== "string") return source.subarray(0, MAGIC_BYTES);
+  const fd = fs.openSync(source, "r");
+  try {
+    const buf = Buffer.alloc(MAGIC_BYTES);
+    const read = fs.readSync(fd, buf, 0, MAGIC_BYTES, 0);
+    return buf.subarray(0, read);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 // Throws unless the first bytes really are a video container. Accepts the same
 // Buffer-or-path source shape as the storage helpers so it can run BEFORE the
 // bytes are copied into place.
 export function assertRealVideo(source: Buffer | string, filename: string): void {
-  let head: Buffer;
-  if (typeof source === "string") {
-    const fd = fs.openSync(source, "r");
-    try {
-      const buf = Buffer.alloc(MAGIC_BYTES);
-      const read = fs.readSync(fd, buf, 0, MAGIC_BYTES, 0);
-      head = buf.subarray(0, read);
-    } finally {
-      fs.closeSync(fd);
-    }
-  } else {
-    head = source.subarray(0, MAGIC_BYTES);
-  }
+  const head = readHead(source);
   if (!sniffVideoContainer(head)) {
-    throw new Error(`${filename} is not a video file — got ${describeNonVideo(head)}`);
+    throw new Error(`${filename} is not a video file — got ${describeNonMedia(head)}`);
+  }
+}
+
+// Same guard for the image side of the gallery.
+export function assertRealImage(source: Buffer | string, filename: string): void {
+  const head = readHead(source);
+  if (!sniffImageContainer(head)) {
+    throw new Error(`${filename} is not an image file — got ${describeNonMedia(head)}`);
   }
 }
 
