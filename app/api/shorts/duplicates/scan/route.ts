@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { getSession } from "@/lib/auth";
 import { hasShortsPermission } from "@/lib/permissions";
+import { has18Access } from "@/lib/shorts-gate";
 import { db } from "@/lib/db";
 import { getDupeState } from "@/lib/shorts-duplicates";
 
@@ -28,9 +29,13 @@ export async function POST() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  // The scan covers both channels, so it needs both section permissions.
+  // The scan covers both channels, so it needs both section permissions —
+  // plus the caller's own 18+ PIN, since that's a separate question from role.
   if (!hasShortsPermission(session)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!(await has18Access())) {
+    return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
 
   const state = getDupeState();

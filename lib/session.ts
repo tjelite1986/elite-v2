@@ -43,6 +43,10 @@ export async function verifySessionToken(
 ): Promise<SessionPayload | null> {
   try {
     const { payload } = await jwtVerify(token, getSecret());
+    // The 18+ gate token is signed with the same JWT_SECRET but carries only
+    // `{ scope: "shorts18" }` — no sub/email/role. Reject it here explicitly
+    // rather than let it fall through as a structurally-valid session.
+    if (payload.scope) return null;
     const result: SessionPayload = {
       sub: String(payload.sub),
       email: String(payload.email),

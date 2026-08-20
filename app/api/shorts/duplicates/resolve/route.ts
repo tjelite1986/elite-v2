@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { hasShortsPermission } from "@/lib/permissions";
+import { has18Access } from "@/lib/shorts-gate";
 import { deleteDuplicates } from "@/lib/shorts-duplicates";
 
 export const dynamic = "force-dynamic";
@@ -13,9 +14,13 @@ export async function POST(request: Request) {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  // Selected group ids may span both channels, so require both permissions.
+  // Selected group ids may span both channels, so require both permissions —
+  // plus the caller's own 18+ PIN, since role and PIN-unlock are independent.
   if (!hasShortsPermission(session)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if (!(await has18Access())) {
+    return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
 
   const body = await request.json().catch(() => ({}));

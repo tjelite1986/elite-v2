@@ -5,6 +5,7 @@ import type { VideoRow } from "./db";
 import { artworkStem, posterFilePath, videoFilePath } from "./videos-storage";
 import { findLocalPoster, readNfo, type NfoData } from "./video-nfo";
 import { safeHttpUrl } from "./safe-url";
+import { assertPublicUrl } from "./link-preview";
 import {
   backfillPerformerLinks,
   enrichPendingPerformers,
@@ -114,6 +115,7 @@ async function downloadPoster(
   const name = `${artworkStem(row.channel, row.storage_key)}_meta.jpg`;
   const dest = posterFilePath(name);
   try {
+    await assertPublicUrl(new URL(url));
     const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) return null;
     const type = res.headers.get("content-type") || "";

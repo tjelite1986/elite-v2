@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { assertDownloadableUrl } from "@/lib/shorts-download";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   const url = new URL(req.url).searchParams.get("url") || "";
+  // SSRF guard: only pass on public http(s) URLs (the host must not resolve
+  // to a private/loopback address) before GRABBIT fetches them.
+  try {
+    await assertDownloadableUrl(url);
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : "Invalid URL." },
+      { status: 400 }
+    );
+  }
   try {
     const r = await fetch(`${GRABBIT}/api/resolve?url=${encodeURIComponent(url)}`, { headers: GRABBIT_HEADERS });
     // The status is deliberately not forwarded: Cloudflare replaces a 5xx
