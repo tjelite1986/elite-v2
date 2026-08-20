@@ -82,6 +82,80 @@ export function isSupportedVideo(filename: string, mime: string): boolean {
   return VIDEO_EXTS.has(ext) || mime.startsWith("video/");
 }
 
+// --- Content sniffing -------------------------------------------------------
+// The extension and the claimed MIME type are both CLAIMS from the source, so
+// isSupportedVideo() alone cannot tell a video from a web page. A download that
+// hits a login wall, a captcha or an error page comes back as HTML with HTTP 200
+// and gets written under whatever filename was asked for: that is how a 311 KB
+// Facebook checkpoint page once became short #1336, wearing a .mp4 name and a
+// video/mp4 mime, and only surfaced hours later as a transcoder failure.
+// Sniffing the container signature catches it at the door instead.
+const MAGIC_BYTES = 16;
+
+// ISO base media / QuickTime files normally lead with "ftyp", but a leading
+// free/skip/wide/pnot atom or a bare moov/mdat is legal too (older .mov files
+// especially), so accept the whole box-type family rather than ftyp alone.
+const ISO_BOX_TYPES = new Set(["ftyp", "moov", "mdat", "free", "skip", "wide", "pnot"]);
+
+// Returns the detected container name, or null if the bytes are not video.
+export function sniffVideoContainer(head: Buffer): string | null {
+  if (head.length >= 12 && ISO_BOX_TYPES.has(head.toString("latin1", 4, 8))) {
+    return "iso-bmff"; // mp4 / m4v / mov / 3gp
+  }
+  // EBML header -> Matroska / WebM
+  if (
+    head.length >= 4 &&
+    head[0] === 0x1a &&
+    head[1] === 0x45 &&
+    head[2] === 0xdf &&
+    head[3] === 0xa3
+  ) {
+    return "matroska";
+  }
+  if (
+    head.length >= 12 &&
+    head.toString("latin1", 0, 4) === "RIFF" &&
+    head.toString("latin1", 8, 12) === "AVI "
+  ) {
+    return "avi";
+  }
+  return null;
+}
+
+// Name what we got instead, so the failure reads as "the source fobbed us off
+// with a login page" rather than a generic rejection.
+function describeNonVideo(head: Buffer): string {
+  const text = head.toString("latin1").trimStart().toLowerCase();
+  if (text.startsWith("<!doctype") || text.startsWith("<html") || text.startsWith("<?xml")) {
+    return "an HTML page (usually a login wall, captcha or error page served instead of the file)";
+  }
+  if (text.startsWith("{") || text.startsWith("[")) return "a JSON response";
+  if (head.length === 0) return "an empty file";
+  return "no recognised video container signature";
+}
+
+// Throws unless the first bytes really are a video container. Accepts the same
+// Buffer-or-path source shape as the storage helpers so it can run BEFORE the
+// bytes are copied into place.
+export function assertRealVideo(source: Buffer | string, filename: string): void {
+  let head: Buffer;
+  if (typeof source === "string") {
+    const fd = fs.openSync(source, "r");
+    try {
+      const buf = Buffer.alloc(MAGIC_BYTES);
+      const read = fs.readSync(fd, buf, 0, MAGIC_BYTES, 0);
+      head = buf.subarray(0, read);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } else {
+    head = source.subarray(0, MAGIC_BYTES);
+  }
+  if (!sniffVideoContainer(head)) {
+    throw new Error(`${filename} is not a video file — got ${describeNonVideo(head)}`);
+  }
+}
+
 // Best-effort content type from extension, used when the source didn't supply
 // one (e.g. the folder importer passes an empty mime).
 export function videoMimeFor(filename: string): string {

@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
 import {
+  assertRealVideo,
   extractVideoPoster,
   isSupportedVideo,
   readVideoMeta,
@@ -201,6 +202,11 @@ export async function storeShortUpload(
   if (!isSupportedVideo(filename, mime)) {
     throw new Error("Unsupported file type — videos only");
   }
+  // isSupportedVideo() only trusts the name and the claimed mime; verify the
+  // bytes before anything is written, so a login wall or error page served as
+  // "clip.mp4" is refused at the door instead of becoming a stored file plus a
+  // shorts row that only fails later in the transcoder.
+  assertRealVideo(source, filename);
 
   // Per-user channel section: main -> "shorts", 18+ -> "shorts18".
   const section = channel === "18plus" ? "shorts18" : "shorts";
