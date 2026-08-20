@@ -305,6 +305,19 @@ export function previewPathFor(userId: number, storageKey: string): string {
   return fs.existsSync(legacy) ? legacy : p;
 }
 
+// Guard against path traversal: a resolved gallery media path must stay inside
+// one of the two roots the resolvers above can return (per-user PROFILE_ROOT or
+// the legacy central STORAGE_ROOT). storageKey comes from the DB, which in turn
+// is fed by uploads/imports, so it is never trusted blindly. Mirrors
+// isUnderChannel in videos-storage.ts / isUnderShortsRoot in shorts-storage.ts.
+export function isUnderGalleryRoot(filePath: string): boolean {
+  const resolved = path.resolve(filePath);
+  for (const root of [path.resolve(STORAGE_ROOT), path.resolve(PROFILE_ROOT)]) {
+    if (resolved === root || resolved.startsWith(root + path.sep)) return true;
+  }
+  return false;
+}
+
 export interface ExifMeta {
   takenAt: Date | null;
   latitude: number | null;

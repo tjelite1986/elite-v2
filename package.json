@@ -26,7 +26,7 @@
     "kysely": "^0.29.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.577.0",
-    "next": "^15.5.20",
+    "next": "^15.5.23",
     "nodemailer": "^9.0.3",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.2.7",

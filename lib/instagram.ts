@@ -529,9 +529,12 @@ async function downloadToBuffer(url: string): Promise<Buffer | null> {
   const safe = safeHttpUrl(url);
   if (!safe) return null;
   try {
+    // --max-redirs 0: safeHttpUrl only validates the initial URL, so a 3xx
+    // response pointing at a private address must not be followed (curl
+    // errors out instead, same as any other fetch failure below).
     const { stdout } = await execFileAsync(
       "curl",
-      ["-s", "-L", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
+      ["-s", "-L", "--max-redirs", "0", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
       { maxBuffer: 32 * 1024 * 1024, timeout: 25_000, encoding: "buffer" }
     );
     return stdout;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, secretMatches } from "@/lib/auth";
 import {
   requeueTranscode,
   startTranscodeOne,
@@ -13,10 +13,13 @@ export const dynamic = "force-dynamic";
 
 // Queue state: what is left, whether a run is going, and how the last one ended.
 // This is what the UI and the scheduler poll — the POST below returns as soon as
-// the work is started, never when it finishes.
+// the work is started, never when it finishes. Same admin-or-cron gate as POST:
+// the state isn't sensitive, but every other route in this queue self-gates.
 export async function GET(request: Request) {
   const session = await getSession();
-  if (!session) {
+  const secret = process.env.IMPORT_CRON_SECRET;
+  const isCron = secretMatches(request.headers.get("x-import-secret"), secret);
+  if (session?.role !== "admin" && !isCron) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const url = new URL(request.url);
@@ -24,7 +27,7 @@ export async function GET(request: Request) {
   // ?list=1 also returns the queue itself, so a human can pick one file to
   // convert instead of starting hours of encoding for the whole backlog.
   if (url.searchParams.get("list") === "1") {
-    if (session.role !== "admin") {
+    if (session?.role !== "admin") {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     return NextResponse.json({
@@ -47,8 +50,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await getSession();
   const secret = process.env.IMPORT_CRON_SECRET;
-  const isCron =
-    Boolean(secret) && request.headers.get("x-import-secret") === secret;
+  const isCron = secretMatches(request.headers.get("x-import-secret"), secret);
   if (session?.role !== "admin" && !isCron) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

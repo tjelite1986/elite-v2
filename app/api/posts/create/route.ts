@@ -12,6 +12,7 @@ import {
 } from "@/lib/posts-storage";
 import { userHomeDir } from "@/lib/shorts-storage";
 import { uploadStem } from "@/lib/import-naming";
+import { has18Access } from "@/lib/shorts-gate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -37,6 +38,9 @@ export async function POST(request: Request) {
 
   const caption = (form.get("caption")?.toString() ?? "").trim().slice(0, 2200) || null;
   const isAdult = form.get("is_adult") === "1" ? 1 : 0;
+  if (isAdult && !(await has18Access())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const files = form.getAll("files").filter((f): f is File => f instanceof File);
 
   if (files.length === 0) {

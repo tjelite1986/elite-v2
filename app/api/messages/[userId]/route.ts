@@ -58,6 +58,6 @@ export async function GET(_request: Request, props: { params: Promise<{ userId: 
 
   return NextResponse.json({
     messages: withMeta,
-    other: { id: other.id, email: other.email },
+    other: { id: other.id },
   });
 }
