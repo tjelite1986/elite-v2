@@ -93,9 +93,16 @@ export async function GET(request: Request) {
       members: group.members
         .map((id) => details.get(id))
         .filter((m): m is MemberDetail => Boolean(m) && visible(m!.channel))
-        // Biggest first: within a duplicate group the largest file is usually
-        // the one worth keeping.
-        .sort((a, b) => (b.size_bytes ?? 0) - (a.size_bytes ?? 0)),
+        // Best first, and the review UI keeps whatever lands first: resolution
+        // decides, because a re-encode at the same pixel count can be the
+        // bigger file while a downscale is never the better copy. File size
+        // only breaks ties (equal resolution, or dimensions we never probed).
+        .sort((a, b) => {
+          const pa = (a.width ?? 0) * (a.height ?? 0);
+          const pb = (b.width ?? 0) * (b.height ?? 0);
+          if (pa !== pb) return pb - pa;
+          return (b.size_bytes ?? 0) - (a.size_bytes ?? 0);
+        }),
     }))
     .filter((g) => g.members.length > 1);
 

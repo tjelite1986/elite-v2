@@ -86,8 +86,9 @@ function fmtAdded(iso: string): string {
 
 const groupKeyOf = (g: Group) => g.members.map((m) => m.id).join("-");
 
-// Redundant copies across every listed group — the biggest file of each group
-// is the keeper, so everything after the first counts.
+// Redundant copies across every listed group — the best copy of each group
+// (highest resolution, file size breaking ties) sorts first and is the keeper,
+// so everything after the first counts.
 const discardableCount = (groups: Group[]) =>
   groups.reduce((n, g) => n + Math.max(0, g.members.length - 1), 0);
 
@@ -156,8 +157,9 @@ export default function MediaFingerprintDuplicates({
     setPreview(null);
   }, [kind]);
 
-  // The first member is the biggest file — the suggested keeper — so it cannot
-  // be ticked. Everything else is the reviewer's call.
+  // The first member is the best copy — highest resolution, file size breaking
+  // ties — so the suggested keeper cannot be ticked. Everything else is the
+  // reviewer's call.
   const toggle = (key: string, id: number, isBest: boolean) => {
     if (isBest) return;
     setSelected((prev) => {
@@ -237,7 +239,7 @@ export default function MediaFingerprintDuplicates({
     }
   };
 
-  // One-click cleanup: keep the biggest file in every group and delete the rest.
+  // One-click cleanup: keep the best copy of every group and delete the rest.
   // The delete endpoint validates one group at a time (it must see the whole
   // group to refuse wiping it), so this walks the groups in sequence.
   const discardAll = async () => {
@@ -248,8 +250,8 @@ export default function MediaFingerprintDuplicates({
       title: `Discard ${total} duplicate file${total === 1 ? "" : "s"}?`,
       message:
         kind === "short"
-          ? "The biggest copy in each group is kept; the rest and their posters are removed from disk. This cannot be undone."
-          : "The biggest copy in each group is kept; the rest are removed from disk. This cannot be undone.",
+          ? "The highest-resolution copy in each group is kept; the rest and their posters are removed from disk. This cannot be undone."
+          : "The highest-resolution copy in each group is kept; the rest are removed from disk. This cannot be undone.",
       confirmLabel: "Discard all",
     });
     if (!ok) return;
@@ -427,8 +429,8 @@ export default function MediaFingerprintDuplicates({
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-xs text-white/45">
-              {groups.length} group{groups.length === 1 ? "" : "s"} · the biggest
-              file in each is kept
+              {groups.length} group{groups.length === 1 ? "" : "s"} · the
+              highest-resolution copy in each is kept
             </p>
             {discardableCount(groups) > 0 && (
               <button
