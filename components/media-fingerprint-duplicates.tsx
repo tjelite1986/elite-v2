@@ -86,6 +86,11 @@ function fmtAdded(iso: string): string {
 
 const groupKeyOf = (g: Group) => g.members.map((m) => m.id).join("-");
 
+// Redundant copies across every listed group — the biggest file of each group
+// is the keeper, so everything after the first counts.
+const discardableCount = (groups: Group[]) =>
+  groups.reduce((n, g) => n + Math.max(0, g.members.length - 1), 0);
+
 // Duplicate review based on whole-clip fingerprints. Complements the existing
 // exact/per-frame scan: this one catches the same clip re-encoded, rescaled or
 // watermarked, because it compares how the video progresses rather than how any
@@ -107,6 +112,10 @@ export default function MediaFingerprintDuplicates({
   // Ticked for deletion, keyed by group.
   const [selected, setSelected] = useState<Record<string, Set<number>>>({});
   const [busyGroup, setBusyGroup] = useState<string | null>(null);
+  // "Discard all" runs one request per group, so it needs its own busy flag and
+  // a progress line separate from the per-group state.
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ groupKey: string } | null>(null);
   const [confirmDialog, confirmAsk] = useConfirm();
 
@@ -228,6 +237,66 @@ export default function MediaFingerprintDuplicates({
     }
   };
 
+  // One-click cleanup: keep the biggest file in every group and delete the rest.
+  // The delete endpoint validates one group at a time (it must see the whole
+  // group to refuse wiping it), so this walks the groups in sequence.
+  const discardAll = async () => {
+    const list = groups ?? [];
+    const total = discardableCount(list);
+    if (total === 0 || bulkBusy) return;
+    const ok = await confirmAsk({
+      title: `Discard ${total} duplicate file${total === 1 ? "" : "s"}?`,
+      message:
+        kind === "short"
+          ? "The biggest copy in each group is kept; the rest and their posters are removed from disk. This cannot be undone."
+          : "The biggest copy in each group is kept; the rest are removed from disk. This cannot be undone.",
+      confirmLabel: "Discard all",
+    });
+    if (!ok) return;
+
+    setBulkBusy(true);
+    setError(null);
+    setBulkMsg(null);
+    let deleted = 0;
+    let failure: string | null = null;
+    try {
+      for (const group of list) {
+        const ids = group.members.slice(1).map((m) => m.id);
+        if (ids.length === 0) continue;
+        const res = await fetch("/api/media/duplicates", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kind,
+            ids,
+            groupMembers: group.members.map((m) => m.id),
+          }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok || !d.ok) {
+          failure = d.message || d.error || "Could not delete.";
+          break;
+        }
+        deleted += d.deleted ?? 0;
+        setBulkMsg(`Discarding… ${deleted}/${total}`);
+      }
+    } catch {
+      failure = "Could not delete.";
+    }
+    if (failure) {
+      setError(`${failure} ${deleted} file(s) were deleted before the error.`);
+      setBulkMsg(null);
+    } else {
+      setBulkMsg(
+        `Discarded ${deleted} duplicate file${deleted === 1 ? "" : "s"}.`
+      );
+    }
+    setSelected({});
+    setPreview(null);
+    await loadGroups();
+    setBulkBusy(false);
+  };
+
   // "Not a duplicate": records the human judgement so the pair stops being
   // offered on every future scan.
   const dismiss = async (group: Group) => {
@@ -345,6 +414,7 @@ export default function MediaFingerprintDuplicates({
       )}
 
       {error && <p className="mb-2 text-xs text-rose-400">{error}</p>}
+      {bulkMsg && <p className="mb-2 text-xs text-white/60">{bulkMsg}</p>}
 
       {groups && groups.length === 0 && (
         <p className="text-xs text-white/40">
@@ -355,15 +425,31 @@ export default function MediaFingerprintDuplicates({
 
       {groups && groups.length > 0 && (
         <div className="space-y-4">
-          <p className="text-xs text-white/45">
-            {groups.length} group{groups.length === 1 ? "" : "s"} · the biggest
-            file in each is kept
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs text-white/45">
+              {groups.length} group{groups.length === 1 ? "" : "s"} · the biggest
+              file in each is kept
+            </p>
+            {discardableCount(groups) > 0 && (
+              <button
+                onClick={discardAll}
+                disabled={bulkBusy || busyGroup !== null}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-rose-400/50 px-3.5 py-1.5 text-xs font-semibold text-rose-200 transition hover:bg-rose-500/15 disabled:opacity-50"
+              >
+                {bulkBusy ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                Discard all duplicates ({discardableCount(groups)})
+              </button>
+            )}
+          </div>
 
           {groups.map((group) => {
             const key = groupKeyOf(group);
             const picked = selected[key] ?? new Set<number>();
-            const busy = busyGroup === key;
+            const busy = busyGroup === key || bulkBusy;
 
             return (
               <div

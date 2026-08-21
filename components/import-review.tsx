@@ -58,13 +58,24 @@ export default function ImportReview() {
   };
 
   const exactCount = items.filter((it) => it.match_type !== "similar").length;
+  const similarCount = items.length - exactCount;
 
-  const discardAllExact = async () => {
+  // Bulk decision. "exact" only touches byte-identical copies; "all" throws
+  // away the similar matches too, which is a judgement call — a "similar" can
+  // be a different photo from the same shoot — so it confirms separately.
+  const discardAll = async (scope: "exact" | "all") => {
     if (bulkBusy) return;
+    const count = scope === "exact" ? exactCount : items.length;
     if (
       !(await confirmAsk({
-        title: "Discard all exact copies?",
-        message: `${exactCount} parked file(s) that are byte-identical to already imported posts will be deleted. Similar matches are kept for manual review.`,
+        title:
+          scope === "exact"
+            ? "Discard all exact copies?"
+            : "Discard all parked duplicates?",
+        message:
+          scope === "exact"
+            ? `${exactCount} parked file(s) that are byte-identical to already imported posts will be deleted. Similar matches are kept for manual review.`
+            : `${count} parked file(s) will be deleted, including ${similarCount} similar match(es) that are not byte-identical. Nothing is imported and this cannot be undone.`,
         confirmLabel: "Discard all",
       }))
     )
@@ -75,11 +86,16 @@ export default function ImportReview() {
       const res = await fetch("/api/import/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "discard", scope: "exact" }),
+        body: JSON.stringify({ action: "discard", scope }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || "Could not discard the exact copies.");
+        setError(
+          data.error ||
+            (scope === "exact"
+              ? "Could not discard the exact copies."
+              : "Could not discard the parked duplicates.")
+        );
       }
       await load();
     } finally {
@@ -99,20 +115,36 @@ export default function ImportReview() {
         These drop files matched an image the creator already has, so they were
         parked instead of deleted. Compare and decide.
       </p>
-      {exactCount > 0 && (
-        <button
-          onClick={discardAllExact}
-          disabled={bulkBusy}
-          className="mb-4 flex items-center gap-1.5 rounded-full bg-red-600/80 px-4 py-1.5 text-xs font-semibold transition hover:bg-red-500 disabled:opacity-50"
-        >
-          {bulkBusy ? (
-            <Loader2 size={13} className="animate-spin" />
-          ) : (
-            <Trash2 size={13} />
-          )}
-          Discard all exact copies ({exactCount})
-        </button>
-      )}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {exactCount > 0 && (
+          <button
+            onClick={() => discardAll("exact")}
+            disabled={bulkBusy}
+            className="flex items-center gap-1.5 rounded-full bg-red-600/80 px-4 py-1.5 text-xs font-semibold transition hover:bg-red-500 disabled:opacity-50"
+          >
+            {bulkBusy ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Trash2 size={13} />
+            )}
+            Discard all exact copies ({exactCount})
+          </button>
+        )}
+        {similarCount > 0 && (
+          <button
+            onClick={() => discardAll("all")}
+            disabled={bulkBusy}
+            className="flex items-center gap-1.5 rounded-full border border-red-500/50 px-4 py-1.5 text-xs font-semibold text-red-200 transition hover:bg-red-500/15 disabled:opacity-50"
+          >
+            {bulkBusy ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <Trash2 size={13} />
+            )}
+            Discard all duplicates ({items.length})
+          </button>
+        )}
+      </div>
 
       <div className="space-y-4">
         {items.map((it) => (

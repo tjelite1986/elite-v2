@@ -54,8 +54,9 @@ export async function GET() {
 
 // Decide a parked duplicate: import anyway, or discard the file. With
 // { action: "discard", scope: "exact" } every exact-copy item the requester
-// can see is discarded in one call (similar matches always stay for a manual
-// look — a "similar" can be a different photo from the same shoot).
+// can see is discarded in one call, and { scope: "all" } does the same for
+// every parked item including the "similar" ones (a "similar" can be a
+// different photo from the same shoot, so that scope is a deliberate choice).
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
@@ -69,15 +70,16 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const action = body?.action;
 
-  if (action === "discard" && body?.scope === "exact") {
+  const scope = body?.scope;
+  if (action === "discard" && (scope === "exact" || scope === "all")) {
+    let q = qb.selectFrom("import_review").select("id");
     // Rows from before the match_type column exist as NULL and are exact
     // matches too (the UI labels everything non-"similar" as exact copy).
-    let q = qb
-      .selectFrom("import_review")
-      .select("id")
-      .where((eb) =>
+    if (scope === "exact") {
+      q = q.where((eb) =>
         eb.or([eb("match_type", "is", null), eb("match_type", "!=", "similar")])
       );
+    }
     if (!requester.isAdmin) q = q.where("user_id", "=", requester.userId);
     const ids = getAll<{ id: number }>(q).map((r) => r.id);
     let discarded = 0;
@@ -85,7 +87,7 @@ export async function POST(request: Request) {
       const res = await decideImportReview(rid, requester, "discard");
       if (res.ok) discarded++;
     }
-    return NextResponse.json({ ok: true, discarded, total: ids.length });
+    return NextResponse.json({ ok: true, discarded, total: ids.length, scope });
   }
 
   const id = Number(body?.id);

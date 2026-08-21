@@ -70,6 +70,10 @@ function groupMinSimilarity(members: Member[]): number {
   return Math.min(...others.map((m) => m.similarity));
 }
 
+// How many images one "Discard all" request may delete; the sweep is chunked so
+// a library-wide cleanup never lands as a single oversized request.
+const DISCARD_CHUNK = 200;
+
 // Similarity filter thresholds for the review UI.
 const SIM_FILTERS = [
   { label: "All", min: 0 },
@@ -112,6 +116,11 @@ export default function PostsDuplicates() {
   const visibleIds = new Set<number>();
   for (const g of visibleGroups)
     for (const m of g.members) visibleIds.add(m.media_id);
+  // Every redundant copy in the visible groups — what "Discard all" removes,
+  // keeping the suggested best of each group.
+  const discardableIds: number[] = [];
+  for (const g of visibleGroups)
+    for (const m of g.members) if (!m.is_best) discardableIds.push(m.media_id);
 
   const load = useCallback(async () => {
     try {
@@ -228,6 +237,51 @@ export default function PostsDuplicates() {
     }
   };
 
+  // One-click cleanup: delete every non-best copy in every visible group. Sent
+  // in chunks so a library-wide sweep is not one huge request, and so progress
+  // is visible while it runs.
+  const discardAll = async () => {
+    const ids = discardableIds;
+    if (ids.length === 0) return;
+    const ok = await confirmAsk({
+      title: `Discard ${ids.length} duplicate image(s)?`,
+      message: `The best copy in each of the ${visibleGroups.length} group(s) shown is kept; every other copy is deleted from disk. This cannot be undone.`,
+      confirmLabel: "Discard all",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setMsg(null);
+    let deleted = 0;
+    let failure: string | null = null;
+    try {
+      for (let i = 0; i < ids.length; i += DISCARD_CHUNK) {
+        const chunk = ids.slice(i, i + DISCARD_CHUNK);
+        const res = await fetch("/api/posts/duplicates/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mediaIds: chunk }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          failure = d.error || "Delete failed.";
+          break;
+        }
+        deleted += d.deleted ?? 0;
+        setMsg(`Discarding… ${deleted}/${ids.length}`);
+      }
+    } catch {
+      failure = "Delete failed.";
+    }
+    setMsg(
+      failure
+        ? `${failure} ${deleted} image(s) were deleted before the error.`
+        : `Discarded ${deleted} duplicate image(s).`
+    );
+    await load();
+    router.refresh();
+    setBusy(false);
+  };
+
   // Dismiss a false-positive group so it never reappears in future scans.
   const ignoreGroup = async (g: Group) => {
     const ids = g.members.map((m) => m.media_id);
@@ -317,6 +371,17 @@ export default function PostsDuplicates() {
             className="flex w-fit items-center gap-2 rounded-full bg-rose-500/90 px-5 py-2.5 text-sm font-semibold transition active:scale-95 hover:bg-rose-500 disabled:opacity-50"
           >
             <Trash2 size={16} /> Delete {selectedCount} selected
+          </button>
+        )}
+
+        {discardableIds.length > 0 && (
+          <button
+            onClick={discardAll}
+            disabled={busy}
+            className="flex w-fit items-center gap-2 rounded-full border border-rose-400/50 px-5 py-2.5 text-sm font-semibold text-rose-200 transition active:scale-95 hover:bg-rose-500/15 disabled:opacity-50"
+          >
+            <Trash2 size={16} /> Discard all duplicates ({discardableIds.length}
+            )
           </button>
         )}
       </div>

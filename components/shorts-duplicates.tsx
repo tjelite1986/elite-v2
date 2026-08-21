@@ -71,6 +71,10 @@ function fmtAdded(s: string): string {
   return isNaN(d.getTime()) ? s.slice(0, 10) : d.toLocaleDateString("sv-SE");
 }
 
+// How many clips one "Discard all" request may delete; the sweep is chunked so
+// a library-wide cleanup never lands as a single oversized request.
+const DISCARD_CHUNK = 100;
+
 // Admin tool: scan the shorts library for byte-identical or perceptually
 // identical clips, then review each group and delete the redundant copies. The
 // highest-quality clip in a group is marked to keep and can't be deleted here.
@@ -199,6 +203,57 @@ export default function ShortsDuplicates({
     }
   };
 
+  // Every redundant copy across all groups — what "Discard all" removes,
+  // keeping the best clip of each group.
+  const discardableIds = groups.flatMap((g) =>
+    g.members.filter((m) => !m.is_best).map((m) => m.short_id)
+  );
+
+  // One-click cleanup: delete every non-best clip in every group. Sent in
+  // chunks so a library-wide sweep is not one huge request, and so progress is
+  // visible while it runs.
+  const discardAll = async () => {
+    const ids = discardableIds;
+    if (ids.length === 0) return;
+    const ok = await confirmAsk({
+      title: `Discard ${ids.length} duplicate clip(s)?`,
+      message: `The best copy in each of the ${groups.length} group(s) is kept; every other copy is deleted from disk. This cannot be undone.`,
+      confirmLabel: "Discard all",
+    });
+    if (!ok) return;
+    setBusy(true);
+    setMsg(null);
+    let deleted = 0;
+    let failure: string | null = null;
+    try {
+      for (let i = 0; i < ids.length; i += DISCARD_CHUNK) {
+        const chunk = ids.slice(i, i + DISCARD_CHUNK);
+        const res = await fetch("/api/shorts/duplicates/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shortIds: chunk }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          failure = d.error || "Delete failed.";
+          break;
+        }
+        deleted += d.deleted ?? 0;
+        setMsg(`Discarding… ${deleted}/${ids.length}`);
+      }
+    } catch {
+      failure = "Delete failed.";
+    }
+    setMsg(
+      failure
+        ? `${failure} ${deleted} clip(s) were deleted before the error.`
+        : `Discarded ${deleted} duplicate clip(s).`
+    );
+    await load();
+    router.refresh();
+    setBusy(false);
+  };
+
   const deleteSelected = async () => {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
@@ -268,6 +323,17 @@ export default function ShortsDuplicates({
             className="flex w-fit items-center gap-2 rounded-full bg-rose-500/90 px-5 py-2.5 text-sm font-semibold transition active:scale-95 hover:bg-rose-500 disabled:opacity-50"
           >
             <Trash2 size={16} /> Delete {selectedCount} selected
+          </button>
+        )}
+
+        {discardableIds.length > 0 && (
+          <button
+            onClick={discardAll}
+            disabled={busy}
+            className="flex w-fit items-center gap-2 rounded-full border border-rose-400/50 px-5 py-2.5 text-sm font-semibold text-rose-200 transition active:scale-95 hover:bg-rose-500/15 disabled:opacity-50"
+          >
+            <Trash2 size={16} /> Discard all duplicates ({discardableIds.length}
+            )
           </button>
         )}
       </div>
