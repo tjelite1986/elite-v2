@@ -8,6 +8,7 @@ import {
   transcodeState,
 } from "@/lib/videos";
 import { parseVideoChannel } from "@/lib/videos-storage";
+import { secretMatches } from "@/lib/cron-secret";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 // the work is started, never when it finishes.
 export async function GET(request: Request) {
   const session = await getSession();
-  if (!session) {
+  if (!session || session.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const url = new URL(request.url);
@@ -24,9 +25,6 @@ export async function GET(request: Request) {
   // ?list=1 also returns the queue itself, so a human can pick one file to
   // convert instead of starting hours of encoding for the whole backlog.
   if (url.searchParams.get("list") === "1") {
-    if (session.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     return NextResponse.json({
       ...transcodeState(scope ?? undefined),
       items: transcodeQueue(scope ?? undefined),
@@ -47,8 +45,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await getSession();
   const secret = process.env.IMPORT_CRON_SECRET;
-  const isCron =
-    Boolean(secret) && request.headers.get("x-import-secret") === secret;
+  const isCron = secretMatches(request.headers.get("x-import-secret"), secret);
   if (session?.role !== "admin" && !isCron) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { checkAll } from "@/lib/sources/updater";
+import { secretMatches } from "@/lib/cron-secret";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -8,7 +9,7 @@ export const maxDuration = 300;
 // Admin session OR the shared-secret header (so the host timer can call it).
 async function authorize(request: Request): Promise<boolean> {
   const secret = process.env.APP_UPDATE_SECRET;
-  if (secret && request.headers.get("x-app-update-secret") === secret) return true;
+  if (secretMatches(request.headers.get("x-app-update-secret"), secret)) return true;
   const session = await getSession();
   return !!session && session.role === "admin";
 }

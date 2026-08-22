@@ -531,7 +531,7 @@ async function downloadToBuffer(url: string): Promise<Buffer | null> {
   try {
     const { stdout } = await execFileAsync(
       "curl",
-      ["-s", "-L", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
+      ["-s", "--max-redirs", "0", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
       { maxBuffer: 32 * 1024 * 1024, timeout: 25_000, encoding: "buffer" }
     );
     return stdout;

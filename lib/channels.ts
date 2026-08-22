@@ -136,12 +136,14 @@ export function postMessage(
   replyTo: number | null = null
 ): ChannelMessage {
   // Only allow replying to a message in THIS channel (avoid cross-channel
-  // reply previews referencing unrelated messages).
+  // reply previews referencing unrelated messages), and not to one that's
+  // already been soft-deleted (the reply preview would render deleted
+  // content to recipients).
   if (
     replyTo !== null &&
     !db
       .prepare(
-        "SELECT 1 FROM channel_messages WHERE id = ? AND channel_id = ?"
+        "SELECT 1 FROM channel_messages WHERE id = ? AND channel_id = ? AND deleted_at IS NULL"
       )
       .get(replyTo, channelId)
   ) {

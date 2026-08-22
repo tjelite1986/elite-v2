@@ -40,6 +40,11 @@ export async function GET(
   if (!row) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  // Defense-in-depth, matching the public share route: file_rel is
+  // server-generated, but never let a stray "../" or absolute path escape.
+  if (row.file_rel.includes("..") || path.isAbsolute(row.file_rel)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   try {
     const buffer = fs.readFileSync(path.join(IMPORT_ROOT, row.file_rel));
