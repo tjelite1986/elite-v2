@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { has18Access } from "@/lib/shorts-gate";
 import { ensureUserProfile } from "@/lib/profiles";
 import { parseHashtags } from "@/lib/posts";
 import {
@@ -37,6 +38,12 @@ export async function POST(request: Request) {
 
   const caption = (form.get("caption")?.toString() ?? "").trim().slice(0, 2200) || null;
   const isAdult = form.get("is_adult") === "1" ? 1 : 0;
+  // The read paths (post + media routes) both gate adult content on
+  // has18Access() — the write path must too, or a locked-PIN user can create
+  // adult posts without ever proving they've unlocked the gate.
+  if (isAdult && !(await has18Access())) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const files = form.getAll("files").filter((f): f is File => f instanceof File);
 
   if (files.length === 0) {
