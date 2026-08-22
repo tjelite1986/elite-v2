@@ -3,6 +3,11 @@ import { getSession, getUserById } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { db } from "@/lib/db";
 import { createGateToken, GATE_COOKIE, gateCookieOptions } from "@/lib/shorts-gate";
+import {
+  loginLockRemainingSec,
+  recordLoginFailure,
+  clearLoginFailures,
+} from "@/lib/login-rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -11,27 +16,18 @@ export const dynamic = "force-dynamic";
 //   PUT    { pin, current? }  set or change (current required when changing)
 //   DELETE { current }        remove (current required)
 
-// Same in-memory throttle as the unlock route: a short PIN must not be
-// brute-forceable via the change/remove endpoints either.
-const MAX_ATTEMPTS = 5;
-const WINDOW_MS = 10 * 60 * 1000;
-const failures = new Map<string, { count: number; resetAt: number }>();
-
-function isLockedOut(userId: string): boolean {
-  const rec = failures.get(userId);
-  return !!rec && Date.now() <= rec.resetAt && rec.count >= MAX_ATTEMPTS;
+// Same DB-backed throttle as login and the unlock route (survives a restart):
+// a short PIN must not be brute-forceable via the change/remove endpoints
+// either. "pin:" keeps this namespace separate from login's email-keyed
+// identifiers.
+function pinThrottleId(userId: string): string {
+  return `pin:${userId}`;
 }
-function recordFailure(userId: string) {
-  const now = Date.now();
-  const rec = failures.get(userId);
-  if (!rec || now > rec.resetAt) {
-    failures.set(userId, { count: 1, resetAt: now + WINDOW_MS });
-  } else {
-    rec.count++;
-  }
-}
-const lockedOutResponse = () =>
-  NextResponse.json({ error: "Too many attempts. Try again later." }, { status: 429 });
+const lockedOutResponse = (lockedSec: number) =>
+  NextResponse.json(
+    { error: "Too many attempts. Try again later." },
+    { status: 429, headers: { "Retry-After": String(lockedSec) } }
+  );
 
 export async function PUT(request: Request) {
   const session = await getSession();
@@ -57,11 +53,14 @@ export async function PUT(request: Request) {
   }
   // Changing an existing PIN requires the current one.
   if (user.adult_pin_hash) {
-    if (isLockedOut(session.sub)) return lockedOutResponse();
+    const throttleId = pinThrottleId(session.sub);
+    const lockedSec = loginLockRemainingSec(throttleId);
+    if (lockedSec > 0) return lockedOutResponse(lockedSec);
     if (!verifyPassword(current, user.adult_pin_hash)) {
-      recordFailure(session.sub);
+      recordLoginFailure(throttleId);
       return NextResponse.json({ error: "Current PIN is incorrect." }, { status: 401 });
     }
+    clearLoginFailures(throttleId);
   }
 
   db.prepare("UPDATE users SET adult_pin_hash = ? WHERE id = ?").run(
@@ -91,11 +90,14 @@ export async function DELETE(request: Request) {
   } catch {
     /* ignore */
   }
-  if (isLockedOut(session.sub)) return lockedOutResponse();
+  const throttleId = pinThrottleId(session.sub);
+  const lockedSec = loginLockRemainingSec(throttleId);
+  if (lockedSec > 0) return lockedOutResponse(lockedSec);
   if (!verifyPassword(current, user.adult_pin_hash)) {
-    recordFailure(session.sub);
+    recordLoginFailure(throttleId);
     return NextResponse.json({ error: "Current PIN is incorrect." }, { status: 401 });
   }
+  clearLoginFailures(throttleId);
 
   db.prepare("UPDATE users SET adult_pin_hash = NULL WHERE id = ?").run(user.id);
   const res = NextResponse.json({ ok: true, hasPin: false });

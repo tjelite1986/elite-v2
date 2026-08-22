@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { runAppstoreImport } from "@/lib/appstore-import";
+import { secretMatches } from "@/lib/cron-secret";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -9,7 +10,7 @@ export const maxDuration = 300;
 // host timer can trigger a scan).
 async function authorize(request: Request): Promise<boolean> {
   const secret = process.env.IMPORT_CRON_SECRET;
-  if (secret && request.headers.get("x-import-secret") === secret) return true;
+  if (secretMatches(request.headers.get("x-import-secret"), secret)) return true;
   const session = await getSession();
   return !!session && session.role === "admin";
 }

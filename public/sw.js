@@ -66,8 +66,16 @@ async function serveFromMusicCache(req) {
   const match = /bytes=(\d*)-(\d*)/.exec(range);
   if (!match) return new Response(buffer, { status: 200, headers: hit.headers });
 
-  let start = match[1] ? Number(match[1]) : 0;
-  let end = match[2] ? Number(match[2]) : total - 1;
+  let start, end;
+  if (!match[1] && match[2]) {
+    // Suffix form (bytes=-N, RFC 7233 §2.1): the LAST N bytes — Safari sends
+    // this when seeking near the end of an offline-cached track.
+    start = Math.max(0, total - Number(match[2]));
+    end = total - 1;
+  } else {
+    start = match[1] ? Number(match[1]) : 0;
+    end = match[2] ? Number(match[2]) : total - 1;
+  }
   if (!Number.isFinite(start) || start < 0) start = 0;
   if (!Number.isFinite(end) || end >= total) end = total - 1;
   if (start > end) {

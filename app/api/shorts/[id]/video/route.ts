@@ -26,6 +26,11 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   if (!(await canAccessChannel(short.channel))) {
     return new NextResponse("Forbidden", { status: 403 });
   }
+  // Defense-in-depth, matching the public share route: storage_key is
+  // server-generated, but never let a stray "../" or absolute key escape.
+  if (short.storage_key.includes("..") || short.storage_key.startsWith("/")) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   const filePath = videoPathFor(short.channel, short.storage_key);
   if (!fs.existsSync(filePath)) {
