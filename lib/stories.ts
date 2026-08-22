@@ -30,13 +30,17 @@ interface StoryQueryRow {
 // Stories carry no per-row adult flag; the only adult-content author is the
 // seeded ADULTS_EMAIL account, so its stories are treated as 18+ and hidden
 // from viewers who haven't cleared the PIN gate (checked by the callers).
+// Cached after the first lookup — this can be called on every feed request
+// and the id doesn't change at runtime.
+let cachedAdultAuthorId: number | null | undefined;
 export function adultAuthorId(): number | null {
+  if (cachedAdultAuthorId !== undefined) return cachedAdultAuthorId;
   const email = process.env.ADULTS_EMAIL?.trim().toLowerCase();
-  if (!email) return null;
+  if (!email) return (cachedAdultAuthorId = null);
   const row = db
     .prepare("SELECT id FROM users WHERE lower(email) = ?")
     .get(email) as { id: number } | undefined;
-  return row ? Number(row.id) : null;
+  return (cachedAdultAuthorId = row ? Number(row.id) : null);
 }
 
 // Active (non-expired) stories from the viewer + the users they follow, grouped

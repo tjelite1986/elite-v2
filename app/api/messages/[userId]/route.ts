@@ -4,7 +4,12 @@ import { qb, getAll } from "@/lib/kysely";
 import { getSession, getUserById } from "@/lib/auth";
 import { reactionsForMessages, replyPreview } from "@/lib/message-actions";
 
-export async function GET(_request: Request, props: { params: Promise<{ userId: string }> }) {
+// Latest page of messages, newest-first LIMIT then reversed for display —
+// mirrors lib/channels.ts listMessages() so a long thread can't stall the
+// request or pin memory. `?before=<messageId>` pages backwards.
+const PAGE_SIZE = 200;
+
+export async function GET(request: Request, props: { params: Promise<{ userId: string }> }) {
   const params = await props.params;
   const session = await getSession();
   if (!session) {
@@ -18,13 +23,16 @@ export async function GET(_request: Request, props: { params: Promise<{ userId: 
     return NextResponse.json({ error: "User not found." }, { status: 404 });
   }
 
+  const beforeParam = new URL(request.url).searchParams.get("before");
+  const before = beforeParam ? Number(beforeParam) : null;
+
   // Mark messages from the other user to me as read.
   db.prepare(
     `UPDATE messages SET read_at = datetime('now')
      WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL`
   ).run(otherId, meId);
 
-  const messages = getAll<MessageRow>(
+  const rows = getAll<MessageRow>(
     qb
       .selectFrom("messages")
       .selectAll()
@@ -40,9 +48,15 @@ export async function GET(_request: Request, props: { params: Promise<{ userId: 
           ]),
         ])
       )
-      .orderBy("created_at")
-      .orderBy("id")
+      .$if(before !== null && Number.isFinite(before), (q) =>
+        q.where("id", "<", before as number)
+      )
+      .orderBy("id", "desc")
+      .limit(PAGE_SIZE + 1)
   );
+  const hasMore = rows.length > PAGE_SIZE;
+  if (hasMore) rows.length = PAGE_SIZE;
+  const messages = rows.reverse();
 
   // Attach reaction summaries + reply previews.
   const reactions = reactionsForMessages(
@@ -58,6 +72,7 @@ export async function GET(_request: Request, props: { params: Promise<{ userId: 
 
   return NextResponse.json({
     messages: withMeta,
-    other: { id: other.id, email: other.email },
+    other: { id: other.id },
+    has_more: hasMore,
   });
 }

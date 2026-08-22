@@ -54,7 +54,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
   const q = (searchParams.get("q") ?? "").trim();
-  const like = `%${q}%`;
+  // Escape LIKE wildcards in the query, matching lib/search.ts's likePattern().
+  const like = `%${q.replace(/[%_]/g, "")}%`;
 
   let rows: { id: number; title: string }[] = [];
   if (section === "gallery") {

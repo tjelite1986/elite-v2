@@ -313,12 +313,15 @@ export function getFeed(
       q.where("s.duration", "<=", SHORT_MAX_SECONDS)
     )
     .$if(length === "long", (q) => q.where("s.duration", ">", SHORT_MAX_SECONDS))
-    // Hashtag scope: caption contains "#tag". Matches the hashtag followed by a
-    // word boundary (a trailing space is appended so an end-of-caption tag also
-    // matches) so #cat doesn't also surface #caturday.
+    // Hashtag scope: caption contains "#tag". A trailing space is appended so an
+    // end-of-caption tag also matches, and the LIKE pattern requires a space
+    // right after the tag so #cat doesn't also surface #caturday. (GLOB's
+    // negated char class `[^a-z0-9_]` was ASCII-only and matched accented
+    // separators too, e.g. #cat also matching #catégorie.) `_` is a valid
+    // hashtag character but also a LIKE wildcard, so it's escaped like `%`.
     .$if(tag !== null, (q) =>
       q.where(
-        sql<boolean>`lower(s.caption) || ' ' GLOB ${"*#" + tag!.toLowerCase() + "[^a-z0-9_]*"}`
+        sql<boolean>`lower(s.caption) || ' ' LIKE ${"%#" + tag!.toLowerCase().replace(/[\\%_]/g, "\\$&") + " %"} ESCAPE '\\'`
       )
     )
     .$if(playlistId !== null, (q) =>
