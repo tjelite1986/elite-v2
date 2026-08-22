@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
@@ -41,17 +42,24 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const filePath = path.join(IMPORT_ROOT, row.file_rel);
+  if (!filePath.startsWith(IMPORT_ROOT + path.sep)) {
+    return NextResponse.json({ error: "File missing" }, { status: 404 });
+  }
+  let size: number;
   try {
-    const buffer = fs.readFileSync(path.join(IMPORT_ROOT, row.file_rel));
-    const ext = path.extname(row.file_rel).toLowerCase();
-    return new NextResponse(new Uint8Array(buffer), {
-      headers: {
-        "Content-Type": MIME[ext] ?? "application/octet-stream",
-        "Cache-Control": "private, max-age=300",
-        "X-Content-Type-Options": "nosniff",
-      },
-    });
+    size = fs.statSync(filePath).size;
   } catch {
     return NextResponse.json({ error: "File missing" }, { status: 404 });
   }
+  const ext = path.extname(row.file_rel).toLowerCase();
+  const stream = fs.createReadStream(filePath);
+  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+    headers: {
+      "Content-Type": MIME[ext] ?? "application/octet-stream",
+      "Content-Length": String(size),
+      "Cache-Control": "private, max-age=300",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
 }
