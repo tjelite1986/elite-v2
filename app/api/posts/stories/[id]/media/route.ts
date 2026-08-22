@@ -22,6 +22,7 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
 
   if (
     story.author_user_id !== viewerId &&
+    session.role !== "admin" &&
     !isFollowing(viewerId, "user", story.author_user_id)
   ) {
     return new NextResponse("Forbidden", { status: 403 });

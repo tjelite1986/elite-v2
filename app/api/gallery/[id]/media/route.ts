@@ -16,11 +16,12 @@ import { canViewItem } from "@/lib/gallery-share";
 
 export const dynamic = "force-dynamic";
 
-// Strip quotes and control characters (e.g. a stray \r\n) so a filename can
-// never break out of the Content-Disposition header value — Node throws
-// ERR_INVALID_CHAR on an unescaped control char, which would 500 the route.
+// Strip quotes, backslashes and control characters so a filename can never
+// break out of the Content-Disposition quoted-string (a trailing "\" shifts
+// the closing quote in some parsers) or, for a stray \r\n, throw Node's
+// ERR_INVALID_CHAR, which would 500 the route.
 function safeFilename(name: string): string {
-  return name.replace(/[\x00-\x1f\x7f"]/g, "_");
+  return name.replace(/[\x00-\x1f\x7f"\\]/g, "_");
 }
 
 // Serve a media variant. Viewable if the user owns the item, it was shared with

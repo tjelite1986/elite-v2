@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 // the work is started, never when it finishes.
 export async function GET(request: Request) {
   const session = await getSession();
-  if (!session) {
+  if (!session || session.role !== "admin") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const url = new URL(request.url);
@@ -25,9 +25,6 @@ export async function GET(request: Request) {
   // ?list=1 also returns the queue itself, so a human can pick one file to
   // convert instead of starting hours of encoding for the whole backlog.
   if (url.searchParams.get("list") === "1") {
-    if (session.role !== "admin") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
     return NextResponse.json({
       ...transcodeState(scope ?? undefined),
       items: transcodeQueue(scope ?? undefined),
