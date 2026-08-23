@@ -86,21 +86,32 @@ export const sessionCookieOptions = {
 };
 
 /**
- * Every scope the session cookie may exist in, for deleting it.
+ * `Set-Cookie` headers that clear the session cookie in every scope it can
+ * exist in.
  *
  * Deletion matches on domain as well as name and path, and widening the domain
  * did not replace anybody's existing cookie — it minted a second one beside it.
- * So a browser that was logged in before this change carries both, and a
- * logout that cleared only one would leave the other behind: still signed,
- * still sent, and read first, because a browser orders equal-path cookies
- * oldest first. The next login would then land in a loop against a cookie the
- * user cannot get rid of. Clear sites delete all of these.
+ * So a browser that was logged in before this change carries both, sends both,
+ * and puts the older host-only one first, because a browser orders equal-path
+ * cookies oldest first. Clearing only one leaves the other signed, sent, and
+ * read ahead of any fresh login.
+ *
+ * Written as headers rather than two `cookies().delete()` calls: the response
+ * cookie store is keyed by name, so the second call replaces the first and
+ * exactly one of the two scopes survives — silently, and in the wrong
+ * direction.
  */
-export function sessionCookieClearScopes(): {
-  name: string;
-  path: string;
-  domain?: string;
-}[] {
-  const base = { name: SESSION_COOKIE, path: "/" };
-  return COOKIE_DOMAIN ? [{ ...base, domain: COOKIE_DOMAIN }, base] : [base];
+export function sessionClearCookieHeaders(): string[] {
+  const flags = [
+    "Path=/",
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT",
+    "Max-Age=0",
+    "HttpOnly",
+    "SameSite=Lax",
+    ...(process.env.NODE_ENV === "production" ? ["Secure"] : []),
+  ].join("; ");
+  const hostOnly = `${SESSION_COOKIE}=; ${flags}`;
+  return COOKIE_DOMAIN
+    ? [`${SESSION_COOKIE}=; Domain=${COOKIE_DOMAIN}; ${flags}`, hostOnly]
+    : [hostOnly];
 }

@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { getSession, getUserById } from "@/lib/auth";
 import { verifyPassword } from "@/lib/password";
-import { sessionCookieClearScopes } from "@/lib/session";
+import { sessionClearCookieHeaders } from "@/lib/session";
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -87,7 +86,9 @@ export async function POST(request: Request) {
 
   deleteAccount();
 
-  const store = await cookies();
-  for (const scope of sessionCookieClearScopes()) store.delete(scope);
-  return NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true });
+  for (const header of sessionClearCookieHeaders()) {
+    res.headers.append("set-cookie", header);
+  }
+  return res;
 }
