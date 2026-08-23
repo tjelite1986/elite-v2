@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import {
+  SESSION_COOKIE,
+  sessionCookieClearOptions,
+  verifySessionToken,
+} from "@/lib/session";
 import { revokeSession } from "@/lib/sessions";
 
 export async function POST() {
@@ -10,6 +14,6 @@ export async function POST() {
     const session = await verifySessionToken(token);
     if (session?.jti) revokeSession(session.jti, Number(session.sub));
   }
-  (await cookies()).delete(SESSION_COOKIE);
+  (await cookies()).delete(sessionCookieClearOptions);
   return NextResponse.json({ ok: true });
 }
