@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { hasShortsPermission } from "@/lib/permissions";
+import { has18Access } from "@/lib/shorts-gate";
 import { parseChannel } from "@/lib/shorts";
 import {
   dismissDupeGroup,
@@ -21,6 +22,12 @@ export async function GET(request: Request) {
   const param = new URL(request.url).searchParams.get("channel");
   const channel = param ? parseChannel(param) : undefined;
   if (!hasShortsPermission(session, channel)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  // hasShortsPermission is role/permission-based, not the personal 18+ PIN —
+  // re-check has18Access() when 18+ groups are in scope (an explicit request
+  // for that channel, or no channel filter at all).
+  if (channel !== "main" && !(await has18Access())) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

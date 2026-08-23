@@ -308,21 +308,26 @@ export function deleteDuplicateMembers(
         skipped++;
         continue;
       }
-      deleteShortFiles(clip.channel, clip.storage_key, clip.poster_key);
-      // Soft delete, matching how the rest of the shorts library retires a
-      // clip — the row stays so re-imports can recognise it.
+      // Soft-delete FIRST, then unlink: the reverse order can lose the files
+      // to a crash between the two calls while the row stays visible and
+      // serveable with nothing on disk (matches the `97889f6` fix applied to
+      // every other shorts deletion path).
       db.prepare("UPDATE shorts SET is_deleted = 1 WHERE id = ?").run(id);
+      db.prepare(
+        "DELETE FROM media_fingerprints WHERE kind = ? AND media_id = ?"
+      ).run(kind, id);
+      deleteShortFiles(clip.channel, clip.storage_key, clip.poster_key);
       deleted++;
     } else {
       if (!deleteVideo(id, true)) {
         skipped++;
         continue;
       }
+      db.prepare(
+        "DELETE FROM media_fingerprints WHERE kind = ? AND media_id = ?"
+      ).run(kind, id);
       deleted++;
     }
-    db.prepare(
-      "DELETE FROM media_fingerprints WHERE kind = ? AND media_id = ?"
-    ).run(kind, id);
   }
 
   return {

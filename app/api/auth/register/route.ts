@@ -5,6 +5,11 @@ import { qb, getOne } from "@/lib/kysely";
 import { isCodeExpired } from "@/lib/codes";
 import { getUserByEmail } from "@/lib/auth";
 import { hashPassword } from "@/lib/password";
+import {
+  loginLockRemainingSec,
+  recordLoginFailure,
+  clearLoginFailures,
+} from "@/lib/login-rate-limit";
 import { ensureUserProfile } from "@/lib/profiles";
 import { ensureUserHome } from "@/lib/shorts-storage";
 import {
@@ -51,28 +56,46 @@ export async function POST(request: Request) {
   }
 
   const normalizedCode = String(code).trim().toUpperCase();
+  // Same DB-backed throttle as login, keyed to the submitted code so codes
+  // can't be probed at network speed. "reg:" keeps this namespace separate
+  // from login's email-keyed identifiers.
+  const throttleId = `reg:${normalizedCode}`;
+  const lockedSec = loginLockRemainingSec(throttleId);
+  if (lockedSec > 0) {
+    return NextResponse.json(
+      {
+        error: `Too many attempts. Try again in ${Math.ceil(lockedSec / 60)} min.`,
+      },
+      { status: 429, headers: { "Retry-After": String(lockedSec) } }
+    );
+  }
+
   const codeRow = getOne<CodeRow>(
     qb.selectFrom("registration_codes").selectAll().where("code", "=", normalizedCode)
   );
 
   if (!codeRow) {
+    recordLoginFailure(throttleId);
     return NextResponse.json(
       { error: "Invalid registration code." },
       { status: 403 }
     );
   }
   if (codeRow.used_by) {
+    recordLoginFailure(throttleId);
     return NextResponse.json(
       { error: "This registration code has already been used." },
       { status: 403 }
     );
   }
   if (isCodeExpired(codeRow.expires_at)) {
+    recordLoginFailure(throttleId);
     return NextResponse.json(
       { error: "This registration code has expired." },
       { status: 403 }
     );
   }
+  clearLoginFailures(throttleId);
 
   // Create the user and consume the code atomically.
   const createUserAndConsume = db.transaction(() => {

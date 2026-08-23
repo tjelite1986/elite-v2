@@ -46,6 +46,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     headers: {
       "Content-Type": contentTypeForImage(key),
       "Cache-Control": "private, max-age=86400",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

@@ -31,6 +31,11 @@ export async function GET(request: Request, props: { params: Promise<{ mediaId: 
     qb.selectFrom("post_media").selectAll().where("id", "=", Number(params.mediaId))
   );
   if (!media) return new NextResponse("Not found", { status: 404 });
+  // Defense-in-depth, matching the public share route: storage_key is
+  // server-generated, but never let a stray "../" or absolute key escape.
+  if (media.storage_key.includes("..") || media.storage_key.startsWith("/")) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   const post = getOne<PostRow>(
     qb.selectFrom("posts").selectAll().where("id", "=", media.post_id).where("is_deleted", "=", 0)

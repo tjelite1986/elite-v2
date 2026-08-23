@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { assertDownloadableUrl } from "@/lib/shorts-download";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -15,8 +16,20 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   const sp = new URL(req.url).searchParams;
+  const url = sp.get("url") || "";
+  // SSRF guard: only pass public http(s) URLs on to grabbit (the host must
+  // not resolve to a private/loopback address), same check the candidates
+  // route already applies before handing a URL to yt-dlp.
+  try {
+    await assertDownloadableUrl(url);
+  } catch (err) {
+    return NextResponse.json(
+      { ok: false, error: err instanceof Error ? err.message : "Invalid URL." },
+      { status: 400 }
+    );
+  }
   const qs = new URLSearchParams({
-    url: sp.get("url") || "",
+    url,
     channel: sp.get("channel") === "18plus" ? "18plus" : "main",
     device: "0",
   });

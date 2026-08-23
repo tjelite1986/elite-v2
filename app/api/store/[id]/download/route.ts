@@ -8,6 +8,13 @@ import { resolveAppFile } from "@/lib/appstore-storage";
 
 export const dynamic = "force-dynamic";
 
+// Strip quotes, backslashes and control characters so a filename can never
+// break out of the Content-Disposition quoted-string or (for a stray \r\n)
+// throw ERR_INVALID_CHAR.
+function safeFilename(name: string): string {
+  return name.replace(/[\x00-\x1f\x7f"\\]/g, "_");
+}
+
 // Stream the APK for an app (current version, or ?version=<id>). Auth + 18+ gate
 // enforced; the raw archive path is never exposed.
 export async function GET(request: Request, props: { params: Promise<{ id: string }> }) {
@@ -53,8 +60,9 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     headers: {
       "Content-Type": contentType,
       "Content-Length": String(stat.size),
-      "Content-Disposition": `attachment; filename="${fileName.replace(/"/g, "")}"`,
+      "Content-Disposition": `attachment; filename="${safeFilename(fileName)}"`,
       "Cache-Control": "private, max-age=3600",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

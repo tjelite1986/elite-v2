@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { canAccessVideoChannel } from "@/lib/videos";
+import { secretMatches } from "@/lib/cron-secret";
 import {
   requeueSummary,
   startSummaryOne,
@@ -19,7 +20,14 @@ export async function GET() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return NextResponse.json(summaryState());
+  const state = summaryState();
+  // currentTitle can name an in-progress adults-channel video — omit it for a
+  // caller who hasn't unlocked the 18+ gate, mirroring the shorts summarize
+  // route (the "gate on the page leaves the endpoint open" pattern).
+  if (state.channels.includes("adults") && !(await canAccessVideoChannel("adults"))) {
+    return NextResponse.json({ ...state, currentTitle: null });
+  }
+  return NextResponse.json(state);
 }
 
 // Start summarising. Authorized by an admin session (the button) or the
@@ -28,8 +36,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getSession();
   const secret = process.env.IMPORT_CRON_SECRET;
-  const isCron =
-    Boolean(secret) && request.headers.get("x-import-secret") === secret;
+  const isCron = secretMatches(request.headers.get("x-import-secret"), secret);
   if (session?.role !== "admin" && !isCron) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

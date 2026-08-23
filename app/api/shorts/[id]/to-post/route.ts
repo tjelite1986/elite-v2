@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getShort } from "@/lib/shorts";
+import { canAccessChannel, getShort } from "@/lib/shorts";
 import { moveShortToVideoPost } from "@/lib/shorts-to-post";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +21,12 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   }
   const isOwner = short.uploader_id === Number(session.sub);
   if (session.role !== "admin" && !isOwner) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  // The upload route gates on canAccessChannel before accepting a clip; this
+  // move must too, or a locked-PIN user could pull their own 18+ short out
+  // to the (ungated) posts Videos tab without ever unlocking.
+  if (!(await canAccessChannel(short.channel))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

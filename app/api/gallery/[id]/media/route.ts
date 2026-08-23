@@ -16,6 +16,14 @@ import { canViewItem } from "@/lib/gallery-share";
 
 export const dynamic = "force-dynamic";
 
+// Strip quotes, backslashes and control characters so a filename can never
+// break out of the Content-Disposition quoted-string (a trailing "\" shifts
+// the closing quote in some parsers) or, for a stray \r\n, throw Node's
+// ERR_INVALID_CHAR, which would 500 the route.
+function safeFilename(name: string): string {
+  return name.replace(/[\x00-\x1f\x7f"\\]/g, "_");
+}
+
 // Serve a media variant. Viewable if the user owns the item, it was shared with
 // them in a message, OR they are an admin (needed for cross-user gallery
 // duplicate review in Settings). Files are read from the OWNER's storage
@@ -41,6 +49,11 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   }
   if (item.user_id !== userId && !isAdmin && !canViewItem(userId, item.id)) {
     return new NextResponse("Forbidden", { status: 403 });
+  }
+  // Defense-in-depth, matching the public share route: storage_key is
+  // server-generated, but never let a stray "../" or absolute key escape.
+  if (item.storage_key.includes("..") || item.storage_key.startsWith("/")) {
+    return new NextResponse("Not found", { status: 404 });
   }
   const ownerId = item.user_id;
 
@@ -96,7 +109,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     "Content-Length": String(fs.statSync(filePath).size),
     "Cache-Control": "private, max-age=86400",
     "X-Content-Type-Options": "nosniff",
-    "Content-Disposition": `attachment; filename="${item.filename.replace(/"/g, "")}"`,
+    "Content-Disposition": `attachment; filename="${safeFilename(item.filename)}"`,
   };
   const stream = fs.createReadStream(filePath);
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, { headers });
@@ -118,7 +131,7 @@ function streamFile(
     "X-Content-Type-Options": "nosniff",
   };
   if (opts.attachment) {
-    headers["Content-Disposition"] = `attachment; filename="${opts.attachment.replace(/"/g, "")}"`;
+    headers["Content-Disposition"] = `attachment; filename="${safeFilename(opts.attachment)}"`;
   }
 
   const range = request.headers.get("range");
