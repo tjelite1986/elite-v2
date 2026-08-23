@@ -120,6 +120,18 @@ export function posterPathFor(
     : path.join(channelDir(channel), posterKey);
 }
 
+// Guard against path traversal: a resolved short/poster path must stay inside
+// one of the two roots videoPathFor/posterPathFor can resolve under (a storage
+// key comes from the DB, but the DB is fed by imports/scans of on-disk names,
+// so it is never trusted blindly). Mirrors isUnderChannel in videos-storage.ts.
+export function isUnderShortsRoot(filePath: string): boolean {
+  const resolved = path.resolve(filePath);
+  for (const root of [path.resolve(SHORTS_ROOT), path.resolve(PROFILE_ROOT)]) {
+    if (resolved === root || resolved.startsWith(root + path.sep)) return true;
+  }
+  return false;
+}
+
 export interface StoredShort {
   storageKey: string; // e.g. "<uuid>.mp4"
   posterKey: string | null; // e.g. "<uuid>.jpg"
