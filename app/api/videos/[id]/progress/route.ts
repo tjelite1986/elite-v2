@@ -55,6 +55,13 @@ export async function DELETE(
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  clearProgress(Number(id), Number(session.sub));
+  const video = getVideo(Number(id));
+  if (!video) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  if (!(await canAccessVideoChannel(video.channel))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  clearProgress(video.id, Number(session.sub));
   return NextResponse.json({ ok: true });
 }
