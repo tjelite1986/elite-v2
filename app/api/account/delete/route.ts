@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { getSession, getUserById } from "@/lib/auth";
 import { verifyPassword } from "@/lib/password";
-import { sessionCookieClearOptions } from "@/lib/session";
+import { sessionCookieClearScopes } from "@/lib/session";
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -87,6 +87,7 @@ export async function POST(request: Request) {
 
   deleteAccount();
 
-  (await cookies()).delete(sessionCookieClearOptions);
+  const store = await cookies();
+  for (const scope of sessionCookieClearScopes()) store.delete(scope);
   return NextResponse.json({ ok: true });
 }

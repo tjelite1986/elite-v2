@@ -85,12 +85,22 @@ export const sessionCookieOptions = {
   ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
 };
 
-// Deleting a cookie only matches on name, path and domain, so a plain
-// delete(SESSION_COOKIE) leaves a domain-scoped cookie in place — logout would
-// return ok and the browser would keep sending the old token to every sibling
-// host. Every clear site uses this instead.
-export const sessionCookieClearOptions = {
-  name: SESSION_COOKIE,
-  path: "/",
-  ...(COOKIE_DOMAIN ? { domain: COOKIE_DOMAIN } : {}),
-};
+/**
+ * Every scope the session cookie may exist in, for deleting it.
+ *
+ * Deletion matches on domain as well as name and path, and widening the domain
+ * did not replace anybody's existing cookie — it minted a second one beside it.
+ * So a browser that was logged in before this change carries both, and a
+ * logout that cleared only one would leave the other behind: still signed,
+ * still sent, and read first, because a browser orders equal-path cookies
+ * oldest first. The next login would then land in a loop against a cookie the
+ * user cannot get rid of. Clear sites delete all of these.
+ */
+export function sessionCookieClearScopes(): {
+  name: string;
+  path: string;
+  domain?: string;
+}[] {
+  const base = { name: SESSION_COOKIE, path: "/" };
+  return COOKIE_DOMAIN ? [{ ...base, domain: COOKIE_DOMAIN }, base] : [base];
+}

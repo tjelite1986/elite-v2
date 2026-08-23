@@ -2,18 +2,23 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import {
   SESSION_COOKIE,
-  sessionCookieClearOptions,
+  sessionCookieClearScopes,
   verifySessionToken,
 } from "@/lib/session";
 import { revokeSession } from "@/lib/sessions";
 
 export async function POST() {
-  // Drop this device's session row so the token can't be reused after logout.
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (token) {
-    const session = await verifySessionToken(token);
+  const store = await cookies();
+
+  // Every token under this name, not just the first: a browser from before the
+  // cookie was widened to the parent domain carries a second, host-only one,
+  // and revoking only the one that happened to be read would leave a live
+  // session behind that comes back the moment the other expires.
+  for (const cookie of store.getAll(SESSION_COOKIE)) {
+    const session = await verifySessionToken(cookie.value);
     if (session?.jti) revokeSession(session.jti, Number(session.sub));
   }
-  (await cookies()).delete(sessionCookieClearOptions);
+  for (const scope of sessionCookieClearScopes()) store.delete(scope);
+
   return NextResponse.json({ ok: true });
 }
