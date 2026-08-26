@@ -9,6 +9,7 @@ import {
   Store,
 } from "lucide-react";
 import { getSession } from "@/lib/auth";
+import { showsAppstore } from "@/lib/permissions";
 import { qb, getOne, getAll } from "@/lib/kysely";
 import WeatherWidget from "@/components/weather-widget";
 import ServerWidget from "@/components/server-widget";
@@ -93,8 +94,17 @@ export default async function Home() {
     { icon: <Clapperboard size={20} />, label: "Shorts", href: "/shorts" },
     { icon: <Users size={20} />, label: "People", href: "/people" },
     { icon: <MessageCircle size={20} />, label: "Messages", href: "/messages" },
-    { icon: <Store size={20} />, label: "App Store", href: "/store", hard: true },
   ];
+  // Same two questions as the menu row — see showsAppstore(). Appended rather
+  // than filtered out so the tile keeps its place at the end of the row.
+  if (showsAppstore(session)) {
+    links.push({
+      icon: <Store size={20} />,
+      label: "App Store",
+      href: "/store",
+      hard: true,
+    });
+  }
 
   return (
     /* Rebuilt 2026-07-30 to the Layout Studio sketch (elitev3-copy.json, screen

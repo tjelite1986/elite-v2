@@ -453,6 +453,7 @@ export function MenuTab({
   myDisplayName,
   myEmail,
   isAdmin = false,
+  showAppstore = true,
   requestsCount,
   onOpenRequests,
 }: {
@@ -460,6 +461,8 @@ export function MenuTab({
   myDisplayName?: string | null;
   myEmail: string;
   isAdmin?: boolean;
+  // Passed straight through to the menu; see nav-menu-content.tsx.
+  showAppstore?: boolean;
   requestsCount: number;
   onOpenRequests: () => void;
 }) {
@@ -487,6 +490,7 @@ export function MenuTab({
         myDisplayName={myDisplayName}
         myEmail={myEmail}
         isAdmin={isAdmin}
+        showAppstore={showAppstore}
         beforeSections={
           <div className="pb-1">
             <p className="px-4 pb-1 pt-2 text-[11px] uppercase tracking-wider text-white/35">

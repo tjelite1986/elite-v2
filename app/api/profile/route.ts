@@ -5,6 +5,7 @@ import {
   setUsername,
   setProfileFields,
   setShowAdultOutside,
+  setShowAppstore,
   getProfileByUserId,
 } from "@/lib/profiles";
 
@@ -39,6 +40,10 @@ export async function PATCH(request: Request) {
 
   if (typeof body?.show_adult_outside === "boolean") {
     setShowAdultOutside(userId, body.show_adult_outside);
+  }
+
+  if (typeof body?.show_appstore === "boolean") {
+    setShowAppstore(userId, body.show_appstore);
   }
 
   return NextResponse.json({ ok: true, profile: getProfileByUserId(userId) });

@@ -9,6 +9,7 @@ import WebSocketProvider from "@/components/ws-provider";
 import PrivacyControls from "@/components/PrivacyControls";
 import MusicPlayerProvider from "@/components/music/player-provider";
 import MiniPlayer from "@/components/music/mini-player";
+import { showsAppstore } from "@/lib/permissions";
 
 // Shared layout for all authenticated pages: renders the global bottom nav
 // and provides the common dark background. Middleware already gates access, but
@@ -61,6 +62,7 @@ export default async function AuthedLayout({
             email={session.email}
             canActAs={session.role === "admin" || !!session.imp}
             isAdmin={session.role === "admin"}
+            showAppstore={showsAppstore(session)}
           >
             {children}
           </BottomNav>

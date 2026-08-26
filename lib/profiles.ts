@@ -379,3 +379,23 @@ export function setShowAdultOutside(userId: number, on: boolean): void {
     "UPDATE user_profiles SET show_adult_outside = ? WHERE user_id = ?"
   ).run(on ? 1 : 0, userId);
 }
+
+// Per-user preference: show the App Store in the menu and on the dashboard.
+// Whether the account may reach the store at all is the `appstore` permission;
+// this is only whether the person wants to see the way in. Default on, so a
+// profile row that predates the column reads as visible.
+export function getShowAppstore(userId: number): boolean {
+  const row = getOne<{ show_appstore: number }>(
+    qb
+      .selectFrom("user_profiles")
+      .select("show_appstore")
+      .where("user_id", "=", userId)
+  );
+  return row ? Boolean(row.show_appstore) : true;
+}
+
+export function setShowAppstore(userId: number, on: boolean): void {
+  db.prepare(
+    "UPDATE user_profiles SET show_appstore = ? WHERE user_id = ?"
+  ).run(on ? 1 : 0, userId);
+}

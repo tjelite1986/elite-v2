@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 import { getSession, getUserById } from "@/lib/auth";
-import { ensureUserProfile, getProfileByUserId } from "@/lib/profiles";
+import {
+  ensureUserProfile,
+  getProfileByUserId,
+  getShowAppstore,
+} from "@/lib/profiles";
 import { hasPermission } from "@/lib/permissions";
 import {
   getAppearance,
@@ -31,6 +35,7 @@ export default async function SettingsPage() {
     shorts18: hasPermission(session, "shorts18_settings"),
     posts: hasPermission(session, "posts_settings"),
     gallery: hasPermission(session, "gallery_settings"),
+    appstore: hasPermission(session, "appstore"),
   };
 
   return (
@@ -39,6 +44,7 @@ export default async function SettingsPage() {
       username={getProfileByUserId(userId)?.username ?? null}
       perms={perms}
       showAdultOutside={Boolean(profile.show_adult_outside)}
+      showAppstore={getShowAppstore(userId)}
       hasAdultPin={hasAdultPin}
       accent={appearance.accent}
       bgTheme={appearance.bgTheme}

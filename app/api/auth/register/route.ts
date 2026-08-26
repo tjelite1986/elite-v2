@@ -13,6 +13,7 @@ import {
   sessionCookieOptions,
 } from "@/lib/session";
 import { createSession } from "@/lib/sessions";
+import { grantDefaultPermissions } from "@/lib/permissions";
 import { randomUUID } from "crypto";
 
 function validateEmail(email: string) {
@@ -85,6 +86,10 @@ export async function POST(request: Request) {
     db.prepare(
       "UPDATE registration_codes SET used_by = ?, used_at = datetime('now') WHERE id = ?"
     ).run(userId, codeRow.id);
+    // In the same transaction as the account itself: a user who exists without
+    // the keys everybody starts with would be a half-created account, and the
+    // App Store would be missing for exactly one person with no way to tell.
+    grantDefaultPermissions(userId);
     return userId;
   });
 

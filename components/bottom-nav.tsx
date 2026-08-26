@@ -24,6 +24,7 @@ export default function BottomNav({
   email,
   canActAs,
   isAdmin = false,
+  showAppstore = true,
   children,
 }: {
   username: string;
@@ -31,6 +32,8 @@ export default function BottomNav({
   email: string;
   canActAs: boolean;
   isAdmin?: boolean;
+  // Passed straight through to the menu; see nav-menu-content.tsx.
+  showAppstore?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -164,6 +167,7 @@ export default function BottomNav({
             email={email}
             canActAs={canActAs}
             isAdmin={isAdmin}
+            showAppstore={showAppstore}
             extras={extras}
           />
         </>

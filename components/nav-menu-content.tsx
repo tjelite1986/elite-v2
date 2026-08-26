@@ -83,6 +83,7 @@ export default function NavMenuContent({
   myDisplayName,
   beforeSections,
   isAdmin = false,
+  showAppstore = true,
 }: {
   myUsername: string;
   myEmail: string;
@@ -90,6 +91,10 @@ export default function NavMenuContent({
   beforeSections?: React.ReactNode;
   // Grab is an admin tool, so its row only exists for admins.
   isAdmin?: boolean;
+  // False when the account may not reach the store, or has switched the row
+  // off in Settings. Default true: a caller that has not been taught about it
+  // shows the store, which is how it behaved before there was a switch.
+  showAppstore?: boolean;
 }) {
   // The sketch's header shows @handle + "View profile" without the email, but
   // both callers still pass it — keep the prop so the API stays stable.
@@ -215,13 +220,15 @@ export default function NavMenuContent({
             this host is routed straight to it, so the store is a section of
             this site and the session cookie is first-party there. It is not
             one of our routes, though — hence a real navigation. */}
-        <MenuRow
-          href="/store"
-          icon={<Store size={18} />}
-          label="App Store"
-          sub="APK library"
-          hard
-        />
+        {showAppstore && (
+          <MenuRow
+            href="/store"
+            icon={<Store size={18} />}
+            label="App Store"
+            sub="APK library"
+            hard
+          />
+        )}
         {/* Grabbing belongs to the whole app, not to one section: the tool
             picks the channel (Shorts / Shorts 18+) itself. */}
         {isAdmin && (

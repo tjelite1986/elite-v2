@@ -11,6 +11,7 @@ import {
   Bell,
   MonitorSmartphone,
   ShieldAlert,
+  Store,
   Film,
   Flame,
   Image as ImageIcon,
@@ -56,8 +57,15 @@ import UserPermissions from "@/components/user-permissions";
 interface SettingsShellProps {
   isAdmin: boolean;
   username: string | null;
-  perms: { shorts: boolean; shorts18: boolean; posts: boolean; gallery: boolean };
+  perms: {
+    shorts: boolean;
+    shorts18: boolean;
+    posts: boolean;
+    gallery: boolean;
+    appstore: boolean;
+  };
   showAdultOutside: boolean;
+  showAppstore: boolean;
   hasAdultPin: boolean;
   accent: string;
   bgTheme: string;
@@ -75,6 +83,7 @@ type CategoryKey =
   | "notifications"
   | "sessions"
   | "adult"
+  | "apps"
   | SectionKey
   | "profiles"
   | "rename"
@@ -173,6 +182,7 @@ export default function SettingsShell({
   username,
   perms,
   showAdultOutside,
+  showAppstore,
   hasAdultPin,
   accent,
   bgTheme,
@@ -193,6 +203,10 @@ export default function SettingsShell({
       { key: "sessions", label: "Sessions", icon: <MonitorSmartphone size={16} /> },
       { key: "adult", label: "18+ access", icon: <ShieldAlert size={16} /> },
     ];
+    // Only for accounts an admin has let into the store: a switch for
+    // something you cannot reach is worse than no switch.
+    if (perms.appstore)
+      personal.push({ key: "apps", label: "App Store", icon: <Store size={16} /> });
 
     const library: NavItem[] = [];
     if (perms.shorts)
@@ -438,6 +452,16 @@ export default function SettingsShell({
                   showAdultOutside={showAdultOutside}
                   hasAdultPin={hasAdultPin}
                 />
+              </div>
+            )}
+
+            {active === "apps" && (
+              <div>
+                <PanelHeader
+                  title="App Store"
+                  desc="Where the store appears in this app."
+                />
+                <AppstorePanel showAppstore={showAppstore} />
               </div>
             )}
 
@@ -965,6 +989,64 @@ function AdultPanel({
       </Card>
       <AdultPinSettings hasPin={hasAdultPin} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// App Store visibility
+// ---------------------------------------------------------------------------
+function AppstorePanel({ showAppstore }: { showAppstore: boolean }) {
+  const router = useRouter();
+  const [on, setOn] = useState(showAppstore);
+  const [saving, setSaving] = useState(false);
+
+  const toggle = async () => {
+    const next = !on;
+    setOn(next);
+    setSaving(true);
+    try {
+      await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ show_appstore: next }),
+      });
+      router.refresh();
+    } catch {
+      setOn(!next);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-medium">Show the App Store</h2>
+          <p className="mt-1 max-w-md text-sm text-white/50">
+            Put the App Store in the menu and on the dashboard. Turning it off
+            only hides those two links for you — the store itself stays open at
+            /store, and anything already installed keeps updating.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          onClick={toggle}
+          disabled={saving}
+          className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-50 ${
+            on ? "bg-rose-500" : "bg-white/20"
+          }`}
+        >
+          <span
+            className={`absolute top-1 size-5 rounded-full bg-white transition-all ${
+              on ? "left-6" : "left-1"
+            }`}
+          />
+        </button>
+      </div>
+    </Card>
   );
 }
 

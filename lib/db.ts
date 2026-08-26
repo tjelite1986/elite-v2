@@ -1324,6 +1324,16 @@ function migrate(db: Database.Database) {
       "ALTER TABLE user_profiles ADD COLUMN show_adult_outside INTEGER NOT NULL DEFAULT 0"
     );
   }
+  // Per-user preference: show the App Store in the menu and on the dashboard.
+  // Default ON — the store was visible to everyone before there was a switch,
+  // so a new column that defaulted to 0 would have hidden it from every
+  // existing account the moment this shipped. Access is a separate question,
+  // answered by the `appstore` permission below.
+  if (profileColumns.length > 0 && !profileColumns.includes("show_appstore")) {
+    db.exec(
+      "ALTER TABLE user_profiles ADD COLUMN show_appstore INTEGER NOT NULL DEFAULT 1"
+    );
+  }
   // Appearance prefs: accent colour (hex) + background theme key.
   if (profileColumns.length > 0 && !profileColumns.includes("accent"))
     db.exec("ALTER TABLE user_profiles ADD COLUMN accent TEXT");
@@ -1464,6 +1474,25 @@ function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // One-time data migrations, numbered so a step that has already run is not
+  // re-run. Schema changes above are guarded by looking at the schema itself
+  // and need no number; a data change cannot be, because its result is
+  // indistinguishable from a deliberate later edit.
+  //
+  // 1: the `appstore` permission. The store used to be open to every account,
+  //    so existing users are granted it here rather than losing it — an admin
+  //    revoking it afterwards must stay revoked, which is exactly what the
+  //    version marker buys. Admins are skipped: hasPermission() lets them
+  //    through without a row, and writing one would only be noise.
+  const dataVersion = db.pragma("user_version", { simple: true }) as number;
+  if (dataVersion < 1) {
+    db.prepare(
+      `INSERT OR IGNORE INTO user_permissions (user_id, permission)
+       SELECT id, 'appstore' FROM users WHERE role <> 'admin'`
+    ).run();
+    db.pragma("user_version = 1");
+  }
 }
 
 // Bootstrap an admin account from env on first run so codes can be created.
@@ -1502,9 +1531,17 @@ function seedContentOwners(db: Database.Database) {
       .prepare("SELECT id FROM users WHERE email = ?")
       .get(email.toLowerCase());
     if (existing) continue;
+    const created = db
+      .prepare("INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'user')")
+      .run(email.toLowerCase(), hashPassword(password));
+    // The keys every account starts with. Seeding runs after migrate(), so on
+    // a fresh database these accounts are created *after* the backfill has
+    // already been and gone — without this they would be the only accounts
+    // without the App Store, which an admin acting as one would notice and
+    // have no obvious way to explain.
     db.prepare(
-      "INSERT INTO users (email, password_hash, role) VALUES (?, ?, 'user')"
-    ).run(email.toLowerCase(), hashPassword(password));
+      "INSERT OR IGNORE INTO user_permissions (user_id, permission) VALUES (?, 'appstore')"
+    ).run(Number(created.lastInsertRowid));
   }
 }
 
@@ -1731,6 +1768,7 @@ export interface UserProfileRow {
   avatar_key: string | null;
   bio: string | null;
   show_adult_outside: number;
+  show_appstore: number;
   created_at: string;
 }
 

@@ -51,12 +51,15 @@ export default function MessagesShell({
   myDisplayName,
   myEmail,
   isAdmin = false,
+  showAppstore = true,
 }: {
   meId: number;
   myUsername: string;
   myDisplayName?: string | null;
   myEmail: string;
   isAdmin?: boolean;
+  // Passed straight through to the menu; see nav-menu-content.tsx.
+  showAppstore?: boolean;
 }) {
   const { subscribe } = useWs();
   const searchParams = useSearchParams();
@@ -201,6 +204,7 @@ export default function MessagesShell({
             myDisplayName={myDisplayName}
             myEmail={myEmail}
             isAdmin={isAdmin}
+            showAppstore={showAppstore}
             requestsCount={requestsCount}
             onOpenRequests={() => setTab("requests")}
           />

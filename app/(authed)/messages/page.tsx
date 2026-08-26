@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
+import { showsAppstore } from "@/lib/permissions";
 import MessagesShell from "@/components/messages-shell";
 
 export default async function MessagesPage() {
@@ -15,6 +16,7 @@ export default async function MessagesPage() {
       myDisplayName={profile.display_name}
       myEmail={session.email}
       isAdmin={session.role === "admin"}
+      showAppstore={showsAppstore(session)}
     />
   );
 }
