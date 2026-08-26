@@ -81,12 +81,19 @@ export default async function Home() {
     { icon: <Clapperboard size={18} />, label: "Shorts", value: shortCount.toLocaleString(), href: "/shorts" },
     { icon: <HardDrive size={18} />, label: "Storage", value: formatBytes(storage), href: "/gallery" },
   ];
-  const links = [
+  // `hard` leaves the app: /store is on this host but answered by the store's
+  // own app, so the router must not try to resolve it as one of our routes.
+  const links: {
+    icon: React.ReactNode;
+    label: string;
+    href: string;
+    hard?: boolean;
+  }[] = [
     { icon: <Images size={20} />, label: "Photos", href: "/gallery" },
     { icon: <Clapperboard size={20} />, label: "Shorts", href: "/shorts" },
     { icon: <Users size={20} />, label: "People", href: "/people" },
     { icon: <MessageCircle size={20} />, label: "Messages", href: "/messages" },
-    { icon: <Store size={20} />, label: "App Store", href: "/store" },
+    { icon: <Store size={20} />, label: "App Store", href: "/store", hard: true },
   ];
 
   return (
@@ -133,16 +140,21 @@ export default async function Home() {
       <section>
         <h2 className="mb-3 text-sm font-semibold text-white/80">Jump back in</h2>
         <div className="grid grid-cols-2 gap-3">
-          {links.map((l) => (
-            <Link
-              key={l.label}
-              href={l.href}
-              className="flex flex-col items-center gap-2 rounded-2xl bg-white/5 px-3 py-5 text-center transition hover:bg-white/10"
-            >
-              <span className="text-white/80">{l.icon}</span>
-              <span className="text-xs font-medium text-white/70">{l.label}</span>
-            </Link>
-          ))}
+          {links.map((l) => {
+            const Tag = l.hard ? "a" : Link;
+            return (
+              <Tag
+                key={l.label}
+                href={l.href}
+                className="flex flex-col items-center gap-2 rounded-2xl bg-white/5 px-3 py-5 text-center transition hover:bg-white/10"
+              >
+                <span className="text-white/80">{l.icon}</span>
+                <span className="text-xs font-medium text-white/70">
+                  {l.label}
+                </span>
+              </Tag>
+            );
+          })}
         </div>
       </section>
     </div>

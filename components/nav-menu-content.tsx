@@ -43,14 +43,21 @@ export function MenuRow({
   icon,
   label,
   sub,
+  hard,
 }: {
   href: string;
   icon: React.ReactNode;
   label: string;
   sub?: string;
+  /**
+   * Leave the app. Set for a path on this origin that another app answers —
+   * the router would otherwise try to resolve it as one of our own routes.
+   */
+  hard?: boolean;
 }) {
+  const Tag = hard ? "a" : Link;
   return (
-    <Link
+    <Tag
       href={href}
       className="flex items-center gap-3.5 px-4 py-2.5 transition hover:bg-white/5"
     >
@@ -60,7 +67,7 @@ export function MenuRow({
         {sub && <span className="block text-xs text-white/40">{sub}</span>}
       </span>
       <ChevronRight size={16} className="shrink-0 text-white/25" />
-    </Link>
+    </Tag>
   );
 }
 
@@ -204,13 +211,16 @@ export default function NavMenuContent({
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
-        {/* Its own app since 2026-08-26 — /store is a redirect to wherever
-            APPSTORE_URL points, and the session cookie carries across. */}
+        {/* Its own app since 2026-08-26, but not its own address: /store on
+            this host is routed straight to it, so the store is a section of
+            this site and the session cookie is first-party there. It is not
+            one of our routes, though — hence a real navigation. */}
         <MenuRow
           href="/store"
           icon={<Store size={18} />}
           label="App Store"
           sub="APK library"
+          hard
         />
         {/* Grabbing belongs to the whole app, not to one section: the tool
             picks the channel (Shorts / Shorts 18+) itself. */}
