@@ -29,7 +29,6 @@ These map 1:1 to rows in **Settings → Background jobs** (job id in parentheses
 | `instagram-sync.mjs` | Instagram sync (`instagram-sync`) | Per-profile Instagram poller: downloads new media via `gallery-dl` for each profile with a connected IG source. Needs a cookie — see [COOKIES.md](COOKIES.md). |
 | `tiktok-sync.mjs` | TikTok sync (`tiktok-sync`) | Per-profile TikTok poller (`gallery-dl` → `yt-dlp` fallback). Cookie-optional. |
 | `cleanup-stories.mjs` | Stories cleanup (`stories-cleanup`) | Deletes expired stories (rows + files); stories live 24h. |
-| `check-app-updates.mjs` | App Store update check (`app-updates`) | Host-side checker that calls the admin check-updates endpoint with `APP_UPDATE_SECRET`; optionally auto-downloads new GitHub/F-Droid releases (promoted only if APK signature verification passes). |
 | `normalize-import-images.mjs` | Import image normalize (`import-normalize`) | Converts HEIC and fixes mislabeled extensions in the user import folders, so an import never fails on a file the decoder can't read. |
 | `db-maintenance.mjs` | Database maintenance (`db-maintenance`) | WAL checkpoint (TRUNCATE) + planner statistics refresh; warns when the WAL cannot shrink. |
 | `backup-db.mjs` | Database backup (`db-backup`) | `VACUUM INTO` a timestamped copy in `BACKUP_DIR`, then prune all but the newest `BACKUP_KEEP` (default 14). VACUUM INTO snapshots committed data correctly under WAL, unlike copying the file. |
@@ -45,7 +44,6 @@ scheduler posts to over loopback, gated by `IMPORT_CRON_SECRET`:
 | Video library scan (`videos-scan`) | `/api/videos/scan` | Mirror `VIDEOS_ROOT/{main,adults}` into the library: add new files, refresh changed ones, generate posters/storyboards, drop rows whose file is gone. |
 | Video transcode (`videos-transcode`) | `/api/videos/transcode` | Convert library videos a browser can't play (HEVC, AC-3, `.mkv`/`.avi`) to H.264/AAC MP4. Returns as soon as the run *starts* — an encode outlives any HTTP request — and works the queue within a time budget, spreading a backlog over several runs. |
 | Video metadata match (`videos-metadata`) | `/api/videos/metadata` | Match 18+ library videos to metadata: a `.nfo` sidecar next to the file when there is one (Whisparr/Stash layouts), otherwise a ThePornDB lookup (`TPDB_API_KEY`) that only auto-applies confident matches. |
-| App Store folder import (`appstore-import`) | `/api/store/admin/import/folder` | Import APKs dropped in the store import folder; unmatched files go to the review queue. |
 
 ## Instagram helper (not a job)
 
@@ -80,7 +78,7 @@ specific data migrations — **not** scheduled. Kept for reference / re-runs.
 
 | Script | What it does |
 | ------ | ------------ |
-| `setup.sh` | Interactive installer (dialog UI): creates the storage roots, generates a `.env` with auto-filled secrets, and writes a matching `docker-compose.yml` — optionally also Traefik, grabbit and the App Store update timer. See [SETUP.md](SETUP.md). |
+| `setup.sh` | Interactive installer (dialog UI): creates the storage roots, generates a `.env` with auto-filled secrets, and writes a matching `docker-compose.yml` — optionally also Traefik and grabbit. See [SETUP.md](SETUP.md). |
 
 ## Dev / verification
 

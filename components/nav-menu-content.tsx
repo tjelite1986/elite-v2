@@ -204,7 +204,14 @@ export default function NavMenuContent({
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
-        <MenuRow href="/store" icon={<Store size={18} />} label="App Store" />
+        {/* Its own app since 2026-08-26 — /store is a redirect to wherever
+            APPSTORE_URL points, and the session cookie carries across. */}
+        <MenuRow
+          href="/store"
+          icon={<Store size={18} />}
+          label="App Store"
+          sub="APK library"
+        />
         {/* Grabbing belongs to the whole app, not to one section: the tool
             picks the channel (Shorts / Shorts 18+) itself. */}
         {isAdmin && (

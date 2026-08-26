@@ -35,17 +35,13 @@ experience. **Here for the internals?** See
 > Captured on a sandbox instance seeded with placeholder media. Thumbnails in
 > the 18+ section are additionally obscured.
 
-| Profile | App Store | Shorts |
-| ------- | --------- | ------ |
-| ![Unified profile with editor, custom fields and photo/shorts tabs](screenshots/gif/profile.gif) | ![In-app App Store: discover, search, app detail, installed, saved and admin management](screenshots/gif/app-store.gif) | ![Shorts explore grid, vertical player, in-player actions and the 18+ section](screenshots/gif/shorts.gif) |
+| Profile | Shorts | Background jobs |
+| ------- | ------ | --------------- |
+| ![Unified profile with editor, custom fields and photo/shorts tabs](screenshots/gif/profile.gif) | ![Shorts explore grid, vertical player, in-player actions and the 18+ section](screenshots/gif/shorts.gif) | ![In-app job scheduler with per-job intervals and run history](screenshots/gif/background-jobs.gif) |
 
 | Settings | Library tools | Admin tools |
 | -------- | ------------- | ----------- |
 | ![Account, appearance themes, notifications, device sessions and 18+ access](screenshots/gif/settings.gif) | ![Shorts, photos, gallery, profile linking and bulk rename tools](screenshots/gif/settings-library.gif) | ![Member management, per-section permissions and broadcast announcements](screenshots/gif/settings-admin.gif) |
-
-| Background jobs |
-| --------------- |
-| ![In-app job scheduler with per-job intervals and run history](screenshots/gif/background-jobs.gif) |
 
 ## Screenshots
 
@@ -138,9 +134,11 @@ experience. **Here for the internals?** See
   art are proxied by the app, so no Subsonic credentials ever reach the browser.
   Point `NAVIDROME_URL` at your server; an optional second library
   (`NAVIDROME_KIDS_URL`) appears as a switcher.
-- **App Store** — an in-app `/store` catalog of installable "apps" plus an APK
-  archive that imports from GitHub / F-Droid / Play, auto-updates, and verifies
-  APK signatures (trust-on-first-use). Adult apps are PIN-gated.
+- **App Store** — the APK store used to be a section here and is now its own
+  app ([appstore](https://github.com/tjelite1986/appstore)). Point
+  `APPSTORE_URL` at it and `/store` becomes the hop that opens it; it verifies
+  this app's session cookie through `/api/auth/verify`, so signing in once
+  covers both.
 - **Messaging** — real-time direct messages and group channels with presence
   (`last_seen`), reactions, replies, edits, and soft-delete, over a WebSocket
   endpoint served alongside Next.js by a custom server.
@@ -182,8 +180,7 @@ experience. **Here for the internals?** See
 - **nodemailer** for invite/notification email
 - **web-push** for push notifications
 - `sharp`, `blurhash`, `exifr` / `exif-reader`, `leaflet`, `epubjs`,
-  `pdfjs-dist`, `react-markdown`, `archiver` (album ZIP),
-  `google-play-scraper` + `semver` (App Store)
+  `pdfjs-dist`, `react-markdown`, `archiver` (album ZIP)
 - The image also carries the media toolchain: `ffmpeg`/`ffprobe`, `libheif`
   (HEIC decoding `sharp` can't do), `poppler-utils`, `gallery-dl` and
   `instaloader`. `yt-dlp` is deliberately **not** baked in — bind-mount a
@@ -200,7 +197,7 @@ flowchart LR
   B[Browser / PWA] -->|HTTPS| T[Traefik]
   T --> S["server.mjs — one Node process<br/>Next.js 15 · ws WebSocket · job scheduler"]
   S --> D[("SQLite WAL<br/>better-sqlite3")]
-  S --> F["storage roots<br/>gallery · posts · shorts · videos · books · appstore"]
+  S --> F["storage roots<br/>gallery · posts · shorts · videos · books"]
   S -->|"yt-dlp / gallery-dl"| X[(external sites)]
   S -.->|optional| G[grabbit media grabber]
 ```
@@ -415,8 +412,7 @@ the recommended way for most setups.
 
 Every recurring job lives here, including the per-user folder import. A few can
 also be started by hand: the drop-folder import has a **Per-user folder import →
-Import now** card on each library section's Import tab, and the App Store has
-its own scan buttons.
+Import now** card on each library section's Import tab.
 
 #### The advanced way: systemd timers
 
@@ -449,7 +445,7 @@ match your setup:
   name, update it.
 - **User/Group** — they run as `User=thomas` / `Group=thomas`. Change to your
   own username.
-- **Secrets** — e.g. `APP_UPDATE_SECRET`. Set these to match your `.env`.
+- **Secrets** — e.g. `IMPORT_CRON_SECRET`. Set these to match your `.env`.
 
 Open each `.service` file, adjust those lines, then run the
 `daemon-reload` + `enable --now` commands above. Check that a timer is active
@@ -518,7 +514,6 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | `SHORTS_ROOT`   | Shorts media for mirrored creators / auto-poll (legacy bulk-import drop). |
 | `VIDEOS_ROOT`   | **Scanned, not imported.** Long-form video library: `main/` feeds `/videos`, `adults/` feeds `/videos18`. Your folder structure is preserved as-is. |
 | `BOOKS_ROOT`    | **Shared** bookshelf storage (EPUB / PDF / CBZ) — one library for all users. |
-| `APPSTORE_ROOT` / `STORE_DIR` | App Store catalog / APK archive storage.|
 
 ### Email
 
@@ -539,6 +534,8 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | --------------------- | --------------------------------------------------- |
 | `IMPORT_DIR` / `POSTS_IMPORT_DIR` / `SHORTS_IMPORT_DIR` | Legacy *creator* bulk-import drop dirs (distinct from the per-user `IMPORT_ROOT` tree). |
 | `IMPORT_CRON_SECRET`  | Shared secret for import trigger endpoints.         |
+| `APPSTORE_URL`        | Where the separate [App Store](https://github.com/tjelite1986/appstore) app is served. `/store` redirects there and the menu entry opens it; unset means the entry lands on a short "not connected" note instead. |
+| `SESSION_COOKIE_DOMAIN` | Widens the session cookie from this host to a whole domain (e.g. `.example.com`), so a sibling app on the same domain — the App Store — can verify the same login through `/api/auth/verify`. Unset keeps sessions host-only. |
 | `GRABBIT_URL` / `GRABBIT_INTERNAL_TOKEN` | URL and shared token of an optional external media-grabber service, e.g. [grabbit](https://github.com/tjelite1986/grabbit); enables the shorts "Grab from web" button. The token authenticates container-to-container calls — without it any container on the shared network could use grabbit. (`LADDA_URL` is honored as a legacy alias.) |
 | `IG_COOKIES_ROOT` / `IG_COOKIES_PATH` / `IG_SRC` | Instagram cookie pool folder, the default cookie file, and the sync source. See the [cookies guide](guides/COOKIES.md). |
 | `IG_MAX_PER_RUN` / `IG_MAX_PER_COOKIE_PER_RUN` / `IG_RETRIES` / `IG_SLEEP_REQUEST` / `IG_PROFILE_SLEEP_SECONDS` / `IG_COOLDOWN_MINUTES` | Instagram rate-limit pacing: batch caps, retries, per-request and per-profile delays, and how long a blocked cookie is benched (default 60 min). |
@@ -549,8 +546,6 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 | `NAVIDROME_URL` / `NAVIDROME_KIDS_URL` | Navidrome servers behind `/music`. The first is the main library; the second is optional and only shown when it answers. |
 | `NAVIDROME_ADMIN_USER` / `NAVIDROME_ADMIN_PASSWORD` | Navidrome admin login, used once per Elite user to create their own Navidrome account. Without it, `/music` asks each user to link an existing account instead. |
 | `NAVIDROME_KIDS_ADMIN_USER` / `NAVIDROME_KIDS_ADMIN_PASSWORD` | Same, for the second library — a separate Navidrome server has its own user table, so its admin is a different account. Falls back to the main pair when unset. |
-| `GITHUB_TOKEN` / `FDROID_REPO_URL` | App Store import sources.             |
-| `APP_UPDATE_URL` / `APP_UPDATE_SOURCE` / `APP_UPDATE_SECRET` / `APP_UPDATE_PULL` / `APP_IMPORT_HOST_DIR` | App auto-update and APK drop-folder wiring. |
 | `ADULTS_EMAIL` / `PUBLIC_EMAIL` | Seeded content-owner accounts.            |
 | `VIDEOS_KEEP_ORIGINALS` | Keep the source file when the transcode job rewrites a video (default: replace). |
 

@@ -25,11 +25,6 @@ import {
   type GalleryDupeStateRow,
   type FollowRow,
   type StoryRow,
-  type AppRow,
-  type AppVersionRow,
-  type AppImportReviewRow,
-  type AppScreenshotRow,
-  type AppReviewRow,
   type NotificationRow,
   type VideoRow,
   type VideoProgressRow,
@@ -119,11 +114,6 @@ interface ProfileExtraRow {
   tt_last_sync_error: string | null;
   tt_syncing: number;
 }
-interface SavedAppRow {
-  user_id: number;
-  app_id: number;
-  saved_at: string;
-}
 interface ShortLikeRow {
   short_id: number;
   user_id: number;
@@ -144,13 +134,6 @@ interface StoryViewRow {
   story_id: number;
   user_id: number;
   viewed_at: string;
-}
-interface UserAppInstallRow {
-  user_id: number;
-  app_id: number;
-  installed_at: string;
-  pinned: number;
-  last_opened_at: string | null;
 }
 
 // Complete typed schema map. Reuses the hand-written row interfaces from db.ts
@@ -198,13 +181,6 @@ export interface DB {
   notifications: NotificationRow;
   profile_extras: ProfileExtraRow;
   handle_avatars: HandleAvatarRow;
-  apps: AppRow;
-  app_versions: AppVersionRow;
-  app_screenshots: AppScreenshotRow;
-  app_reviews: AppReviewRow;
-  saved_apps: SavedAppRow;
-  user_app_installs: UserAppInstallRow;
-  app_import_review: AppImportReviewRow;
   videos: VideoRow;
   video_progress: VideoProgressRow;
   video_likes: VideoLikeRow;

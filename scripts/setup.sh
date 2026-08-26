@@ -9,8 +9,8 @@
 #   - generate a matching docker-compose.yml (container-path env + host mounts + labels)
 #   - generate a Traefik reverse-proxy stack (compose + static config + acme.json)
 #   - generate a grabbit media-grabber stack wired to the shorts import folder
-#   - generate the App Store update-check systemd timer (the only host-side job;
-#     every other recurring script runs via the in-app Admin -> Background jobs)
+#   (every recurring script runs via the in-app Admin -> Background jobs, so
+#   there is nothing host-side to schedule)
 #
 # The .env holds only secrets and user values. Storage roots are container paths
 # set in the compose `environment:` block; the host paths are the volume mounts.
@@ -27,7 +27,6 @@ ENV_OUT="./.env"
 COMPOSE_OUT="./docker-compose.yml"
 TRAEFIK_DIR="./traefik"
 GRABBIT_DIR="./grabbit"
-SYSTEMD_DIR="./systemd-units"
 
 # Container mount targets, one per storage root (host <DATA_ROOT>/<key> maps here).
 # key|container-path|env-var
@@ -37,8 +36,6 @@ STORAGE=(
   "posts|/posts-store|POSTS_ROOT"
   "shorts|/shorts-store|SHORTS_ROOT"
   "books|/books-store|BOOKS_ROOT"
-  "appstore|/appstore-store|APPSTORE_ROOT"
-  "appstore-downloads|/appstore-downloads|STORE_DIR"
   "instagram|/instagram-store|IG_COOKIES_ROOT"
   "tiktok|/tiktok-store|TIKTOK_COOKIES_ROOT"
 )
@@ -248,10 +245,9 @@ write_env() {
   hint "(answer < to go back a step)"
 
   # Auto-generated secrets.
-  local jwt import_secret appupd_secret vpub vpriv
+  local jwt import_secret vpub vpriv
   jwt="$(gen_secret_b64)"
   import_secret="$(gen_secret_hex)"
-  appupd_secret="$(gen_secret_hex)"
   read -r vpub vpriv < <(gen_vapid) || true
 
   local admin_email="" admin_pass="" app_url="" vapid_subject=""
@@ -357,9 +353,9 @@ write_env() {
       echo "# GRABBIT_INTERNAL_TOKEN=CHANGE_ME"
     fi
     echo
-    echo "# --- App Store auto-update (optional) ---"
-    echo "APP_UPDATE_SECRET=$appupd_secret"
-    echo "# GITHUB_TOKEN=CHANGE_ME   # raises GitHub API rate limit"
+    echo "# --- App Store (optional; the store is a separate app) ---"
+    echo "# APPSTORE_URL=https://astore.$DOMAIN   # /store redirects here"
+    echo "# SESSION_COOKIE_DOMAIN=.$DOMAIN        # lets the store share this login"
     echo
     echo "# --- Dashboard weather widget (optional; has defaults) ---"
     echo "# WEATHER_PLACE=Stockholm"
@@ -416,6 +412,10 @@ write_compose() {
       [[ "$key" == "instagram" ]] && echo "      - IG_COOKIES_PATH=$cpath/cookies.txt"
       [[ "$key" == "tiktok" ]]    && echo "      - TIKTOK_COOKIES_PATH=$cpath/cookies.txt"
     done
+    # The App Store is a separate app: pass through where it lives and the
+    # cookie domain that lets it verify this app's login. Both no-op if unset.
+    echo "      - APPSTORE_URL=\${APPSTORE_URL:-}"
+    echo "      - SESSION_COOKIE_DOMAIN=\${SESSION_COOKIE_DOMAIN:-}"
     echo "      - WEATHER_PLACE=\${WEATHER_PLACE:-Stockholm}"
     echo "      - WEATHER_LAT=\${WEATHER_LAT:-59.3293}"
     echo "      - WEATHER_LON=\${WEATHER_LON:-18.0686}"
@@ -667,99 +667,6 @@ EOF
   fi
 }
 
-# --- App Store update-check systemd timer ------------------------------------
-# The only host-side scheduled job. Every other recurring script runs via the
-# in-app scheduler (Admin -> Background jobs) and needs no setup here.
-write_appupdates_timer() {
-  hr; say "App Store update-check timer -> $SYSTEMD_DIR/"
-  say "Note: all other jobs (imports, sync, transcode, cleanup) are scheduled"
-  say "in-app under Admin -> Background jobs — nothing to install for those."
-  hint "(answer < to go back a step)"
-  local repo_dir node_bin app_url="" secret every=""
-  local need_repo=0 need_secret=0
-  node_bin="$(command -v node || echo /usr/bin/node)"
-  repo_dir="$REPO_DIR"
-  if [[ -z "$repo_dir" ]]; then need_repo=1; fi
-  secret="$(read_env_var "$ENV_OUT" APP_UPDATE_SECRET)"
-  if [[ -z "$secret" ]]; then need_secret=1
-  else say "Using APP_UPDATE_SECRET from $ENV_OUT."; fi
-
-  local step=2
-  if [[ $need_repo -eq 1 ]]; then step=1; fi
-  while [[ $step -le 4 ]]; do
-    case $step in
-      1) if repo_dir="$(ask "elite-v2 repo path (holds scripts/check-app-updates.mjs)" "${repo_dir:-/opt/elite-v2}")"
-         then step=2; else say "Left to the menu (nothing written)."; return 0; fi ;;
-      2) if app_url="$(ask "App URL the checker calls" "${app_url:-https://$DOMAIN}")"; then step=3
-         elif [[ $need_repo -eq 1 ]]; then step=1
-         else say "Left to the menu (nothing written)."; return 0; fi ;;
-      3) if [[ $need_secret -eq 0 ]]; then step=4
-         elif secret="$(ask "APP_UPDATE_SECRET (from .env; blank = CHANGE_ME later)")"; then
-           if [[ -z "$secret" ]]; then secret="CHANGE_ME"; fi
-           step=4
-         else step=2; fi ;;
-      4) if every="$(ask "Run every" "${every:-6h}")"; then step=5
-         elif [[ $need_secret -eq 1 ]]; then step=3
-         else step=2; fi ;;
-    esac
-  done
-  if [[ ! -f "$repo_dir/scripts/check-app-updates.mjs" ]]; then
-    say ">> Warning: $repo_dir/scripts/check-app-updates.mjs not found — fix ExecStart before installing."
-  fi
-
-  mkdir -p "$SYSTEMD_DIR"
-  guard_overwrite "$SYSTEMD_DIR/elitev2-app-updates.service" || return 0
-  guard_overwrite "$SYSTEMD_DIR/elitev2-app-updates.timer" || return 0
-
-  cat > "$SYSTEMD_DIR/elitev2-app-updates.service" <<EOF
-# App Store update checker (oneshot) — generated by scripts/setup.sh
-[Unit]
-Description=Elite v2 App Store update check
-After=network-online.target
-
-[Service]
-Type=oneshot
-Environment=APP_UPDATE_URL=$app_url
-Environment=APP_UPDATE_SOURCE=all
-Environment=APP_UPDATE_SECRET=$secret
-# Uncomment to auto-download new releases (promoted only after APK
-# signature verification passes):
-# Environment=APP_UPDATE_PULL=1
-ExecStart=$node_bin $repo_dir/scripts/check-app-updates.mjs
-User=$(id -un)
-EOF
-  chmod 600 "$SYSTEMD_DIR/elitev2-app-updates.service"
-
-  cat > "$SYSTEMD_DIR/elitev2-app-updates.timer" <<EOF
-# Runs the App Store update checker on a schedule — generated by scripts/setup.sh
-[Unit]
-Description=Elite v2 App Store update check (schedule)
-
-[Timer]
-OnBootSec=10min
-OnUnitActiveSec=$every
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
-
-  say "Wrote $SYSTEMD_DIR/elitev2-app-updates.{service,timer}."
-  if [[ "$secret" == "CHANGE_ME" ]]; then
-    say ">> Fill in APP_UPDATE_SECRET in the .service file before installing."
-  fi
-  if yesno "Install and enable the timer now (sudo)?"; then
-    sudo cp "$SYSTEMD_DIR/elitev2-app-updates.service" "$SYSTEMD_DIR/elitev2-app-updates.timer" /etc/systemd/system/
-    sudo systemctl daemon-reload
-    sudo systemctl enable --now elitev2-app-updates.timer
-    say "Installed and enabled elitev2-app-updates.timer."
-  else
-    say "To install later:"
-    say "  sudo cp $SYSTEMD_DIR/elitev2-app-updates.* /etc/systemd/system/"
-    say "  sudo systemctl daemon-reload && sudo systemctl enable --now elitev2-app-updates.timer"
-  fi
-}
-
 show_summary() {
   hr
   say "Data root : $DATA_ROOT"
@@ -768,7 +675,6 @@ show_summary() {
   say "compose   : $COMPOSE_OUT  $([[ -e "$COMPOSE_OUT" ]] && echo '[exists]' || echo '[missing]')"
   say "traefik   : $TRAEFIK_DIR/   $([[ -e "$TRAEFIK_DIR/docker-compose.yml" ]] && echo '[exists]' || echo '[missing]')"
   say "grabbit   : $GRABBIT_DIR/   $([[ -e "$GRABBIT_DIR/docker-compose.yml" ]] && echo '[exists]' || echo '[missing]')"
-  say "timer     : $SYSTEMD_DIR/   $([[ -e "$SYSTEMD_DIR/elitev2-app-updates.timer" ]] && echo '[exists]' || echo '[missing]')"
   say "Storage   : $(for r in "${STORAGE[@]}"; do IFS='|' read -r k _ _ <<<"$r"; printf '%s ' "$k"; done)"
   hr
   say "Next: docker network create traefik   (once, if it doesn't exist)"
@@ -782,9 +688,6 @@ do_everything() {
   if yesno "Generate the Traefik reverse-proxy stack too?"; then write_traefik; fi
   if [[ "${USE_GRABBIT:-0}" -eq 1 ]]; then
     if yesno "Generate the grabbit stack too?"; then write_grabbit; fi
-  fi
-  if yesno "Generate the App Store update-check timer (host systemd)?"; then
-    write_appupdates_timer
   fi
   show_summary
 }
@@ -885,8 +788,7 @@ main() {
       "5|Generate docker-compose.yml (-> $COMPOSE_OUT)" \
       "6|Generate Traefik stack      (-> $TRAEFIK_DIR/)" \
       "7|Generate grabbit stack      (-> $GRABBIT_DIR/)" \
-      "8|Generate App Store update timer (-> $SYSTEMD_DIR/)" \
-      "9|Do everything (3 -> 4 -> 5, then optional 6 -> 7 -> 8)" \
+      "9|Do everything (3 -> 4 -> 5, then optional 6 -> 7)" \
       "s|Show summary" \
       "0|Quit"
     case "$MENU_CHOICE" in
@@ -897,7 +799,6 @@ main() {
       5) write_compose ;;
       6) write_traefik ;;
       7) write_grabbit ;;
-      8) write_appupdates_timer ;;
       9) do_everything ;;
       s|S) show_summary ;;
       0) say "Bye."; exit 0 ;;

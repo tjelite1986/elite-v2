@@ -48,7 +48,6 @@ so make them writable (`chmod -R 777` is the blunt fix):
 ├── shorts/       # SHORTS_ROOT   — mirrored-creator shorts (main/ and 18plus/ channels)
 ├── videos/       # VIDEOS_ROOT   — long-form video library (main/ and adults/)
 ├── books/        # BOOKS_ROOT    — shared bookshelf (EPUB/PDF/CBZ)
-├── appstore/     # APPSTORE_ROOT — App Store catalog + APK archive
 ├── backup/       # BACKUP_DIR    — nightly SQLite snapshots (db-backup job)
 ├── instagram/    # IG_COOKIES_ROOT — Instagram cookies.txt (see COOKIES.md)
 └── tiktok/       # TIKTOK_COOKIES_ROOT — optional TikTok cookies.txt
@@ -65,11 +64,10 @@ The SQLite database lives in a named volume mounted at `/app/data`
 > placeholders), and writes a matching `docker-compose.yml` — all pointing at
 > one data root and domain you choose. It replaces the manual folder + `.env` +
 > compose steps in sections 3–5. It can also generate the surrounding stacks:
-> a Traefik reverse proxy (`traefik/`), a grabbit media grabber wired to the
-> shorts import folder (`grabbit/`), and the App Store update-check systemd
-> timer (`systemd-units/`) — the only host-side job; every other recurring
-> script is scheduled in-app under **Settings → Background jobs**, so there is
-> nothing else to install for the scripts. The rest of this section documents
+> a Traefik reverse proxy (`traefik/`) and a grabbit media grabber wired to the
+> shorts import folder (`grabbit/`). Every recurring script is scheduled in-app
+> under **Settings → Background jobs**, so there is nothing host-side to
+> install for them. The rest of this section documents
 > the same pieces by hand, for when you want to understand or customize them.
 
 Make a compose directory (e.g. `compose/elitev2/`) holding a
@@ -99,7 +97,6 @@ services:
       - SHORTS_ROOT=/shorts-store
       - VIDEOS_ROOT=/videos-store
       - BOOKS_ROOT=/books-store
-      - APPSTORE_ROOT=/appstore-store
       - BACKUP_DIR=/backup
       - IG_COOKIES_ROOT=/instagram-store
       - IG_COOKIES_PATH=/instagram-store/cookies.txt
@@ -116,7 +113,6 @@ services:
       - /mnt/data/elitev2/shorts:/shorts-store
       - /mnt/data/elitev2/videos:/videos-store
       - /mnt/data/elitev2/books:/books-store
-      - /mnt/data/elitev2/appstore:/appstore-store
       - /mnt/data/elitev2/backup:/backup
       - /mnt/data/elitev2/instagram:/instagram-store
       - /mnt/data/elitev2/tiktok:/tiktok-store
@@ -193,7 +189,7 @@ them**:
 | **Docker widget** on the dashboard | Mount the host socket read-only (`- /var/run/docker.sock:/var/run/docker.sock:ro`) **and** add the host `docker` group's GID under `group_add:` so the non-root app user can read it (`getent group docker` → the number). Without this the widget shows an error; nothing else breaks. |
 | **Weather widget** location | `WEATHER_PLACE`, `WEATHER_LAT`, `WEATHER_LON` (defaults to a built-in city otherwise). Data via Open-Meteo, no key needed. |
 | **Content-owner accounts** | `PUBLIC_EMAIL`/`PUBLIC_PASSWORD` and `ADULTS_EMAIL`/`ADULTS_PASSWORD` seed two maintenance accounts for the non-adult / adult content buckets (used by admin "act-as"). |
-| **App Store auto-update** | `APP_UPDATE_SECRET` (for the host update-checker script), `GITHUB_TOKEN` (raises the GitHub API rate limit), `FDROID_REPO_URL`. |
+| **App Store** | The store is a separate app. `APPSTORE_URL` points `/store` and the menu entry at it, and `SESSION_COOKIE_DOMAIN=.example.com` lets it verify this app's login instead of asking for its own. |
 | **yt-dlp / curl-impersonate** | The image ships `ffmpeg`, `gallery-dl` and `instaloader`, but **not** yt-dlp — sites change too fast to bake it in. Bind-mount a current binary into the container and point `YT_DLP_BIN` at it (same for `CURL_IMPERSONATE_BIN`). Without it, video downloads and the shorts poller can't run. |
 | **Ask AI** (`/ask`) | `PERPLEXITY_API_KEY` (plus optional `PERPLEXITY_MODEL` / `PERPLEXITY_SYSTEM_PROMPT`). Without a key the Ask page reports the feature as unconfigured; nothing else breaks. |
 | **18+ video metadata** | `TPDB_API_KEY` lets the `videos-metadata` job look up titles/performers for adult library files that have no `.nfo` sidecar. Optional — sidecars work without it. |

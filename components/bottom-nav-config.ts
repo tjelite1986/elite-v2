@@ -1,6 +1,5 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  Bookmark,
   CircleUser,
   Clapperboard,
   Disc3,
@@ -21,10 +20,8 @@ import {
   Search,
   Sparkles,
   SquarePlus,
-  Store,
   Tags,
   Users,
-  Wrench,
 } from "lucide-react";
 
 export type BottomNavItem = {
@@ -111,15 +108,6 @@ const SECTIONS: {
     ],
   },
   {
-    prefix: "/store",
-    items: () => [
-      { label: "Discover", href: "/store", icon: Store },
-      { label: "Search", href: "/store/search", icon: Search },
-      { label: "Installed", href: "/store/installed", icon: Download },
-      { label: "Saved", href: "/store/saved", icon: Bookmark },
-    ],
-  },
-  {
     prefix: "/people",
     items: ({ username }) => [
       { label: "People", href: "/people", icon: Users },
@@ -160,11 +148,6 @@ export function getBottomNavExtras(
       { label: "Genres", href: "/music/genres", icon: Tags },
       { label: "Downloads", href: "/music/downloads", icon: Download },
     ];
-  }
-  if (pathname === "/store" || pathname.startsWith("/store/")) {
-    return ctx.isAdmin
-      ? [{ label: "Manage", href: "/store/manage", icon: Wrench }]
-      : [];
   }
   return [];
 }
