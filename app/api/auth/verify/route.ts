@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 import { sessionExists, touchSession } from "@/lib/sessions";
+import { getAppearance, bgCss } from "@/lib/appearance";
 
 export const dynamic = "force-dynamic";
 
@@ -49,8 +50,17 @@ export async function POST(request: Request) {
   // While an admin is acting as another account, `role` is already that
   // account's — the store sees what the impersonated user would see, which is
   // the point of impersonation.
+  //
+  // The appearance rides along because the store is now a section of this site
+  // rather than a place people are sent to: a section that kept its own colours
+  // would announce itself as somewhere else on every visit. Both apps name
+  // these two tokens `--accent` and `--app-bg`, so the store has only to write
+  // them. It costs nothing extra — this answer is already being fetched and
+  // cached, and asking separately would be a second round trip for two strings.
+  const appearance = getAppearance(Number(session.sub));
   return NextResponse.json({
     ok: true,
     user: { id: Number(session.sub), email: session.email, role: session.role },
+    appearance: { accent: appearance.accent, bg: bgCss(appearance.bgTheme) },
   });
 }
