@@ -22,6 +22,7 @@ COMPOSE_DIR="${COMPOSE_DIR:-/home/thomas/docker2/compose/elitev2}"
 CONTAINER="${CONTAINER:-elitev2}"
 IMAGE="${IMAGE:-ghcr.io/tjelite1986/elite-v2}"
 POLL_SECS="${POLL_SECS:-20}"
+WORKFLOW="${WORKFLOW:-CI}"
 
 cd "$REPO_DIR"
 SHA="$(git rev-parse HEAD)"
@@ -39,8 +40,11 @@ fi
 echo "Locating CI run for $SHORT ..."
 RID=""
 for _ in $(seq 1 15); do
-  RID="$(gh run list --limit 20 --json databaseId,headSha \
-        -q "[.[] | select(.headSha == \"$SHA\")][0].databaseId" 2>/dev/null || true)"
+  # Filter on the workflow too: other workflows run against the same sha
+  # (Dependabot Updates does), and one of those as $RID polls green and then
+  # reports the publish job "missing" — a red herring for a healthy build.
+  RID="$(gh run list --limit 20 --json databaseId,headSha,workflowName \
+        -q "[.[] | select(.headSha == \"$SHA\" and .workflowName == \"$WORKFLOW\")][0].databaseId" 2>/dev/null || true)"
   [ -n "$RID" ] && [ "$RID" != "null" ] && break
   sleep 5
 done
