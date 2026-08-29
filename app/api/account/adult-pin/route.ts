@@ -36,6 +36,15 @@ const lockedOutResponse = () =>
 export async function PUT(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  // Act-as sessions must not change the target account's 18+ PIN: the admin
+  // doesn't know the content-owner's current PIN, and shouldn't be able to
+  // set one for them either.
+  if (session.imp) {
+    return NextResponse.json(
+      { error: "Cannot change the 18+ PIN while acting as another account." },
+      { status: 403 }
+    );
+  }
   const user = getUserById(Number(session.sub));
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -79,6 +88,12 @@ export async function PUT(request: Request) {
 export async function DELETE(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (session.imp) {
+    return NextResponse.json(
+      { error: "Cannot change the 18+ PIN while acting as another account." },
+      { status: 403 }
+    );
+  }
   const user = getUserById(Number(session.sub));
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

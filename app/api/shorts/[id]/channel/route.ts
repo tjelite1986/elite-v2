@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getShort } from "@/lib/shorts";
+import { canAccessChannel, getShort } from "@/lib/shorts";
 import { moveShortChannel } from "@/lib/shorts-move";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,13 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
   const target = body?.channel;
   if (target !== "main" && target !== "18plus") {
     return NextResponse.json({ error: "Invalid channel." }, { status: 400 });
+  }
+
+  // Every other 18+ write re-checks the gate independently — this route must
+  // check both ends of the move, not just ownership, or a locked PIN can be
+  // walked around by reclassifying a clip instead of viewing it.
+  if (!(await canAccessChannel(short.channel)) || !(await canAccessChannel(target))) {
+    return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
 
   try {

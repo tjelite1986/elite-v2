@@ -38,7 +38,7 @@ interface MemberRow extends Omit<GalleryDupeMember, "is_best"> {
 // All duplicate groups, best image first within each group. The owner name is
 // resolved from the gallery item's user. Items sent to trash (is_deleted = 1)
 // are excluded, so a group that drops below two members no longer shows.
-export function getGalleryDupeGroups(): GalleryDupeGroup[] {
+export function getGalleryDupeGroups(ownerId?: number | null): GalleryDupeGroup[] {
   const rows = getAll<MemberRow>(
     qb
       .selectFrom("gallery_dupe_groups as g")
@@ -46,6 +46,7 @@ export function getGalleryDupeGroups(): GalleryDupeGroup[] {
         join.onRef("gi.id", "=", "g.item_id").on("gi.is_deleted", "=", 0)
       )
       .leftJoin("user_profiles as up", "up.user_id", "gi.user_id")
+      .$if(ownerId != null, (q) => q.where("gi.user_id", "=", ownerId!))
       .select([
         "g.group_key",
         "g.match_type",

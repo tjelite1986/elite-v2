@@ -529,9 +529,12 @@ async function downloadToBuffer(url: string): Promise<Buffer | null> {
   const safe = safeHttpUrl(url);
   if (!safe) return null;
   try {
+    // No redirect-following: safeHttpUrl only validates the URL curl is given,
+    // not any 3xx target it might be redirected to — an attacker-controlled
+    // profile_pic_url could otherwise redirect curl to an internal address.
     const { stdout } = await execFileAsync(
       "curl",
-      ["-s", "-L", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
+      ["-s", "--max-redirs", "0", "--max-time", "20", "-A", "Mozilla/5.0", "--", safe],
       { maxBuffer: 32 * 1024 * 1024, timeout: 25_000, encoding: "buffer" }
     );
     return stdout;

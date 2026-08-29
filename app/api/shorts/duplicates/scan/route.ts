@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { getSession } from "@/lib/auth";
 import { hasShortsPermission } from "@/lib/permissions";
+import { has18Access } from "@/lib/shorts-gate";
 import { db } from "@/lib/db";
 import { getDupeState } from "@/lib/shorts-duplicates";
 
@@ -28,8 +29,10 @@ export async function POST() {
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  // The scan covers both channels, so it needs both section permissions.
-  if (!hasShortsPermission(session)) {
+  // The scan covers both channels, so it needs both section permissions, plus
+  // this session's own 18+ PIN unlocked — the settings permission alone isn't
+  // proof of that.
+  if (!hasShortsPermission(session) || !(await has18Access())) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

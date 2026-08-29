@@ -112,14 +112,19 @@ function decode(s: string): string {
 }
 
 function metaContent(html: string, key: string): string | null {
+  // Escape the key before it goes into the pattern: every caller today passes
+  // a fixed literal (og:image, og:title, ...), but a future caller passing a
+  // key with a regex metacharacter would otherwise get a silently wrong match
+  // or a thrown SyntaxError.
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   // Tolerant of attribute order (property/name before or after content).
   const patterns = [
     new RegExp(
-      `<meta[^>]+(?:property|name)=["']${key}["'][^>]*content=["']([^"']*)["']`,
+      `<meta[^>]+(?:property|name)=["']${escapedKey}["'][^>]*content=["']([^"']*)["']`,
       "i"
     ),
     new RegExp(
-      `<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${key}["']`,
+      `<meta[^>]+content=["']([^"']*)["'][^>]+(?:property|name)=["']${escapedKey}["']`,
       "i"
     ),
   ];

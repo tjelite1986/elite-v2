@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
-import { posterPathFor, setCustomPoster } from "@/lib/shorts-storage";
+import { isUnderShorts, posterPathFor, setCustomPoster } from "@/lib/shorts-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   }
 
   const filePath = posterPathFor(short.channel, short.poster_key);
-  if (!fs.existsSync(filePath)) {
+  if (!isUnderShorts(filePath) || !fs.existsSync(filePath)) {
     return new NextResponse("Not found", { status: 404 });
   }
 

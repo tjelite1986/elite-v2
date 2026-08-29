@@ -120,6 +120,17 @@ export function posterPathFor(
     : path.join(channelDir(channel), posterKey);
 }
 
+// Path-containment guard for the media routes, mirroring isUnderChannel in
+// videos-storage.ts: storage keys are server-generated, but every other media
+// route re-verifies the resolved path stays under its root before serving it.
+export function isUnderShorts(filePath: string): boolean {
+  const resolved = path.resolve(filePath);
+  for (const root of [path.resolve(PROFILE_ROOT), path.resolve(SHORTS_ROOT)]) {
+    if (resolved === root || resolved.startsWith(root + path.sep)) return true;
+  }
+  return false;
+}
+
 export interface StoredShort {
   storageKey: string; // e.g. "<uuid>.mp4"
   posterKey: string | null; // e.g. "<uuid>.jpg"
