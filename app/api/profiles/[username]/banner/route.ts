@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { getSession } from "@/lib/auth";
 import { getProfileExtras } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
-import { avatarPathFor, imageMimeFor } from "@/lib/posts-storage";
+import { avatarPathFor, imageMimeFor, isUnderPostsRoot } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,9 @@ export async function GET(request: Request, props: { params: Promise<{ username:
   const bannerKey = getProfileExtras(handleOf(params.username))?.banner_key;
   if (!bannerKey) return new NextResponse("Not found", { status: 404 });
   const filePath = avatarPathFor(bannerKey); // avatarPathFor just joins POSTS_ROOT
-  if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
+  if (!isUnderPostsRoot(filePath) || !fs.existsSync(filePath)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   const etag = `"${bannerKey}"`;
   if (request.headers.get("if-none-match") === etag) {

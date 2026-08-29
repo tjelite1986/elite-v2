@@ -11,6 +11,7 @@ import {
   ensureFitThumb,
   mediaMimeFor,
   isVideoKey,
+  isUnderPostsRoot,
 } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
@@ -52,7 +53,9 @@ export async function GET(request: Request, props: { params: Promise<{ mediaId: 
     ? (fitKey ?? thumbKeyFor(media.storage_key))
     : media.storage_key;
   const filePath = mediaPathFor(key);
-  if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
+  if (!isUnderPostsRoot(filePath) || !fs.existsSync(filePath)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   // ?download=1: serve as an attachment named from the on-disk file (its stem
   // is already self-describing) so the browser saves instead of rendering.

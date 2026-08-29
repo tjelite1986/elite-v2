@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { assertDownloadableUrl } from "@/lib/shorts-download";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   const url = new URL(req.url).searchParams.get("url") || "";
+  try {
+    await assertDownloadableUrl(url);
+  } catch {
+    return NextResponse.json({ ok: false, error: "That URL isn't reachable." });
+  }
   try {
     const r = await fetch(`${GRABBIT}/api/resolve?url=${encodeURIComponent(url)}`, { headers: GRABBIT_HEADERS });
     // The status is deliberately not forwarded: Cloudflare replaces a 5xx
