@@ -18,7 +18,11 @@ import { AuthCard } from "@/components/ui/modern-stunning-sign-in";
 // URL — falls back to the dashboard.
 function safeNext(raw: string | null): string {
   if (!raw) return "/";
-  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  // A path, but only a real one. "//evil.example" is protocol-relative, and so
+  // is "/\\evil.example" — a browser normalises the backslash to a slash, so a
+  // check that only rejects "//" lets the same redirect through wearing a
+  // different first character.
+  if (raw.startsWith("/") && raw[1] !== "/" && raw[1] !== "\\") return raw;
   try {
     const url = new URL(raw);
     if (url.protocol !== "https:" && url.protocol !== "http:") return "/";
