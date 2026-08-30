@@ -5,6 +5,36 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthCard } from "@/components/ui/modern-stunning-sign-in";
 
+
+// Where to go after signing in.
+//
+// `next` is attacker-controllable — it is a query parameter — so it is checked
+// rather than followed. A path on this host is always fine. An absolute URL is
+// allowed only when it is a sibling on the same parent domain: those hosts
+// (the shorts app, the store) already receive this session cookie, which is
+// scoped to that domain, so sending someone there hands over nothing they were
+// not already going to get. Anything else — another site, a protocol-relative
+// "//evil.example" that a naive startsWith("/") would accept, a javascript:
+// URL — falls back to the dashboard.
+function safeNext(raw: string | null): string {
+  if (!raw) return "/";
+  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return "/";
+    const here = window.location.hostname.split(".");
+    const parent = here.slice(-2).join(".");
+    const host = url.hostname;
+    if (host === window.location.hostname) return url.toString();
+    if (parent.includes(".") && (host === parent || host.endsWith(`.${parent}`))) {
+      return url.toString();
+    }
+  } catch {
+    /* not a URL at all */
+  }
+  return "/";
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -27,9 +57,15 @@ function LoginForm() {
           const data = await res.json().catch(() => ({}));
           return data.error || "Sign in failed.";
         }
-        const next = searchParams.get("next") || "/";
-        router.push(next);
-        router.refresh();
+        const next = safeNext(searchParams.get("next"));
+        // A sibling host is a different origin, not a route this router can
+        // resolve — hand it to the browser instead.
+        if (next.startsWith("/")) {
+          router.push(next);
+          router.refresh();
+        } else {
+          window.location.href = next;
+        }
       }}
       footer={
         <>

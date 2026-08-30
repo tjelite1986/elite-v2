@@ -84,6 +84,7 @@ export default function NavMenuContent({
   beforeSections,
   isAdmin = false,
   showAppstore = true,
+  tikshortisUrl,
 }: {
   myUsername: string;
   myEmail: string;
@@ -95,6 +96,9 @@ export default function NavMenuContent({
   // off in Settings. Default true: a caller that has not been taught about it
   // shows the store, which is how it behaved before there was a switch.
   showAppstore?: boolean;
+  // Absolute URL of the standalone shorts app, from the server env. Absent
+  // means it is not deployed here and the row simply does not appear.
+  tikshortisUrl?: string | null;
 }) {
   // The sketch's header shows @handle + "View profile" without the email, but
   // both callers still pass it — keep the prop so the API stays stable.
@@ -200,6 +204,19 @@ export default function NavMenuContent({
         <MenuRow href="/posts" icon={<Newspaper size={18} />} label="InstaElite" />
         <MenuRow href="/shorts" icon={<Play size={18} />} label="Shorts" />
         <MenuRow href="/shorts18" icon={<Flame size={18} />} label="Shorts 18+" />
+        {tikshortisUrl && (
+          // The main shorts library also runs as its own app on its own host.
+          // Both are live on purpose for now — this one keeps serving the rows
+          // it always had, and Tikshortis owns the pipeline that adds new ones.
+          // `hard`, because that address is not one of this app's routes.
+          <MenuRow
+            href={tikshortisUrl}
+            icon={<Play size={18} />}
+            label="Tikshortis"
+            sub="Shorts as its own app"
+            hard
+          />
+        )}
         <MenuRow
           href="/videos"
           icon={<Film size={18} />}

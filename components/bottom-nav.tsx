@@ -25,6 +25,7 @@ export default function BottomNav({
   canActAs,
   isAdmin = false,
   showAppstore = true,
+  tikshortisUrl,
   children,
 }: {
   username: string;
@@ -34,6 +35,7 @@ export default function BottomNav({
   isAdmin?: boolean;
   // Passed straight through to the menu; see nav-menu-content.tsx.
   showAppstore?: boolean;
+  tikshortisUrl?: string | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -168,6 +170,7 @@ export default function BottomNav({
             canActAs={canActAs}
             isAdmin={isAdmin}
             showAppstore={showAppstore}
+            tikshortisUrl={tikshortisUrl}
             extras={extras}
           />
         </>

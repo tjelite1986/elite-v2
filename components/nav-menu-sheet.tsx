@@ -17,6 +17,7 @@ export default function NavMenuSheet({
   canActAs,
   isAdmin = false,
   showAppstore = true,
+  tikshortisUrl,
   extras = [],
 }: {
   open: boolean;
@@ -28,6 +29,8 @@ export default function NavMenuSheet({
   isAdmin?: boolean;
   // Passed straight through to the menu; see nav-menu-content.tsx.
   showAppstore?: boolean;
+  // Passed straight through to the menu; see nav-menu-content.tsx.
+  tikshortisUrl?: string | null;
   // Section-contextual overflow destinations (the old top pill bars' tabs
   // that don't fit the bottom bar), shown as a block above the app links.
   extras?: BottomNavItem[];
@@ -48,6 +51,7 @@ export default function NavMenuSheet({
           myDisplayName={displayName}
           isAdmin={isAdmin}
           showAppstore={showAppstore}
+          tikshortisUrl={tikshortisUrl}
           beforeSections={
             canActAs || extras.length > 0 ? (
               <>

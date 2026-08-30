@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 import { sessionExists, touchSession } from "@/lib/sessions";
 import { getAppearance, bgCss } from "@/lib/appearance";
+import { ensureUserProfile } from "@/lib/profiles";
 
 export const dynamic = "force-dynamic";
 
@@ -58,9 +59,25 @@ export async function POST(request: Request) {
   // them. It costs nothing extra — this answer is already being fetched and
   // cached, and asking separately would be a second round trip for two strings.
   const appearance = getAppearance(Number(session.sub));
+
+  // The public face of the account rides along for the same reason the
+  // appearance does: the sibling app needs a handle to file a clip under and a
+  // name to put beside a comment, and it is already paying for this round trip.
+  // Asking separately would be a second one for two strings. The avatar is sent
+  // as a PATH, not a key — a storage key means nothing outside this app, and
+  // the sibling resolves it against this host.
+  const profile = ensureUserProfile(Number(session.sub), session.email);
+
   return NextResponse.json({
     ok: true,
-    user: { id: Number(session.sub), email: session.email, role: session.role },
+    user: {
+      id: Number(session.sub),
+      email: session.email,
+      role: session.role,
+      username: profile.username,
+      displayName: profile.display_name,
+      avatarUrl: `/api/profiles/${encodeURIComponent(profile.username)}/avatar`,
+    },
     appearance: { accent: appearance.accent, bg: bgCss(appearance.bgTheme) },
   });
 }

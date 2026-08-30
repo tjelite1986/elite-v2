@@ -63,6 +63,11 @@ export default async function AuthedLayout({
             canActAs={session.role === "admin" || !!session.imp}
             isAdmin={session.role === "admin"}
             showAppstore={showsAppstore(session)}
+            // The standalone shorts app, when one is deployed alongside this
+            // one. Read here rather than in the menu because that is a client
+            // component: a NEXT_PUBLIC_ variable would bake the address into
+            // the image at build time instead of reading it at run time.
+            tikshortisUrl={process.env.TIKSHORTIS_URL || null}
           >
             {children}
           </BottomNav>
