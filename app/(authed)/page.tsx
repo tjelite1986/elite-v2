@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { showsAppstore } from "@/lib/permissions";
+import { APPSTORE_URL } from "@/lib/appstore-url";
 import { qb, getOne, getAll } from "@/lib/kysely";
 import WeatherWidget from "@/components/weather-widget";
 import ServerWidget from "@/components/server-widget";
@@ -82,8 +83,8 @@ export default async function Home() {
     { icon: <Clapperboard size={18} />, label: "Shorts", value: shortCount.toLocaleString(), href: "/shorts" },
     { icon: <HardDrive size={18} />, label: "Storage", value: formatBytes(storage), href: "/gallery" },
   ];
-  // `hard` leaves the app: /store is on this host but answered by the store's
-  // own app, so the router must not try to resolve it as one of our routes.
+  // `hard` leaves the app: the store is its own site on its own host, so the
+  // router has nothing to resolve — this is a real navigation off this origin.
   const links: {
     icon: React.ReactNode;
     label: string;
@@ -101,7 +102,7 @@ export default async function Home() {
     links.push({
       icon: <Store size={20} />,
       label: "App Store",
-      href: "/store",
+      href: APPSTORE_URL,
       hard: true,
     });
   }

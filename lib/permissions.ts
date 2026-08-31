@@ -94,8 +94,8 @@ export function setUserPermissions(userId: number, keys: string[]): void {
 // questions, deliberately separate. The permission answers whether the account
 // may reach the store at all — an admin decision. The profile flag answers
 // whether the person wants the row and the tile — theirs. The store itself
-// stays reachable at /store either way; hiding a link is not access control,
-// and pretending otherwise would put the only guard in the chrome.
+// stays reachable at its own address either way; hiding a link is not access
+// control, and pretending otherwise would put the only guard in the chrome.
 export function showsAppstore(
   session: { sub?: string | number; role?: string } | null | undefined
 ): boolean {

@@ -28,6 +28,7 @@ import {
   Users,
 } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
+import { APPSTORE_URL } from "@/lib/appstore-url";
 
 // ---------------------------------------------------------------------------
 // Shared app menu — designed in Layout Studio (docs/layout-studio/
@@ -233,13 +234,12 @@ export default function NavMenuContent({
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
-        {/* Its own app since 2026-08-26, but not its own address: /store on
-            this host is routed straight to it, so the store is a section of
-            this site and the session cookie is first-party there. It is not
-            one of our routes, though — hence a real navigation. */}
+        {/* Its own app and, since 2026-08-31, its own address again. The
+            session cookie is scoped to mecloud.win, so the store still knows
+            who arrives; the link just leaves this origin, hence `hard`. */}
         {showAppstore && (
           <MenuRow
-            href="/store"
+            href={APPSTORE_URL}
             icon={<Store size={18} />}
             label="App Store"
             sub="APK library"

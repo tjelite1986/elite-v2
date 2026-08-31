@@ -98,9 +98,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.origin !== self.location.origin) return;
-  // Same origin, different app: /store is routed to the store's own server.
-  // Nothing under it is ours to cache or serve from a cache of ours.
-  if (url.pathname === "/store" || url.pathname.startsWith("/store/")) return;
 
   // Downloaded music wins over the network: that is the whole point of having
   // downloaded it, and it keeps playback going when the Pi is unreachable.

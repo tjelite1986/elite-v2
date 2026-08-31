@@ -46,19 +46,6 @@ export default function BottomNav({
   // Close the sheet when a menu link navigates away.
   useEffect(() => setMenuOpen(false), [pathname]);
 
-  // Arriving from the store. /store is a section of this site answered by its
-  // own app, so it cannot render this sheet — its Menu button sends people
-  // here with ?menu=1 instead, and lands them on the open menu rather than on
-  // a home page they then have to find the menu on. Read once, off the
-  // location: this runs under a dynamic layout, and useSearchParams would
-  // impose a Suspense boundary for one query string. Declared after the effect
-  // above so it wins on the mount they share.
-  useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("menu") === "1") {
-      setMenuOpen(true);
-    }
-  }, []);
-
   const loadNotifCount = useCallback(async () => {
     try {
       const res = await fetch("/api/notifications");

@@ -1025,8 +1025,9 @@ function AppstorePanel({ showAppstore }: { showAppstore: boolean }) {
           <h2 className="text-lg font-medium">Show the App Store</h2>
           <p className="mt-1 max-w-md text-sm text-white/50">
             Put the App Store in the menu and on the dashboard. Turning it off
-            only hides those two links for you — the store itself stays open at
-            /store, and anything already installed keeps updating.
+            only hides those two links for you — the store itself stays open
+            at astore.mecloud.win, and anything already installed keeps
+            updating.
           </p>
         </div>
         <button
