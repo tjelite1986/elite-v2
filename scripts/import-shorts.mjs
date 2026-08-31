@@ -138,11 +138,33 @@ function captionFromStem(stem) {
   return [title, tags].filter(Boolean).join(" ").trim() || null;
 }
 
+// ext4 allows 255 BYTES in a filename, and a CJK character costs three of them,
+// so the cap counts bytes, not characters. The room left over is for the
+// suffixes a clip picks up on the way in (".web.mp4", ".jpg").
+function capBytes(str, max = 200) {
+  if (Buffer.byteLength(str) <= max) return str;
+  let out = "";
+  for (const ch of str) {
+    if (Buffer.byteLength(out + ch) > max) break;
+    out += ch;
+  }
+  return out;
+}
+
+// A title keeps its own alphabet. Replacing every non-ASCII character with "_"
+// did not just lose the Thai or Chinese title — it collapsed different clips
+// onto the same name ("unknown_-"), and the second one in was then skipped as a
+// duplicate of the first, silently and for ever. Only what a path genuinely
+// cannot hold is replaced: the separators and the control characters.
 function sanitizeStem(stem) {
-  const cleaned = stem
-    .replace(/[^A-Za-z0-9 ._\-()]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^[_ .]+|[_ .]+$/g, "");
+  const cleaned = capBytes(
+    stem
+      // eslint-disable-next-line no-control-regex
+      .replace(/[/\\:*?"<>|\u0000-\u001f\u007f]/g, "_")
+      .replace(/\s+/g, " ")
+      .replace(/_+/g, "_")
+      .replace(/^[_ .]+|[_ .]+$/g, "")
+  ).replace(/[_ .]+$/, "");
   return cleaned || "clip";
 }
 
@@ -277,6 +299,9 @@ for (const entry of entries) {
   const safeStem = sanitizeStem(stem);
   const sourceId = safeStem; // dedup key for re-runs
   if (seenSource.get(profile.id, sourceId)) {
+    // Name the file and the reason: a silent skip count is indistinguishable
+    // from a mangled name colliding with a clip that is already in.
+    log(`skip ${entry.name}: ${profile.name} already has ${sourceId}`);
     skipped++;
     continue;
   }
@@ -287,6 +312,7 @@ for (const entry of entries) {
   const destVideoName = `${safeStem}${ext}`;
   const destVideo = path.join(destDir, destVideoName);
   if (fs.existsSync(destVideo)) {
+    log(`skip ${entry.name}: ${slug}/${destVideoName} is already on disk`);
     skipped++;
     continue;
   }
