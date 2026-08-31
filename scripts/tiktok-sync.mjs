@@ -278,8 +278,8 @@ function downloadProfile(localHandle, ttUsername) {
 
 // --- Main ------------------------------------------------------------------
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+db.pragma("journal_mode = WAL");
 
 // We hold the single-run lock, so any tt_syncing=1 left in the DB is a stale
 // flag from a crashed/killed run — clear them all (they are re-set per handle

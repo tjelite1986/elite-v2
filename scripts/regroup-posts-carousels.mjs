@@ -67,9 +67,9 @@ function chunk(arr, n) {
 }
 
 const db = new Database(DB_PATH);
+db.pragma("busy_timeout = 20000");
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
-db.pragma("busy_timeout = 20000");
 
 const selCreator = db.prepare("SELECT id FROM post_creators WHERE username = ?");
 const selMedia = db.prepare(

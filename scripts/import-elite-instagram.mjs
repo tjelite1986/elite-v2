@@ -67,8 +67,8 @@ if (!fs.existsSync(SRC)) {
 }
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 20000");
+db.pragma("journal_mode = WAL");
 
 const findCreator = db.prepare("SELECT id FROM post_creators WHERE username = ?");
 const insertCreator = db.prepare(

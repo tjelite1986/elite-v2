@@ -341,8 +341,8 @@ function downloadProfile(localHandle, igUsername, cookie, target = {}) {
 
 // --- Main ------------------------------------------------------------------
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+db.pragma("journal_mode = WAL");
 
 // We hold the single-run lock, so any ig_syncing=1 left in the DB is a stale
 // flag from a crashed/killed run — clear them all (they are re-set per handle

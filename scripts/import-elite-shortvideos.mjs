@@ -65,8 +65,8 @@ function tiktokVideoId(url) {
 }
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+db.pragma("journal_mode = WAL");
 
 const findProfile = db.prepare(
   "SELECT id FROM short_profiles WHERE source_ref = ? OR name = ? LIMIT 1"

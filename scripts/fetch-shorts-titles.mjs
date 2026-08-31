@@ -81,8 +81,8 @@ function result(obj) {
 }
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+db.pragma("journal_mode = WAL");
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS short_title_state (

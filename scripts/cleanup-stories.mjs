@@ -13,8 +13,8 @@ const POSTS_ROOT = process.env.POSTS_ROOT || "/posts-store";
 const log = (m) => console.log(`[cleanup-stories] ${m}`);
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+db.pragma("journal_mode = WAL");
 
 const expired = db
   .prepare("SELECT id, storage_key FROM stories WHERE expires_at <= datetime('now')")

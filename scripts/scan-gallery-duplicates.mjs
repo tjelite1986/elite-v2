@@ -244,8 +244,8 @@ function sortByQuality(items) {
 
 // --- main ------------------------------------------------------------------
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+db.pragma("journal_mode = WAL");
 
 // The app normally creates these in lib/db.ts on startup, but this script also
 // runs standalone (job scheduler / docker exec) before any request touches the

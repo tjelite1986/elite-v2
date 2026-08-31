@@ -226,8 +226,8 @@ if (!fs.existsSync(IMPORT_DIR)) {
 }
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+db.pragma("journal_mode = WAL");
 
 // Existing profiles in this channel keyed by handle, so a dropped file reuses
 // the same person's profile even if the filename's capitalization differs.

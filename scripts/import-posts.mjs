@@ -179,8 +179,8 @@ if (!fs.existsSync(IMPORT_DIR)) {
 }
 
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 15000");
+db.pragma("journal_mode = WAL");
 
 const findCreator = db.prepare("SELECT id FROM post_creators WHERE username = ?");
 const insertCreator = db.prepare(

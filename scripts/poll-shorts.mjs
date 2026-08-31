@@ -204,8 +204,8 @@ function download(url, dir, uuid) {
 
 // --- Main ------------------------------------------------------------------
 const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
 db.pragma("busy_timeout = 10000"); // tolerate the app/transcoder writing too
+db.pragma("journal_mode = WAL");
 
 // With a profile id argument, poll just that profile on demand (ignores the
 // auto_poll flag) — used by the "Poll now" button and on profile create.
