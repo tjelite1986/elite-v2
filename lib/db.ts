@@ -1546,7 +1546,35 @@ function seedContentOwners(db: Database.Database) {
 }
 
 
-export const db = globalForDb.db ?? createDb();
+// `next build` collects page data in parallel worker processes that all
+// initialise the same brand-new database file. createDb() already serializes
+// its write side with BEGIN IMMEDIATE under a 30 s busy_timeout, and that is
+// enough on the Pi — but not on CI's wider runners, where the build fails at
+// "Collecting page data" with SQLITE_BUSY well INSIDE those 30 s, on a
+// different route each run. Something in the open-and-migrate path therefore
+// returns SQLITE_BUSY without consulting the busy handler at all, so no
+// timeout can cover it.
+//
+// Retry the whole initialisation instead of guessing which statement it is.
+// createDb() is idempotent — every DDL is guarded and the writes happen in one
+// IMMEDIATE transaction that rolls back on failure — so a losing worker can
+// simply open the file again a moment later, by which time the winner has
+// committed and the retry is a cheap read of an already-migrated schema.
+function createDbWithRetry(attempts = 12, waitMs = 500): Database.Database {
+  for (let i = 1; ; i++) {
+    try {
+      return createDb();
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code !== "SQLITE_BUSY" || i >= attempts) throw e;
+      // Deliberately synchronous: this runs at module scope, so there is no
+      // event loop to await on and the process has nothing else to do.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitMs);
+    }
+  }
+}
+
+export const db = globalForDb.db ?? createDbWithRetry();
 if (process.env.NODE_ENV !== "production") globalForDb.db = db;
 
 // Deferred to the next tick so this module finishes evaluating first, then give
