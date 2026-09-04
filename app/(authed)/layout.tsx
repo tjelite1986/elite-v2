@@ -10,6 +10,7 @@ import PrivacyControls from "@/components/PrivacyControls";
 import MusicPlayerProvider from "@/components/music/player-provider";
 import MiniPlayer from "@/components/music/mini-player";
 import { showsAppstore } from "@/lib/permissions";
+import { musicConfigured } from "@/lib/subsonic";
 
 // Shared layout for all authenticated pages: renders the global bottom nav
 // and provides the common dark background. Middleware already gates access, but
@@ -34,6 +35,31 @@ export default async function AuthedLayout({
   // server-side (no flash). Live changes in Settings override these on :root.
   const appearance = getAppearance(Number(session.sub));
 
+  // /music has exactly one backend. With no Navidrome configured the section is
+  // a dead end, so the nav entry, the routes (see music/layout.tsx) and the
+  // player itself all disappear together rather than offering a tab that only
+  // ever shows an empty library.
+  const musicEnabled = musicConfigured();
+
+  const nav = (
+    <BottomNav
+      username={username}
+      displayName={display_name}
+      email={session.email}
+      canActAs={session.role === "admin" || !!session.imp}
+      isAdmin={session.role === "admin"}
+      showAppstore={showsAppstore(session)}
+      showMusic={musicEnabled}
+      // The standalone shorts app, when one is deployed alongside this
+      // one. Read here rather than in the menu because that is a client
+      // component: a NEXT_PUBLIC_ variable would bake the address into
+      // the image at build time instead of reading it at run time.
+      tikshortisUrl={process.env.TIKSHORTIS_URL || null}
+    >
+      {children}
+    </BottomNav>
+  );
+
   return (
     <WebSocketProvider>
       {/* Safe interpolation: accent is validated to a 6-digit hex by
@@ -54,25 +80,17 @@ export default async function AuthedLayout({
         style={{ background: "var(--app-bg)" }}
       >
         {/* The music player wraps the router outlet so its single <audio>
-            element outlives every client-side navigation. */}
-        <MusicPlayerProvider>
-          <BottomNav
-            username={username}
-            displayName={display_name}
-            email={session.email}
-            canActAs={session.role === "admin" || !!session.imp}
-            isAdmin={session.role === "admin"}
-            showAppstore={showsAppstore(session)}
-            // The standalone shorts app, when one is deployed alongside this
-            // one. Read here rather than in the menu because that is a client
-            // component: a NEXT_PUBLIC_ variable would bake the address into
-            // the image at build time instead of reading it at run time.
-            tikshortisUrl={process.env.TIKSHORTIS_URL || null}
-          >
-            {children}
-          </BottomNav>
-          <MiniPlayer />
-        </MusicPlayerProvider>
+            element outlives every client-side navigation. Without a library it
+            would never load a track, so it is left out entirely and --player-h
+            keeps the 0px above — every --fab-offset consumer stays correct. */}
+        {musicEnabled ? (
+          <MusicPlayerProvider>
+            {nav}
+            <MiniPlayer />
+          </MusicPlayerProvider>
+        ) : (
+          nav
+        )}
         <ActAsBanner
           imp={session.imp ?? null}
           actingAsEmail={session.email}

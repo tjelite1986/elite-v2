@@ -85,6 +85,7 @@ export default function NavMenuContent({
   beforeSections,
   isAdmin = false,
   showAppstore = true,
+  showMusic = true,
   tikshortisUrl,
 }: {
   myUsername: string;
@@ -97,6 +98,10 @@ export default function NavMenuContent({
   // off in Settings. Default true: a caller that has not been taught about it
   // shows the store, which is how it behaved before there was a switch.
   showAppstore?: boolean;
+  // False when no Navidrome is configured for this deployment, which is the
+  // only backend /music has. Default true for the same reason as showAppstore:
+  // a caller that has not been taught about it keeps the old behaviour.
+  showMusic?: boolean;
   // Absolute URL of the standalone shorts app, from the server env. Absent
   // means it is not deployed here and the row simply does not appear.
   tikshortisUrl?: string | null;
@@ -225,12 +230,14 @@ export default function NavMenuContent({
           sub="Long-form video library"
         />
         <MenuRow href="/videos18" icon={<Film size={18} />} label="Videos 18+" />
-        <MenuRow
-          href="/music"
-          icon={<Music4 size={18} />}
-          label="Music"
-          sub="Navidrome library"
-        />
+        {showMusic && (
+          <MenuRow
+            href="/music"
+            icon={<Music4 size={18} />}
+            label="Music"
+            sub="Navidrome library"
+          />
+        )}
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
