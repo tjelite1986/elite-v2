@@ -5,7 +5,13 @@ import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { getHandleAvatar, setHandleAvatar } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
-import { avatarPathFor, imageMimeFor, mediaPathFor, storeAvatar } from "@/lib/posts-storage";
+import {
+  avatarPathFor,
+  imageMimeFor,
+  isUnderPostsRoot,
+  mediaPathFor,
+  storeAvatar,
+} from "@/lib/posts-storage";
 import { posterPathFor } from "@/lib/shorts-storage";
 
 export const dynamic = "force-dynamic";
@@ -139,7 +145,9 @@ export async function GET(request: Request, props: { params: Promise<{ username:
 
   if (!avatarKey) return new NextResponse("Not found", { status: 404 });
   const filePath = avatarPathFor(avatarKey);
-  if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
+  if (!isUnderPostsRoot(filePath) || !fs.existsSync(filePath)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   // The avatar URL is keyed by username (stable), but the underlying file changes
   // when the picture is changed. Tag the response with the avatar key so the

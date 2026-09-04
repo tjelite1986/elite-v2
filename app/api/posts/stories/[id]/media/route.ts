@@ -5,7 +5,7 @@ import { getSession } from "@/lib/auth";
 import { isFollowing } from "@/lib/posts";
 import { getStory, adultAuthorId } from "@/lib/stories";
 import { has18Access } from "@/lib/shorts-gate";
-import { mediaPathFor, imageMimeFor } from "@/lib/posts-storage";
+import { mediaPathFor, imageMimeFor, isUnderPostsRoot } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +40,9 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
   }
 
   const filePath = mediaPathFor(story.storage_key);
-  if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
+  if (!isUnderPostsRoot(filePath) || !fs.existsSync(filePath)) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
   const stream = fs.createReadStream(filePath);
   return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {

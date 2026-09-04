@@ -41,8 +41,13 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const abs = path.resolve(IMPORT_ROOT, row.file_rel);
+  if (!abs.startsWith(path.resolve(IMPORT_ROOT) + path.sep)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
-    const buffer = fs.readFileSync(path.join(IMPORT_ROOT, row.file_rel));
+    const buffer = fs.readFileSync(abs);
     const ext = path.extname(row.file_rel).toLowerCase();
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

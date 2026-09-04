@@ -69,8 +69,11 @@ export async function DELETE(_request: Request, props: { params: Promise<{ id: s
   const media = getAll<PostMediaRow>(
     qb.selectFrom("post_media").selectAll().where("post_id", "=", post.id)
   );
-  for (const m of media) deletePostImageFiles(m.storage_key);
 
+  // Unlink after the commit, never inside it: if the row update fails, a
+  // soft-deleted post with files still on disk is harmless (cleanup picks it
+  // up); files gone before the row commits would leave a live post broken.
   db.prepare("UPDATE posts SET is_deleted = 1 WHERE id = ?").run(post.id);
+  for (const m of media) deletePostImageFiles(m.storage_key);
   return NextResponse.json({ ok: true });
 }

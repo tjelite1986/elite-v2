@@ -51,15 +51,18 @@ export async function GET(
     }
 
     const headers = new Headers();
-    for (const key of [
-      "content-type",
-      "content-length",
-      "content-range",
-      "accept-ranges",
-    ]) {
+    for (const key of ["content-length", "content-range", "accept-ranges"]) {
       const value = upstream.headers.get(key);
       if (value) headers.set(key, value);
     }
+    // Navidrome is a trusted internal service, but only forward its
+    // content-type when it actually looks like audio — an explicit allowlist
+    // rather than trusting the upstream header verbatim.
+    const upstreamType = upstream.headers.get("content-type") || "";
+    headers.set(
+      "content-type",
+      upstreamType.startsWith("audio/") ? upstreamType : "application/octet-stream"
+    );
     if (!headers.has("accept-ranges")) headers.set("accept-ranges", "bytes");
     // Per-user credentials are baked into the upstream request, so this is a
     // private response — but it is byte-identical per song, so let the browser

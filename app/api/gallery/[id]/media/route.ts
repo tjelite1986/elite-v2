@@ -42,6 +42,9 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   if (item.user_id !== userId && !isAdmin && !canViewItem(userId, item.id)) {
     return new NextResponse("Forbidden", { status: 403 });
   }
+  if (item.storage_key.includes("..") || item.storage_key.startsWith("/")) {
+    return new NextResponse("Not found", { status: 404 });
+  }
   const ownerId = item.user_id;
 
   const url = new URL(request.url);

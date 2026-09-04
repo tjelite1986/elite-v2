@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { hasShortsPermission } from "@/lib/permissions";
 import { parseChannel } from "@/lib/shorts";
+import { has18Access } from "@/lib/shorts-gate";
 import {
   dismissDupeGroup,
   getDupeGroups,
@@ -21,6 +22,12 @@ export async function GET(request: Request) {
   const param = new URL(request.url).searchParams.get("channel");
   const channel = param ? parseChannel(param) : undefined;
   if (!hasShortsPermission(session, channel)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  // shorts18_settings is a management permission, not proof this session has
+  // unlocked the viewer's own 18+ PIN — re-check it independently, same as
+  // every other route that can surface 18+ clip data.
+  if (channel !== "main" && !(await has18Access())) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -62,6 +69,9 @@ export async function POST(request: Request) {
     channels.size === ids.length &&
     [...channels.values()].every((c) => hasShortsPermission(session, c));
   if (!allowed) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  if ([...channels.values()].includes("18plus") && !(await has18Access())) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

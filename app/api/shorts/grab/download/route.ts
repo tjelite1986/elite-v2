@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { assertDownloadableUrl } from "@/lib/shorts-download";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -15,8 +16,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   const sp = new URL(req.url).searchParams;
+  const rawUrl = sp.get("url") || "";
+  try {
+    await assertDownloadableUrl(rawUrl);
+  } catch {
+    return NextResponse.json({ ok: false, error: "That URL isn't reachable." }, { status: 400 });
+  }
   const qs = new URLSearchParams({
-    url: sp.get("url") || "",
+    url: rawUrl,
     channel: sp.get("channel") === "18plus" ? "18plus" : "main",
     device: "0",
   });

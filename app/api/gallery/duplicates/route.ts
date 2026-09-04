@@ -16,8 +16,9 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const ownerId = session.role === "admin" ? null : Number(session.sub);
   return NextResponse.json({
     state: getGalleryDupeState(),
-    groups: getGalleryDupeGroups(),
+    groups: getGalleryDupeGroups(ownerId),
   });
 }

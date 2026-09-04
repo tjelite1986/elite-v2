@@ -41,8 +41,17 @@ export async function GET(request: Request, props: { params: Promise<{ slug: str
   const range = request.headers.get("range");
   if (range) {
     const m = /bytes=(\d*)-(\d*)/.exec(range);
-    let start = m && m[1] ? parseInt(m[1], 10) : 0;
-    let end = m && m[2] ? parseInt(m[2], 10) : size - 1;
+    let start: number;
+    let end: number;
+    if (m && !m[1] && m[2]) {
+      // Suffix form (bytes=-N, RFC 7233 §2.1): the LAST N bytes — pdf.js sends
+      // this to read the xref table at the end of a PDF.
+      start = Math.max(0, size - parseInt(m[2], 10));
+      end = size - 1;
+    } else {
+      start = m && m[1] ? parseInt(m[1], 10) : 0;
+      end = m && m[2] ? parseInt(m[2], 10) : size - 1;
+    }
     if (isNaN(start) || start < 0) start = 0;
     if (isNaN(end) || end >= size) end = size - 1;
     if (start > end) {

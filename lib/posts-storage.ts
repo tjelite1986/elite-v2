@@ -68,6 +68,18 @@ export function mediaPathFor(storageKey: string): string {
     : path.join(POSTS_ROOT, storageKey);
 }
 
+// Path-containment guard for the media-serving routes, mirroring isUnderChannel
+// in videos-storage.ts: storage keys are server-generated, but every route that
+// serves a file straight to the browser re-verifies the resolved path stays
+// under its root before opening it.
+export function isUnderPostsRoot(filePath: string): boolean {
+  const resolved = path.resolve(filePath);
+  for (const root of [path.resolve(PROFILE_ROOT), path.resolve(POSTS_ROOT)]) {
+    if (resolved === root || resolved.startsWith(root + path.sep)) return true;
+  }
+  return false;
+}
+
 // The grid thumbnail lives next to the display file as <stem>_t.jpg. Videos get
 // the same convention: their _t.jpg is a poster frame extracted at store time.
 export function thumbKeyFor(storageKey: string): string {

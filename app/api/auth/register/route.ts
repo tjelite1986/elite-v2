@@ -4,6 +4,11 @@ import { db, CodeRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { isCodeExpired } from "@/lib/codes";
 import { getUserByEmail } from "@/lib/auth";
+import {
+  loginLockRemainingSec,
+  recordLoginFailure,
+  clearLoginFailures,
+} from "@/lib/login-rate-limit";
 import { hashPassword } from "@/lib/password";
 import { ensureUserProfile } from "@/lib/profiles";
 import { ensureUserHome } from "@/lib/shorts-storage";
@@ -52,28 +57,45 @@ export async function POST(request: Request) {
   }
 
   const normalizedCode = String(code).trim().toUpperCase();
+
+  // Same DB-backed throttle as login, keyed by the submitted code, so guessing
+  // invite codes at network speed hits the same escalating lockout.
+  const lockedSec = loginLockRemainingSec(normalizedCode);
+  if (lockedSec > 0) {
+    return NextResponse.json(
+      {
+        error: `Too many attempts. Try again in ${Math.ceil(lockedSec / 60)} min.`,
+      },
+      { status: 429, headers: { "Retry-After": String(lockedSec) } }
+    );
+  }
+
   const codeRow = getOne<CodeRow>(
     qb.selectFrom("registration_codes").selectAll().where("code", "=", normalizedCode)
   );
 
   if (!codeRow) {
+    recordLoginFailure(normalizedCode);
     return NextResponse.json(
       { error: "Invalid registration code." },
       { status: 403 }
     );
   }
   if (codeRow.used_by) {
+    recordLoginFailure(normalizedCode);
     return NextResponse.json(
       { error: "This registration code has already been used." },
       { status: 403 }
     );
   }
   if (isCodeExpired(codeRow.expires_at)) {
+    recordLoginFailure(normalizedCode);
     return NextResponse.json(
       { error: "This registration code has expired." },
       { status: 403 }
     );
   }
+  clearLoginFailures(normalizedCode);
 
   // Create the user and consume the code atomically.
   const createUserAndConsume = db.transaction(() => {

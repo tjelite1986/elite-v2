@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import { getSession, secretMatches } from "@/lib/auth";
 import { hasPermission } from "@/lib/permissions";
 import {
   findOrphanGalleryItems,
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   const secret = process.env.IMPORT_CRON_SECRET;
   const presented = request.headers.get("x-import-secret");
   const isAllowed = hasPermission(session, "gallery_settings");
-  const isCron = Boolean(secret) && presented === secret;
+  const isCron = secretMatches(presented, secret);
   if (!isAllowed && !isCron) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
