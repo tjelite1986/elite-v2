@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getShort } from "@/lib/shorts";
+import { canAccessChannel, getShort } from "@/lib/shorts";
 import { moveShortToVideoPost } from "@/lib/shorts-to-post";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +21,11 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   }
   const isOwner = short.uploader_id === Number(session.sub);
   if (session.role !== "admin" && !isOwner) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  // Same gate as the channel move: leaving the 18+ channel this way must not
+  // bypass the PIN either.
+  if (!(await canAccessChannel(short.channel))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

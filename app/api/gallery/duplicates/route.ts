@@ -15,9 +15,12 @@ export async function GET() {
   if (!hasPermission(session, "gallery_settings")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  // gallery_settings is grantable to a non-admin, so scope to their own items —
+  // only an admin sees the whole library's duplicate groups.
+  const ownerId = session.role === "admin" ? undefined : Number(session.sub);
 
   return NextResponse.json({
     state: getGalleryDupeState(),
-    groups: getGalleryDupeGroups(),
+    groups: getGalleryDupeGroups(ownerId),
   });
 }
