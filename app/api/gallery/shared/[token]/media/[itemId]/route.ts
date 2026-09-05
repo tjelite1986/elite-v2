@@ -43,7 +43,9 @@ export async function GET(
         headers: {
           "Content-Type": "image/jpeg",
           "Content-Length": String(fs.statSync(path).size),
-          "Cache-Control": "public, max-age=86400",
+          // private, not public: a revoked share must stop serving immediately,
+          // and a public cache would keep serving a stale copy for its TTL.
+          "Cache-Control": "private, max-age=3600",
           "X-Content-Type-Options": "nosniff",
         },
       }
@@ -66,7 +68,9 @@ export async function GET(
         "Content-Type": safe ? detected : "application/octet-stream",
         "Content-Length": String(fs.statSync(path).size),
         ...(safe ? {} : { "Content-Disposition": "attachment" }),
-        "Cache-Control": "public, max-age=86400",
+        // no-store: a revoked share must stop serving immediately, not linger in
+        // a shared cache for a day.
+        "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
       },
     }

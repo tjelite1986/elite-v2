@@ -56,8 +56,12 @@ export async function GET(_request: Request, props: { params: Promise<{ userId: 
     reply: m.reply_to ? replyPreview("dm", m.reply_to) : null,
   }));
 
+  // No relationship check gates this route (any authenticated user can open a
+  // thread with any other user id), so the email address must not ride along —
+  // sequential ids would otherwise let it be enumerated. Nothing in the client
+  // reads it.
   return NextResponse.json({
     messages: withMeta,
-    other: { id: other.id, email: other.email },
+    other: { id: other.id },
   });
 }
