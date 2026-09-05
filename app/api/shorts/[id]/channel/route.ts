@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getShort } from "@/lib/shorts";
+import { canAccessChannel, getShort } from "@/lib/shorts";
 import { moveShortChannel } from "@/lib/shorts-move";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,11 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
   const target = body?.channel;
   if (target !== "main" && target !== "18plus") {
     return NextResponse.json({ error: "Invalid channel." }, { status: 400 });
+  }
+  // Moving a clip into or out of the 18+ channel is a visibility change, so it
+  // needs the same PIN-unlock gate as uploading into that channel directly.
+  if (!(await canAccessChannel(short.channel)) || !(await canAccessChannel(target))) {
+    return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
 
   try {
