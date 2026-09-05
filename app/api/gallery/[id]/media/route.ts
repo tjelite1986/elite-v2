@@ -10,6 +10,9 @@ import {
   previewPathFor,
   isSupportedVideo,
   videoMimeFor,
+  isUnderOriginals,
+  isUnderThumbs,
+  isUnderPreviews,
 } from "@/lib/gallery-storage";
 import { imageMimeFor } from "@/lib/posts-storage";
 import { canViewItem } from "@/lib/gallery-share";
@@ -57,7 +60,11 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       variant === "preview"
         ? previewPathFor(ownerId, item.storage_key)
         : thumbPathFor(ownerId, item.storage_key);
-    if (!fs.existsSync(filePath)) {
+    const underRoot =
+      variant === "preview"
+        ? isUnderPreviews(ownerId, filePath)
+        : isUnderThumbs(ownerId, filePath);
+    if (!underRoot || !fs.existsSync(filePath)) {
       return new NextResponse("Not found", { status: 404 });
     }
     const stream = fs.createReadStream(filePath);
@@ -78,7 +85,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   const contentType = isVideo
     ? videoMimeFor(item.storage_key)
     : imageMimeFor(item.storage_key);
-  if (!fs.existsSync(filePath)) {
+  if (!isUnderOriginals(ownerId, filePath) || !fs.existsSync(filePath)) {
     return new NextResponse("Not found", { status: 404 });
   }
   const wantDownload = url.searchParams.get("dl") === "1";

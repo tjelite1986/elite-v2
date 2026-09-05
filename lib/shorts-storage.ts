@@ -120,6 +120,18 @@ export function posterPathFor(
     : path.join(channelDir(channel), posterKey);
 }
 
+// Guard against path traversal: a resolved media path must stay inside
+// PROFILE_ROOT (upload keys) or the clip's channel dir (creator keys) — a
+// storage key comes from the DB, but the DB is fed by imports of arbitrary
+// on-disk names, so it is never trusted blindly (mirrors lib/videos-storage.ts).
+export function isUnderShortsRoot(channel: ShortChannel, filePath: string): boolean {
+  const resolved = path.resolve(filePath);
+  return [PROFILE_ROOT, channelDir(channel)].some((root) => {
+    const r = path.resolve(root);
+    return resolved === r || resolved.startsWith(r + path.sep);
+  });
+}
+
 export interface StoredShort {
   storageKey: string; // e.g. "<uuid>.mp4"
   posterKey: string | null; // e.g. "<uuid>.jpg"
