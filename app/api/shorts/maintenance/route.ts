@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { hasShortsPermission } from "@/lib/permissions";
 import { parseChannel } from "@/lib/shorts";
+import { secretMatches } from "@/lib/cron-auth";
 import {
   findOrphanShorts,
   cleanupOrphanShorts,
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
   const session = await getSession();
   const secret = process.env.IMPORT_CRON_SECRET;
   const presented = request.headers.get("x-import-secret");
-  const isCron = Boolean(secret) && presented === secret;
+  const isCron = secretMatches(presented, secret);
 
   const url = new URL(request.url);
   const body = await request.json().catch(() => ({}));
