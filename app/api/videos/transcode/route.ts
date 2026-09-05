@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { secretMatches } from "@/lib/cron-auth";
 import {
   requeueTranscode,
   startTranscodeOne,
@@ -47,8 +48,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const session = await getSession();
   const secret = process.env.IMPORT_CRON_SECRET;
-  const isCron =
-    Boolean(secret) && request.headers.get("x-import-secret") === secret;
+  const isCron = secretMatches(request.headers.get("x-import-secret"), secret);
   if (session?.role !== "admin" && !isCron) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

@@ -21,6 +21,7 @@ export async function GET(_request: Request, props: { params: Promise<{ id: stri
   if (!story) return new NextResponse("Not found", { status: 404 });
 
   if (
+    session.role !== "admin" &&
     story.author_user_id !== viewerId &&
     !isFollowing(viewerId, "user", story.author_user_id)
   ) {

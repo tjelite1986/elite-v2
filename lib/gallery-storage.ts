@@ -280,6 +280,30 @@ export function planIngest(
   };
 }
 
+// Guard against path traversal: a resolved media path must stay inside the
+// per-user root or the legacy central root it was resolved against (a storage
+// key comes from the DB, but the DB can be fed by imports of arbitrary on-disk
+// names, so it is never trusted blindly — mirrors lib/videos-storage.ts).
+function isUnderRoots(filePath: string, roots: string[]): boolean {
+  const resolved = path.resolve(filePath);
+  return roots.some((root) => {
+    const r = path.resolve(root);
+    return resolved === r || resolved.startsWith(r + path.sep);
+  });
+}
+
+export function isUnderOriginals(userId: number, filePath: string): boolean {
+  return isUnderRoots(filePath, [userOriginalsDir(userId), ORIGINALS_DIR]);
+}
+
+export function isUnderThumbs(userId: number, filePath: string): boolean {
+  return isUnderRoots(filePath, [userThumbsDir(userId), THUMBS_DIR]);
+}
+
+export function isUnderPreviews(userId: number, filePath: string): boolean {
+  return isUnderRoots(filePath, [userPreviewsDir(userId), PREVIEWS_DIR]);
+}
+
 // Prefer the per-user path; fall back to the legacy central path on read so any
 // not-yet-migrated file still resolves. New writes always go to the per-user path.
 export function originalPathFor(userId: number, storageKey: string): string {

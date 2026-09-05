@@ -34,7 +34,10 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const action: Action = body.action;
   const ids: number[] = Array.isArray(body.ids)
-    ? body.ids.map((n: unknown) => Number(n)).filter((n: number) => Number.isInteger(n))
+    ? body.ids
+        .map((n: unknown) => Number(n))
+        .filter((n: number) => Number.isInteger(n))
+        .slice(0, 500) // cap so a huge selection can't blow up the SQL IN(...) list
     : [];
 
   if (!ACTIONS.includes(action)) {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
 import { canAccessChannel, canViewShort, getShort } from "@/lib/shorts";
-import { videoPathFor } from "@/lib/shorts-storage";
+import { videoPathFor, isUnderShortsRoot } from "@/lib/shorts-storage";
 import { videoMimeFor } from "@/lib/gallery-storage";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +28,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
   }
 
   const filePath = videoPathFor(short.channel, short.storage_key);
-  if (!fs.existsSync(filePath)) {
+  if (!isUnderShortsRoot(short.channel, filePath) || !fs.existsSync(filePath)) {
     return new NextResponse("Not found", { status: 404 });
   }
 

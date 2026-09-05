@@ -19,15 +19,12 @@ export async function POST(request: Request) {
   }
   const userId = Number(session.sub);
   const body = await request.json().catch(() => ({}));
-  const ids: number[] = Array.isArray(body.ids)
-    ? Array.from(
-        new Set(
-          body.ids
-            .map((n: unknown) => Number(n))
-            .filter((n: number) => Number.isInteger(n))
-        )
-      )
-    : [];
+  const rawIds: unknown[] = Array.isArray(body.ids) ? body.ids : [];
+  const ids: number[] = Array.from(
+    new Set(
+      rawIds.map((n: unknown) => Number(n)).filter((n: number) => Number.isInteger(n))
+    )
+  ).slice(0, 500); // cap so a huge selection can't blow up the SQL IN(...) list
   if (ids.length === 0) {
     return NextResponse.json({ error: "No items selected." }, { status: 400 });
   }

@@ -41,8 +41,16 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Guard against path traversal: file_rel is DB-sourced, so a resolved path
+  // must stay inside IMPORT_ROOT before it is ever opened.
+  const root = path.resolve(IMPORT_ROOT);
+  const filePath = path.resolve(root, row.file_rel);
+  if (filePath !== root && !filePath.startsWith(root + path.sep)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   try {
-    const buffer = fs.readFileSync(path.join(IMPORT_ROOT, row.file_rel));
+    const buffer = fs.readFileSync(filePath);
     const ext = path.extname(row.file_rel).toLowerCase();
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

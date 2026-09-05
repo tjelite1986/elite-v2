@@ -25,7 +25,7 @@
     "kysely": "^0.29.3",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.577.0",
-    "next": "^15.5.20",
+    "next": "^15.5.25",
     "nodemailer": "^9.0.3",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.2.7",
@@ -41,7 +41,7 @@
   "overrides": {
     "@xmldom/xmldom": "^0.8.13",
     "next": {
-      "postcss": "8.5.15"
+      "postcss": "8.5.28"
     }
   },
   "devDependencies": {
@@ -57,7 +57,7 @@
     "@types/ws": "^8.5.12",
     "autoprefixer": "^10.5.4",
     "eslint": "^8.57.1",
-    "eslint-config-next": "^15.5.20",
+    "eslint-config-next": "^15.5.25",
     "postcss": "^8.5.19",
     "tailwindcss": "^3.4.6",
     "typescript": "^5"

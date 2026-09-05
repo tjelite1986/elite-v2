@@ -308,10 +308,12 @@ export function deleteDuplicateMembers(
         skipped++;
         continue;
       }
-      deleteShortFiles(clip.channel, clip.storage_key, clip.poster_key);
-      // Soft delete, matching how the rest of the shorts library retires a
-      // clip — the row stays so re-imports can recognise it.
+      // Soft delete before touching files: if file removal fails partway, the
+      // clip is already hidden and a retry can still find the remaining
+      // files, matching how the rest of the shorts library retires a clip —
+      // the row stays so re-imports can recognise it.
       db.prepare("UPDATE shorts SET is_deleted = 1 WHERE id = ?").run(id);
+      deleteShortFiles(clip.channel, clip.storage_key, clip.poster_key);
       deleted++;
     } else {
       if (!deleteVideo(id, true)) {

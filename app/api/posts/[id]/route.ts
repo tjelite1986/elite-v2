@@ -69,8 +69,13 @@ export async function DELETE(_request: Request, props: { params: Promise<{ id: s
   const media = getAll<PostMediaRow>(
     qb.selectFrom("post_media").selectAll().where("post_id", "=", post.id)
   );
+
+  // Soft-delete before touching files (same order as the shorts DELETE): if
+  // file removal fails partway, the post is already hidden and a retry can
+  // still find the remaining files, rather than risking a visible post with
+  // files already gone.
+  db.prepare("UPDATE posts SET is_deleted = 1 WHERE id = ?").run(post.id);
   for (const m of media) deletePostImageFiles(m.storage_key);
 
-  db.prepare("UPDATE posts SET is_deleted = 1 WHERE id = ?").run(post.id);
   return NextResponse.json({ ok: true });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { PostMediaRow, PostRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
+import { has18Access } from "@/lib/shorts-gate";
 import { moveVideoPostMediaToShort } from "@/lib/shorts-to-post";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,11 @@ export async function POST(
 
   const isOwner = post.author_user_id === Number(session.sub);
   if (session.role !== "admin" && !isOwner) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  // Moving an adult-tagged post into shorts is entering the 18+ channel, same
+  // gate as everywhere else.
+  if (post.is_adult && !(await has18Access())) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
