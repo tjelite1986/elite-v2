@@ -275,7 +275,8 @@ export default function VideoPostCard({
     setTimeout(() => setMsg(null), 2500);
   };
 
-  // Owner/admin: move this video back to shorts (18+ post → 18+ channel).
+  // Owner/admin: move this video back to shorts. Only offered on an 18+ post —
+  // the main channel is retired here, so that is the only destination left.
   const moveToShorts = async () => {
     if (busyAction) return;
     setBusyAction(true);
@@ -499,14 +500,19 @@ export default function VideoPostCard({
                     setShowEdit(true);
                   }}
                 />
-                <MoreRow
-                  icon={<Clapperboard size={18} className={cn(busyAction && "opacity-50")} />}
-                  label="Move to Shorts"
-                  onClick={() => {
-                    setShowMore(false);
-                    moveToShorts();
-                  }}
-                />
+                {/* Only an 18+ post has a channel left to move to: the main
+                    library moved to tikshortis and the server refuses a
+                    non-adult clip. */}
+                {post.is_adult && (
+                  <MoreRow
+                    icon={<Clapperboard size={18} className={cn(busyAction && "opacity-50")} />}
+                    label="Move to Shorts"
+                    onClick={() => {
+                      setShowMore(false);
+                      moveToShorts();
+                    }}
+                  />
+                )}
                 <MoreRow
                   icon={<Trash2 size={18} className="text-red-400" />}
                   label="Delete post"

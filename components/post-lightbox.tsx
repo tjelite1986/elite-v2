@@ -110,8 +110,11 @@ export default function PostLightbox({
   // Delete needs the parent's removal callback too; editing only needs onPatch.
   const canDelete = isOwnerOrAdmin && !!onRemove;
   const canEdit = isOwnerOrAdmin;
-  // Same owner/admin rule for moving the current video to shorts.
-  const canMoveToShorts = canDelete && !!post.media[photoIndex]?.is_video;
+  // Same owner/admin rule for moving the current video to shorts — but only an
+  // 18+ post has a channel left to move to: the main library moved to tikshortis
+  // and the server refuses a non-adult clip.
+  const canMoveToShorts =
+    canDelete && post.is_adult && !!post.media[photoIndex]?.is_video;
 
   const toggleLike = useCallback(
     async (p: FeedPost) => {

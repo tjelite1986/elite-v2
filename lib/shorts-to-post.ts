@@ -155,9 +155,9 @@ function makeShortPoster(videoPath: string, posterPath: string): boolean {
 }
 
 // The reverse move: turn one video media item of a post into a short. The post
-// caption carries over, an 18+ post lands on the 18+ channel, a user post
-// becomes that user's upload, and a creator post finds-or-creates the same
-// handle's shorts profile. MP4 sources are remuxed (stream copy) straight to a
+// caption carries over, the clip always lands on the 18+ channel (the only one
+// this app still fills), a user post becomes that user's upload, and a creator
+// post finds-or-creates the same handle's shorts profile. MP4 sources are remuxed (stream copy) straight to a
 // ready .web.mp4; a source the remux can't handle (e.g. WebM/VP9) is copied
 // as-is and inserted 'pending' for the transcode job. The media item is then
 // removed from the post; a post that loses its last media is soft-deleted.
@@ -185,7 +185,13 @@ export function moveVideoPostMediaToShort(
     return { ok: false, error: "The video file is missing." };
   }
 
-  const channel: ShortChannel = post.is_adult ? "18plus" : "main";
+  // The main channel is retired here (it lives in tikshortis), so a post that
+  // is not 18+ has nowhere to go: refuse it rather than refill the channel we
+  // just emptied. The UI hides the action for those posts.
+  if (!post.is_adult) {
+    return { ok: false, error: "The main shorts channel moved to Tikshortis." };
+  }
+  const channel: ShortChannel = "18plus";
 
   // Resolve the destination: an uploader home for user posts, a (find-or-create)
   // shorts profile folder for creator posts.
