@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
-import { canAccessChannel, parseChannel } from "@/lib/shorts";
+import { canAccessChannel, isRetiredChannel, parseChannel } from "@/lib/shorts";
 import {
   storeShortUpload,
   userHomeDir,
@@ -30,7 +30,16 @@ export async function POST(request: Request) {
 
   const form = await request.formData();
   const file = form.get("file");
-  const channel = parseChannel(String(form.get("channel") || "main"));
+  // parseChannel resolves everything to 18plus (this app is 18+-only now), but
+  // a client still asking for "main" is told so rather than silently uploading
+  // into the adult library.
+  if (isRetiredChannel(String(form.get("channel") || ""))) {
+    return NextResponse.json(
+      { error: "The main shorts channel moved to Tikshortis." },
+      { status: 400 }
+    );
+  }
+  const channel = parseChannel(String(form.get("channel") || ""));
   const caption = String(form.get("caption") || "").trim().slice(0, 2000);
   // New uploads are PRIVATE by default — only "public" shares to everyone.
   const isPrivate = String(form.get("visibility") || "private") === "public" ? 0 : 1;

@@ -19,7 +19,7 @@ These map 1:1 to rows in **Settings → Background jobs** (job id in parentheses
 
 | Script | Job | What it does |
 | ------ | --- | ------------ |
-| `import-shorts.mjs` | Shorts import — 18+ (`shorts-import-18`) and main (`shorts-import-main`, run with `IMPORT_CHANNEL=main`) | Auto-sorts files dropped in `SHORTS_ROOT/<channel>/_import/` into the shorts library: parses creator/title/hashtags from the filename, creates the profile + poster, inserts the DB row. |
+| `import-shorts.mjs` | Shorts import — 18+ (`shorts-import-18`) | Auto-sorts files dropped in `SHORTS_ROOT/18plus/_import/` into the shorts library: parses creator/title/hashtags from the filename, creates the profile + poster, inserts the DB row. |
 | `poll-shorts.mjs` | Shorts auto-poll (`shorts-poll`) | For every `short_profiles` row with `auto_poll=1`, fetches the latest clips from its source and downloads new ones as `pending`, leaving the transcoder to finish them. |
 | `transcode-shorts.mjs` | Shorts transcode (`shorts-transcode`) | Turns each non-`.web.mp4` short into a web-optimized `.web.mp4` (H.264/AAC, faststart); marks it `ready`. |
 | `scan-shorts-duplicates.mjs` | Shorts duplicate scan (`shorts-dupescan`) | Groups duplicate clips (dHash candidate + confirm) and marks the best copy to keep. **Never deletes** — an admin reviews. |

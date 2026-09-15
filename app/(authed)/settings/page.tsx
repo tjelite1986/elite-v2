@@ -31,7 +31,6 @@ export default async function SettingsPage() {
   // Per-section access controls which management categories show. Admins hold
   // every permission implicitly (hasPermission returns true for them).
   const perms = {
-    shorts: hasPermission(session, "shorts_settings"),
     shorts18: hasPermission(session, "shorts18_settings"),
     posts: hasPermission(session, "posts_settings"),
     gallery: hasPermission(session, "gallery_settings"),

@@ -6,6 +6,7 @@ import { qb, getOne, getAll } from "@/lib/kysely";
 import { deriveProfileName } from "@/lib/shorts-source";
 import { triggerPoll } from "@/lib/shorts-poll";
 import { handleOf } from "@/lib/directory";
+import { isRetiredChannel } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,7 @@ export async function GET(request: Request) {
 
   // Optional channel filter so each section only manages its own profiles.
   const channelParam = new URL(request.url).searchParams.get("channel");
-  const channel =
-    channelParam === "18plus" || channelParam === "main" ? channelParam : null;
+  const channel = channelParam === "18plus" ? "18plus" : null;
 
   const profiles = getAll<ShortProfileRow & { clip_count: number }>(
     qb
@@ -52,7 +52,16 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   let name = typeof body.name === "string" ? body.name.trim() : "";
   const sourceRef = typeof body.source_ref === "string" ? body.source_ref.trim() : "";
-  const channel = body.channel === "18plus" ? "18plus" : "main";
+  // The main channel is retired here (it lives in tikshortis), so a profile is
+  // always created on 18plus and an explicit "main" is refused rather than
+  // quietly filed under the adult library.
+  if (isRetiredChannel(body.channel)) {
+    return NextResponse.json(
+      { error: "The main shorts channel moved to Tikshortis." },
+      { status: 400 }
+    );
+  }
+  const channel = "18plus";
   const sourceType =
     body.source_type === "rss"
       ? "rss"

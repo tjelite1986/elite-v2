@@ -57,7 +57,8 @@ export default async function Home() {
         eb.fn.sum<number>("size_bytes").as("bytes"),
       ])
       .where("uploader_id", "=", userId)
-      .where("channel", "=", "main")
+      // 18+ is the only shorts library left here (main moved to tikshortis).
+      .where("channel", "=", "18plus")
       .where("is_deleted", "=", 0)
   );
 
@@ -80,7 +81,7 @@ export default async function Home() {
 
   const stats = [
     { icon: <Images size={18} />, label: "Photos", value: photoCount.toLocaleString(), href: "/gallery" },
-    { icon: <Clapperboard size={18} />, label: "Shorts", value: shortCount.toLocaleString(), href: "/shorts" },
+    { icon: <Clapperboard size={18} />, label: "Shorts", value: shortCount.toLocaleString(), href: "/shorts18" },
     { icon: <HardDrive size={18} />, label: "Storage", value: formatBytes(storage), href: "/gallery" },
   ];
   // `hard` leaves the app: the store is its own site on its own host, so the
@@ -92,7 +93,7 @@ export default async function Home() {
     hard?: boolean;
   }[] = [
     { icon: <Images size={20} />, label: "Photos", href: "/gallery" },
-    { icon: <Clapperboard size={20} />, label: "Shorts", href: "/shorts" },
+    { icon: <Clapperboard size={20} />, label: "Shorts", href: "/shorts18" },
     { icon: <Users size={20} />, label: "People", href: "/people" },
     { icon: <MessageCircle size={20} />, label: "Messages", href: "/messages" },
   ];

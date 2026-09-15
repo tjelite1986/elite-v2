@@ -12,9 +12,11 @@ import { setItemTags } from "@/lib/gallery-tags";
 
 export const dynamic = "force-dynamic";
 
-type Section = "shorts" | "shorts18" | "posts" | "gallery";
-const SECTIONS: Section[] = ["shorts", "shorts18", "posts", "gallery"];
-const channelFor = (s: Section) => (s === "shorts18" ? "18plus" : "main");
+// "shorts" (the main channel) is gone with the library it named — tikshortis
+// owns it — so only the 18+ clips are renameable here.
+type Section = "shorts18" | "posts" | "gallery";
+const SECTIONS: Section[] = ["shorts18", "posts", "gallery"];
+const channelFor = (_s: Section) => "18plus" as const;
 
 // Normalize a free-form tag input (array of words or a "#a #b" / "a, b" string)
 // into the same canonical hashtag list the importer/caption parser produces.

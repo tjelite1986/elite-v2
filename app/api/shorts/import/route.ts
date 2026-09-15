@@ -24,7 +24,15 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const channel = body?.channel === "main" ? "main" : "18plus";
+  // The main channel's importer is gone with the library it fed (tikshortis
+  // owns it now), so this only ever scans the 18+ drop folder.
+  if (body?.channel === "main") {
+    return NextResponse.json(
+      { error: "The main shorts channel moved to Tikshortis." },
+      { status: 400 }
+    );
+  }
+  const channel = "18plus";
   if (!hasShortsPermission(session, channel)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

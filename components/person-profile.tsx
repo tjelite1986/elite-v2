@@ -463,14 +463,8 @@ export default function PersonProfile({
               {isAdmin && (
                 <ProfileShortsSettings
                   channels={[
-                    ...(person.shortsMainId && person.shortsMainPollable
-                      ? [{
-                          id: person.shortsMainId,
-                          channel: "main" as const,
-                          autoPoll: person.shortsMainAutoPoll,
-                          basePath: "/shorts",
-                        }]
-                      : []),
+                    // Only the 18+ channel is managed here: the main shorts
+                    // library moved to tikshortis, which polls for itself.
                     ...(person.shorts18Id && person.shorts18Pollable
                       ? [{
                           id: person.shorts18Id,

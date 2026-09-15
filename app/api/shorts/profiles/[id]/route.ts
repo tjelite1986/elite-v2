@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db, ShortProfileRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
+import { isRetiredChannel } from "@/lib/shorts";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +35,15 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     typeof body.source_ref === "string" && body.source_ref.trim()
       ? body.source_ref.trim()
       : existing.source_ref;
-  const channel =
-    body.channel === "main" || body.channel === "18plus" ? body.channel : existing.channel;
+  // "main" is retired here (the library lives in tikshortis), so a profile can
+  // only stay where it is or be set to 18plus.
+  if (isRetiredChannel(body.channel)) {
+    return NextResponse.json(
+      { error: "The main shorts channel moved to Tikshortis." },
+      { status: 400 }
+    );
+  }
+  const channel = body.channel === "18plus" ? "18plus" : existing.channel;
   const sourceType =
     body.source_type === "yt-dlp" || body.source_type === "rss"
       ? body.source_type

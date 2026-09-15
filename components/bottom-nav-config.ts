@@ -38,7 +38,7 @@ const DEFAULT_ITEMS: BottomNavItem[] = [
   { label: "Posts", href: "/posts", icon: Newspaper },
 ];
 
-// Ordered longest-prefix-first so /shorts18 wins over /shorts. The sections
+// Ordered longest-prefix-first. The sections
 // have no top pill bars anymore: the bottom bar carries the four most useful
 // in-section destinations and the overflow lives in the Menu sheet's
 // section block (see getBottomNavExtras). The 18+ section must stay strictly
@@ -63,7 +63,8 @@ const SECTIONS: {
     items: () => [
       { label: "Videos", href: "/videos", icon: Film },
       { label: "Analysis", href: "/videos/analysis", icon: Sparkles },
-      { label: "Shorts", href: "/shorts", icon: Play },
+      // No shorts tab: the main shorts library moved to tikshortis, and the
+      // 18+ one is gated — it must not be cross-linked from a main section.
       { label: "Posts", href: "/posts", icon: Newspaper },
     ],
   },
@@ -74,15 +75,6 @@ const SECTIONS: {
       { label: "Explore", href: "/shorts18/explore", icon: Compass },
       { label: "Profiles", href: "/shorts18/profiles", icon: Users },
       { label: "Playlists", href: "/shorts18/playlists", icon: ListVideo },
-    ],
-  },
-  {
-    prefix: "/shorts",
-    items: () => [
-      { label: "Videos", href: "/shorts", icon: Play },
-      { label: "Explore", href: "/shorts/explore", icon: Compass },
-      { label: "Profiles", href: "/shorts/profiles", icon: Users },
-      { label: "Playlists", href: "/shorts/playlists", icon: ListVideo },
     ],
   },
   {
@@ -132,13 +124,6 @@ export function getBottomNavExtras(
       { label: "Categories", href: "/shorts18/tags", icon: Hash },
       { label: "Analysis", href: "/shorts18/analysis", icon: Sparkles },
       { label: "Mine", href: "/shorts18/mine", icon: Clapperboard },
-    ];
-  }
-  if (pathname === "/shorts" || pathname.startsWith("/shorts/")) {
-    return [
-      { label: "Categories", href: "/shorts/tags", icon: Hash },
-      { label: "Analysis", href: "/shorts/analysis", icon: Sparkles },
-      { label: "Mine", href: "/shorts/mine", icon: Clapperboard },
     ];
   }
   if (pathname === "/music" || pathname.startsWith("/music/")) {

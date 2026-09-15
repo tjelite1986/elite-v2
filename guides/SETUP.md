@@ -45,7 +45,7 @@ so make them writable (`chmod -R 777` is the blunt fix):
 ├── profile/      # PROFILE_ROOT  — per-user served media (u_<user>/{gallery,posts,shorts,shorts18,cookies})
 ├── import/       # IMPORT_ROOT   — per-user drop tree (staging, see README "drop folders")
 ├── posts/        # POSTS_ROOT    — mirrored-creator posts media
-├── shorts/       # SHORTS_ROOT   — mirrored-creator shorts (main/ and 18plus/ channels)
+├── shorts/       # SHORTS_ROOT   — mirrored-creator shorts (18plus/ only; the main channel moved to tikshortis)
 ├── videos/       # VIDEOS_ROOT   — long-form video library (main/ and adults/)
 ├── books/        # BOOKS_ROOT    — shared bookshelf (EPUB/PDF/CBZ)
 ├── backup/       # BACKUP_DIR    — nightly SQLite snapshots (db-backup job)

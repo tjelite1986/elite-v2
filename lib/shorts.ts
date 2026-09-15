@@ -4,8 +4,20 @@ import { qb, getOne, getAll } from "./kysely";
 import { has18Access } from "./shorts-gate";
 import { personContentIds } from "./profile-links";
 
-export function parseChannel(value: string | null | undefined): ShortChannel {
-  return value === "18plus" ? "18plus" : "main";
+// elite-v2 is 18+-only: the main shorts library moved to tikshortis on
+// 2026-08-31 and its last rows were removed on 2026-09-15. Every channel
+// parsed from a request therefore resolves to 18plus — nothing in this app may
+// read or create a main-channel row any more. Write routes additionally reject
+// an explicit "main" so a stale client gets an error instead of silently
+// writing into the adult library (see isRetiredChannel).
+export function parseChannel(_value: string | null | undefined): ShortChannel {
+  return "18plus";
+}
+
+// A request that still names the retired main channel. Callers that WRITE
+// (upload, import, profile create/edit, channel move, grabs) refuse it.
+export function isRetiredChannel(value: string | null | undefined): boolean {
+  return value === "main";
 }
 
 // A user may always see the main channel. The 18+ channel additionally requires

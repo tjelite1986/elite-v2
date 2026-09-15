@@ -17,7 +17,9 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const qs = new URLSearchParams({
     url: sp.get("url") || "",
-    channel: sp.get("channel") === "18plus" ? "18plus" : "main",
+    // 18+ is the only library this app still fills; main-channel grabs
+    // belong to tikshortis, which has its own grabber page.
+    channel: "18plus",
     device: "0",
   });
   if (sp.get("creator")) qs.set("creator", sp.get("creator") as string);

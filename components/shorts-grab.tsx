@@ -108,7 +108,10 @@ export default function ShortsGrab() {
   const [profileUrl, setProfileUrl] = useState<string | null>(null);
   const [profileMeta, setProfileMeta] = useState<{ creator: string; count: number } | null>(null);
 
-  const [channel, setChannel] = useState<Channel>("main");
+  // 18+ is the only library this app fills: the main channel moved to
+  // tikshortis, which grabs for itself. Kept as state (not a constant) so the
+  // per-channel "already here" marks below keep working unchanged.
+  const [channel] = useState<Channel>("18plus");
   const [creator, setCreator] = useState("");
   const [web, setWeb] = useState(false);
   const [quality, setQuality] = useState("");
@@ -375,24 +378,6 @@ export default function ShortsGrab() {
     else void downloadOneByOne(ids);
   };
 
-  const chBtn = (c: Channel, label: string) => (
-    <button
-      type="button"
-      onClick={() => {
-        setChannel(c);
-        // The "already here" marks are per channel, so the default selection
-        // follows the switch.
-        if (items.length) setSelected(freshOnly(items, c));
-      }}
-      className={cn(
-        "rounded-full px-4 py-1.5 text-sm font-medium transition",
-        channel === c ? "bg-white text-black" : "text-white/70 hover:text-white"
-      )}
-    >
-      {label}
-    </button>
-  );
-
   const field = (
     label: string,
     value: string,
@@ -455,15 +440,13 @@ export default function ShortsGrab() {
         </div>
       </div>
 
-      {/* Where it lands, decided up front: the channel is the first thing you
-          want to be sure of, and hiding it until a link resolved made it look
-          like the tool only fed Shorts. */}
+      {/* Where it lands. There is no picker any more — the main channel moved
+          to tikshortis, so everything grabbed here goes to the 18+ library. */}
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-white/50">Save to</span>
-        <div className="flex items-center gap-0.5 rounded-full bg-black/40 p-1 ring-1 ring-white/10">
-          {chBtn("main", "Shorts")}
-          {chBtn("18plus", "Shorts 18+")}
-        </div>
+        <span className="rounded-full bg-black/40 px-4 py-1.5 text-sm font-medium text-white ring-1 ring-white/10">
+          Shorts 18+
+        </span>
       </div>
 
       {error && <p className="text-sm text-rose-400">{error}</p>}

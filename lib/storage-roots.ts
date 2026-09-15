@@ -49,10 +49,12 @@ export function storageRootAvailable(dir: string): boolean {
 
 // Per-user drop sections under IMPORT_ROOT/u_<user>/. Books IS present here — the
 // dropped file is staged per user but ingested into the shared BOOKS_ROOT.
+// "shorts" (the main channel) is gone: that library moved to tikshortis, and a
+// folder nothing imports from is worse than no folder. Existing ones are left
+// on disk untouched.
 export const IMPORT_SECTIONS = [
   "gallery",
   "posts",
-  "shorts",
   "shorts18",
   "books",
 ] as const;

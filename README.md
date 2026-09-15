@@ -458,11 +458,11 @@ Each account has a drop tree under `IMPORT_ROOT`, kept separate from served
 storage:
 
 ```
-<IMPORT_ROOT>/u_<username>/{gallery, posts, shorts, shorts18, books}/
+<IMPORT_ROOT>/u_<username>/{gallery, posts, shorts18, books}/
 ```
 
 Drop files into the matching section and the per-user importer ingests them for
-that account (`shorts` → main channel, `shorts18` → 18+, `books` → the shared
+that account (`shorts18` → the 18+ shorts library, `books` → the shared
 library, attributed to you). Two ways to group and tag a file:
 
 - **Subfolder** — a file inside `gallery/holiday/` joins the "holiday" album.

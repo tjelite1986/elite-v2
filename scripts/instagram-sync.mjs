@@ -454,19 +454,17 @@ if (totalAdded > 0) {
   } catch (err) {
     log(`import-posts failed: ${String(err.message || err).slice(0, 200)}`);
   }
-  // IG videos become video posts nowadays, but clips may still be dropped into
-  // the shorts _import folders by hand — sweep BOTH channels while we're here.
-  for (const channel of ["main", "18plus"]) {
-    try {
-      log(`running import-shorts.mjs (${channel})`);
-      execFileSync(node, [path.join(scriptsDir, "import-shorts.mjs")], {
-        stdio: "inherit",
-        timeout: 10 * 60 * 1000,
-        env: { ...process.env, IMPORT_CHANNEL: channel },
-      });
-    } catch (err) {
-      log(`import-shorts (${channel}) failed: ${String(err.message || err).slice(0, 200)}`);
-    }
+  // Only the 18+ drop folder is swept: the main shorts library moved to
+  // tikshortis on 2026-08-31 and this app has no main channel any more.
+  try {
+    log("running import-shorts.mjs (18plus)");
+    execFileSync(node, [path.join(scriptsDir, "import-shorts.mjs")], {
+      stdio: "inherit",
+      timeout: 10 * 60 * 1000,
+      env: { ...process.env, IMPORT_CHANNEL: "18plus" },
+    });
+  } catch (err) {
+    log(`import-shorts (18plus) failed: ${String(err.message || err).slice(0, 200)}`);
   }
 }
 

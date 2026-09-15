@@ -27,7 +27,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
   const body = await request.json().catch(() => ({}));
   const target = body?.channel;
-  if (target !== "main" && target !== "18plus") {
+  // Only 18plus is left: the main channel moved to tikshortis, so a clip can no
+  // longer be moved out of this app's one library.
+  if (target !== "18plus") {
     return NextResponse.json({ error: "Invalid channel." }, { status: 400 });
   }
 

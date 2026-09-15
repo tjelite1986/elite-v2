@@ -208,18 +208,17 @@ export default function NavMenuContent({
 
       <div className="mt-1 border-t border-white/10 pt-1">
         <MenuRow href="/posts" icon={<Newspaper size={18} />} label="InstaElite" />
-        <MenuRow href="/shorts" icon={<Play size={18} />} label="Shorts" />
         <MenuRow href="/shorts18" icon={<Flame size={18} />} label="Shorts 18+" />
         {tikshortisUrl && (
-          // The main shorts library also runs as its own app on its own host.
-          // Both are live on purpose for now — this one keeps serving the rows
-          // it always had, and Tikshortis owns the pipeline that adds new ones.
-          // `hard`, because that address is not one of this app's routes.
+          // The main shorts library IS Tikshortis: it moved out of this app on
+          // 2026-08-31 and the last clips left on 2026-09-15, so this row is
+          // the only way to it. `hard`, because that address is not one of this
+          // app's routes.
           <MenuRow
             href={tikshortisUrl}
             icon={<Play size={18} />}
             label="Tikshortis"
-            sub="Shorts as its own app"
+            sub="The main shorts library"
             hard
           />
         )}
@@ -253,10 +252,10 @@ export default function NavMenuContent({
             hard
           />
         )}
-        {/* Grabbing belongs to the whole app, not to one section: the tool
-            picks the channel (Shorts / Shorts 18+) itself. */}
+        {/* Grabs land in the 18+ library — the only one this app still fills.
+            Tikshortis grabs for the main channel itself. */}
         {isAdmin && (
-          <MenuRow href="/shorts/grab" icon={<Download size={18} />} label="Grab from web" />
+          <MenuRow href="/shorts18/grab" icon={<Download size={18} />} label="Grab from web" />
         )}
       </div>
 

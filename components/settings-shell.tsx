@@ -58,7 +58,6 @@ interface SettingsShellProps {
   isAdmin: boolean;
   username: string | null;
   perms: {
-    shorts: boolean;
     shorts18: boolean;
     posts: boolean;
     gallery: boolean;
@@ -76,7 +75,8 @@ interface SettingsShellProps {
 // Sidebar categories: personal settings, one entry per library section the user
 // may manage, and admin-wide tools. Heavy per-section tooling lives INSIDE the
 // section's panel as small tool tabs instead of one endless page per tool.
-type SectionKey = "shorts" | "shorts18" | "posts" | "gallery";
+// "shorts" (the main channel) is gone: that library moved to tikshortis.
+type SectionKey = "shorts18" | "posts" | "gallery";
 type CategoryKey =
   | "account"
   | "appearance"
@@ -159,10 +159,6 @@ const SECTION_META: Record<
   SectionKey,
   { label: string; desc: string }
 > = {
-  shorts: {
-    label: "Shorts",
-    desc: "Import, deduplicate and maintain the Shorts library.",
-  },
   shorts18: {
     label: "18+ videos",
     desc: "Import, deduplicate and maintain the 18+ video library.",
@@ -189,11 +185,10 @@ export default function SettingsShell({
   accentPresets,
   bgThemes,
 }: SettingsShellProps) {
-  const hasAnySection =
-    perms.shorts || perms.shorts18 || perms.posts || perms.gallery;
-  // The shorts dupe scan/resolve span both channels, so those tools need both
-  // shorts permissions (admins hold all).
-  const bothShorts = isAdmin || (perms.shorts && perms.shorts18);
+  const hasAnySection = perms.shorts18 || perms.posts || perms.gallery;
+  // The shorts dupe scan/resolve used to span both channels; only the 18+ one
+  // is left here, so its own permission is enough (admins hold all).
+  const bothShorts = isAdmin || perms.shorts18;
 
   const nav = useMemo(() => {
     const personal: NavItem[] = [
@@ -209,8 +204,6 @@ export default function SettingsShell({
       personal.push({ key: "apps", label: "App Store", icon: <Store size={16} /> });
 
     const library: NavItem[] = [];
-    if (perms.shorts)
-      library.push({ key: "shorts", label: "Shorts", icon: <Film size={16} /> });
     if (perms.shorts18)
       library.push({ key: "shorts18", label: "18+ videos", icon: <Flame size={16} /> });
     if (perms.posts)
@@ -247,7 +240,7 @@ export default function SettingsShell({
 
   // Which tool tabs a category offers (empty = plain panel).
   const toolsFor = (key: CategoryKey): ToolTab[] => {
-    if (key === "shorts" || key === "shorts18") {
+    if (key === "shorts18") {
       const t: ToolTab[] = [{ key: "import", label: "Import" }];
       if (bothShorts) t.push({ key: "duplicates", label: "Duplicates" });
       t.push({ key: "cleaning", label: "Cleaning" });
@@ -285,14 +278,14 @@ export default function SettingsShell({
       const raw = window.location.hash.replace("#", "");
       if (!raw) return;
       const [cat, sub] = raw.split(":");
-      const firstSection = (["shorts", "shorts18", "posts", "gallery"] as const).find(
+      const firstSection = (["shorts18", "posts", "gallery"] as const).find(
         (s) => perms[s]
       );
       const legacy: Record<string, [CategoryKey, string] | undefined> = {
         import: firstSection ? [firstSection, "import"] : undefined,
         duplicates: firstSection ? [firstSection, "duplicates"] : undefined,
         cleaning: firstSection ? [firstSection, "cleaning"] : undefined,
-        fetch: ["shorts", "titles"],
+        fetch: ["shorts18", "titles"],
         sync: ["profiles", "connect"],
         merge: ["profiles", "link"],
         danger: ["account", ""],
@@ -366,7 +359,7 @@ export default function SettingsShell({
       </div>
     );
 
-  const activeSection = (["shorts", "shorts18", "posts", "gallery"] as const).find(
+  const activeSection = (["shorts18", "posts", "gallery"] as const).find(
     (s) => s === active
   );
 
@@ -621,13 +614,6 @@ function LibraryToolPanel({
   if (tool === "duplicates") {
     // Two complementary scans for clips: the existing exact/per-frame one, and
     // the fingerprint scan that catches re-encodes the first cannot.
-    if (section === "shorts")
-      return (
-        <>
-          <ShortsDuplicates channel="main" />
-          <MediaFingerprintDuplicates />
-        </>
-      );
     if (section === "shorts18")
       return (
         <>
@@ -639,13 +625,12 @@ function LibraryToolPanel({
     return <GalleryDuplicates />;
   }
   if (tool === "cleaning") {
-    if (section === "shorts") return <ShortsCleanup channel="main" />;
     if (section === "shorts18") return <ShortsCleanup channel="18plus" />;
     if (section === "posts") return <PostsCleanup />;
     return <GalleryCleanup />;
   }
   if (tool === "titles" && isAdmin) {
-    const channel = section === "shorts18" ? "18plus" : "main";
+    const channel = "18plus" as const;
     return (
       <>
         <ShortsTitleFetch channel={channel} />
@@ -654,11 +639,7 @@ function LibraryToolPanel({
     );
   }
   if (tool === "sources" && isAdmin) {
-    return section === "shorts18" ? (
-      <ShortsAdmin channel="18plus" basePath="/shorts18" />
-    ) : (
-      <ShortsAdmin channel="main" basePath="/shorts" />
-    );
+    return <ShortsAdmin channel="18plus" basePath="/shorts18" />;
   }
   return null;
 }
@@ -677,31 +658,6 @@ function ImportTab({
   const u = username ?? "…";
 
   const personal: Record<SectionKey, React.ReactNode> = {
-    shorts: (
-      <Card>
-        <h2 className="text-base font-medium">Your drop folder</h2>
-        <p className="mb-2 mt-1 text-sm text-white/50">
-          Drop video files here and they import as your own clips:
-        </p>
-        <code className="block rounded-lg bg-white/5 px-3 py-2 text-xs text-white/70">
-          _import/u_{u}/shorts/
-        </code>
-        <p className="mt-2 text-sm text-white/50">
-          Name a file{" "}
-          <code className="text-white/70">title [h_tag][f_profile].mp4</code> to
-          set caption and hashtags —{" "}
-          <code className="text-white/70">[f_profile]</code> (or a subfolder)
-          publishes the clip PUBLICLY under that creator profile. Loose files
-          stay your own private clips.
-        </p>
-        <Link
-          href="/shorts/upload"
-          className="mt-3 flex w-fit items-center gap-2 rounded-full bg-rose-500 px-5 py-2.5 text-sm font-semibold transition active:scale-95"
-        >
-          <Upload size={16} /> Upload a short
-        </Link>
-      </Card>
-    ),
     shorts18: (
       <Card>
         <h2 className="text-base font-medium">Your drop folder</h2>
@@ -754,7 +710,7 @@ function ImportTab({
     ),
   };
 
-  const sharedShorts = (channel: "main" | "18plus") => (
+  const sharedShorts = (channel: "18plus") => (
     <Card>
       <h2 className="text-base font-medium">Shared creator folder</h2>
       <p className="mb-2 mt-1 text-sm text-white/50">
@@ -779,8 +735,7 @@ function ImportTab({
     <div className="flex flex-col gap-6">
       {personal[section]}
 
-      {isAdmin && (section === "shorts" || section === "shorts18") &&
-        sharedShorts(section === "shorts18" ? "18plus" : "main")}
+      {isAdmin && section === "shorts18" && sharedShorts("18plus")}
 
       {isAdmin && section === "posts" && (
         <Card>

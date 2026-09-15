@@ -58,8 +58,9 @@ import {
 // Per-user folder import. Each account owns a top-level drop tree, separate from
 // its served storage:
 //   <IMPORT_ROOT>/u_<user>/
-//       shorts/    -> the user's own shorts on the main channel
 //       shorts18/  -> the user's own shorts on the 18+ channel
+//         (the old "shorts/" main-channel folder is no longer read: that
+//          library moved to tikshortis)
 //       posts/     -> the user's own photo posts
 //       gallery/   -> the user's own gallery items
 //       books/     -> ingested into the SHARED book library (attributed to user)
@@ -1541,13 +1542,9 @@ async function runUserFolderImportInner(opts?: {
     if (!fs.existsSync(base)) continue;
     res.users++;
 
-    await importShortsSection(
-      user.userId,
-      user.username,
-      "main",
-      path.join(base, "shorts"),
-      res
-    );
+    // No "shorts" (main) section any more: that library moved to tikshortis on
+    // 2026-08-31, so a file dropped in the old folder is left alone rather than
+    // imported into a channel this app no longer serves.
     await importShortsSection(
       user.userId,
       user.username,
