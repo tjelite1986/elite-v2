@@ -9,13 +9,6 @@ import {
   type ImportReviewRow,
   type GalleryItemRow,
   type GalleryAlbumRow,
-  type ShortRow,
-  type ShortCommentRow,
-  type ShortDupeGroupRow,
-  type ShortDupeStateRow,
-  type ShortTitleStateRow,
-  type ShortCaptionStateRow,
-  type ShortProfileRow,
   type UserProfileRow,
   type PostCreatorRow,
   type PostRow,
@@ -87,7 +80,7 @@ interface PostLikeRow {
   created_at: string;
 }
 interface MediaFpRow {
-  // shared shape of post_media_fp (keyed by media_id) and short_media_fp (short_id)
+  // shared shape of post_media_fp (keyed by media_id) and gallery_media_fp (item_id)
   size_bytes: number;
   sha: string | null;
   sig: string | null;
@@ -114,22 +107,6 @@ interface ProfileExtraRow {
   tt_last_sync_error: string | null;
   tt_syncing: number;
 }
-interface ShortLikeRow {
-  short_id: number;
-  user_id: number;
-  created_at: string;
-}
-interface ShortPlaylistRow {
-  id: number;
-  user_id: number;
-  name: string;
-  created_at: string;
-}
-interface ShortPlaylistItemRow {
-  playlist_id: number;
-  short_id: number;
-  added_at: string;
-}
 interface StoryViewRow {
   story_id: number;
   user_id: number;
@@ -138,7 +115,11 @@ interface StoryViewRow {
 
 // Complete typed schema map. Reuses the hand-written row interfaces from db.ts
 // (which already get updated on every migration) so there is no second source
-// of truth, and literal unions (ShortChannel, role, status, ...) carry over.
+// of truth, and literal unions (role, status, ...) carry over.
+//
+// The shorts tables are deliberately absent: those libraries are separate apps
+// now, their rows here are tombstones, and leaving them off the map makes a new
+// query against them a compile error rather than a silent read of dead data.
 export interface DB {
   users: UserRow;
   registration_codes: CodeRow;
@@ -153,17 +134,6 @@ export interface DB {
   gallery_dupe_ignored: GalleryDupeIgnoredRow;
   gallery_dupe_state: GalleryDupeStateRow;
   gallery_media_fp: MediaFpRow & { item_id: number };
-  shorts: ShortRow;
-  short_comments: ShortCommentRow;
-  short_likes: ShortLikeRow;
-  short_profiles: ShortProfileRow;
-  short_playlists: ShortPlaylistRow;
-  short_playlist_items: ShortPlaylistItemRow;
-  short_dupe_groups: ShortDupeGroupRow;
-  short_dupe_state: ShortDupeStateRow;
-  short_title_state: ShortTitleStateRow;
-  short_caption_state: ShortCaptionStateRow;
-  short_media_fp: MediaFpRow & { short_id: number };
   user_profiles: UserProfileRow;
   post_creators: PostCreatorRow;
   posts: PostRow;

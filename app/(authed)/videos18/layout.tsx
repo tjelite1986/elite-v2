@@ -1,5 +1,5 @@
-import Shorts18Gate from "@/components/shorts-18-gate";
-import { has18Access } from "@/lib/shorts-gate";
+import AdultGate from "@/components/adult-gate";
+import { has18Access } from "@/lib/adult-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export default async function Videos18Layout({
   children: React.ReactNode;
 }) {
   if (!(await has18Access())) {
-    return <Shorts18Gate configured={true} />;
+    return <AdultGate configured={true} />;
   }
   return <>{children}</>;
 }

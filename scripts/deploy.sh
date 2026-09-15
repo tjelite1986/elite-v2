@@ -81,7 +81,7 @@ PUB="$(gh run view "$RID" --json jobs \
 # The host docker daemon — never a remote one inherited from the environment.
 unset DOCKER_HOST
 
-# Recreating kills whatever ffmpeg is mid-file: the shorts transcoder runs inside
+# Recreating kills whatever ffmpeg is mid-file: the video transcoder runs inside
 # this container via docker exec, and a half-written output is discarded, so the
 # clip has to be transcoded again from the start.
 #

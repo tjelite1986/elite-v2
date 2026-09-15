@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db, PostMediaRow } from "@/lib/db";
 import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import { getPost, getPostRow, parseHashtags } from "@/lib/posts";
 import { deletePostImageFiles } from "@/lib/posts-storage";
 

@@ -19,10 +19,6 @@ These map 1:1 to rows in **Settings → Background jobs** (job id in parentheses
 
 | Script | Job | What it does |
 | ------ | --- | ------------ |
-| `import-shorts.mjs` | Shorts import — 18+ (`shorts-import-18`) | Auto-sorts files dropped in `SHORTS_ROOT/18plus/_import/` into the shorts library: parses creator/title/hashtags from the filename, creates the profile + poster, inserts the DB row. |
-| `poll-shorts.mjs` | Shorts auto-poll (`shorts-poll`) | For every `short_profiles` row with `auto_poll=1`, fetches the latest clips from its source and downloads new ones as `pending`, leaving the transcoder to finish them. |
-| `transcode-shorts.mjs` | Shorts transcode (`shorts-transcode`) | Turns each non-`.web.mp4` short into a web-optimized `.web.mp4` (H.264/AAC, faststart); marks it `ready`. |
-| `scan-shorts-duplicates.mjs` | Shorts duplicate scan (`shorts-dupescan`) | Groups duplicate clips (dHash candidate + confirm) and marks the best copy to keep. **Never deletes** — an admin reviews. |
 | `scan-posts-duplicates.mjs` | Posts duplicate scan (`posts-dupescan`) | Same, for the posts photo library. |
 | `scan-gallery-duplicates.mjs` | Gallery duplicate scan (`gallery-dupescan`) | Same, for the per-user gallery. |
 | `import-posts.mjs` | Posts import (`posts-import`) | Auto-sorts files dropped in `POSTS_ROOT/_import/` into the posts module (top-level files encode the creator; subfolders group carousels). |
@@ -38,7 +34,6 @@ scheduler posts to over loopback, gated by `IMPORT_CRON_SECRET`:
 
 | Job | Endpoint | What it does |
 | --- | -------- | ------------ |
-| Shorts cleanup (`shorts-cleanup`) | `/api/shorts/maintenance?action=all` | Remove shorts whose file is gone; prune empty playlists. |
 | Posts cleanup (`posts-cleanup`) | `/api/posts/maintenance?action=all` | Remove post images whose file is gone; prune empty posts. |
 | Gallery cleanup (`gallery-cleanup`) | `/api/gallery/maintenance?action=all` | Remove gallery entries whose file is gone. |
 | Video library scan (`videos-scan`) | `/api/videos/scan` | Mirror `VIDEOS_ROOT/{main,adults}` into the library: add new files, refresh changed ones, generate posters/storyboards, drop rows whose file is gone. |
@@ -55,8 +50,7 @@ scheduler posts to over loopback, gated by `IMPORT_CRON_SECRET`:
 
 | Job | How it runs | What it does |
 | --- | ----------- | ------------ |
-| User folder import (`user-import`) | Loopback POST to `/api/import/user-folders`, gated by `IMPORT_CRON_SECRET` | Imports the per-user drop trees (`u_<user>/{gallery,posts,shorts,shorts18,books}`). Also triggerable by hand from **Settings → Photos → Import → Per-user folder import**. A `deploy/systemd/elitev2-user-import.*` unit exists for host-level scheduling. |
-| `fetch-shorts-titles.mjs` | Spawned detached by the admin "Fetch original titles" button | Bulk-fetches real titles via `yt-dlp` for shorts with missing/truncated captions. Not scheduled. |
+| User folder import (`user-import`) | Loopback POST to `/api/import/user-folders`, gated by `IMPORT_CRON_SECRET` | Imports the per-user drop trees (`u_<user>/{gallery,posts,books}`). Also triggerable by hand from **Settings → Photos → Import → Per-user folder import**. A `deploy/systemd/elitev2-user-import.*` unit exists for host-level scheduling. |
 
 ## One-off migrations & seeds
 
@@ -66,12 +60,8 @@ specific data migrations — **not** scheduled. Kept for reference / re-runs.
 | Script | What it did |
 | ------ | ----------- |
 | `import-elite-instagram.mjs` | Seed: import a legacy on-disk Instagram library (per-creator folders) into posts as mirrored creators. |
-| `import-elite-shortvideos.mjs` | Seed: import the legacy elite shortvideos library into the shorts "main" channel. |
 | `regroup-posts-carousels.mjs` | Regroup already-imported single-image posts into date-grouped carousels, without re-encoding. |
-| `migrate-loose-uploads.mjs` | Move per-user shorts stored loose (no subfolder) into a creator/`uploads` subfolder. |
-| `migrate-shorts-folders.mjs` | Reorganize flat shorts storage into per-profile subfolders and rewrite the DB keys. Idempotent. |
 | `backfill-blurhash.mjs` | Compute the BlurHash placeholder for gallery images stored before blurhashes existed. |
-| `backfill-shorts-captions.mjs` | Re-read each clip's `Source:` URL to recover a missing caption. Never re-downloads the media. |
 | `seed-sandbox-captions.mjs` | Seed the sandbox instance with placeholder captions so screenshots contain no real content. |
 
 ## Installer

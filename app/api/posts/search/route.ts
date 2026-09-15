@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "kysely";
 import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import { handleOf } from "@/lib/directory";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // Search accounts (users + mirrored photo AND video creators) and hashtags.
 // Account search is a substring LIKE over username/name + display_name; tags
 // over post_hashtags. Accounts are deduped by handle (a person with both photos
-// and shorts appears once).
+// appears once).
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -45,18 +45,6 @@ export async function GET(request: Request) {
   }
   const creators = getAll<{ username: string; display_name: string | null }>(creatorsQuery);
 
-  // Video creators (shorts) — name isn't normalized, so key by its handle.
-  let shortCreatorsQuery = qb
-    .selectFrom("short_profiles")
-    .select("name")
-    .distinct()
-    .where(sql<boolean>`LOWER(name) LIKE ${like}`)
-    .orderBy("name")
-    .limit(20);
-  if (!adult) {
-    shortCreatorsQuery = shortCreatorsQuery.where("channel", "=", "main");
-  }
-  const shortCreators = getAll<{ name: string }>(shortCreatorsQuery);
   let tagsQuery = qb
     .selectFrom("post_hashtags")
     .innerJoin("posts", "posts.id", "post_hashtags.post_id")
@@ -71,7 +59,7 @@ export async function GET(request: Request) {
   }
   const tags = getAll<{ tag: string; count: number }>(tagsQuery);
 
-  // Dedupe by handle, preferring user > photo creator > video creator.
+  // Dedupe by handle, preferring a real user over a mirrored creator.
   const byHandle = new Map<string, { username: string; display_name: string | null; type: "user" | "creator" }>();
   const add = (username: string, display_name: string | null, type: "user" | "creator") => {
     const h = handleOf(username);
@@ -79,7 +67,6 @@ export async function GET(request: Request) {
   };
   for (const u of users) add(u.username, u.display_name, "user");
   for (const c of creators) add(c.username, c.display_name, "creator");
-  for (const s of shortCreators) add(handleOf(s.name), s.name, "creator");
 
   return NextResponse.json({ accounts: Array.from(byHandle.values()).slice(0, 20), tags });
 }

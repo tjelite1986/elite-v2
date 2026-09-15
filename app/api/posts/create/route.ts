@@ -10,7 +10,7 @@ import {
   authorSlug,
   renamePostImageFiles,
 } from "@/lib/posts-storage";
-import { userHomeDir } from "@/lib/shorts-storage";
+import { userHomeDir } from "@/lib/storage-roots";
 import { uploadStem } from "@/lib/import-naming";
 
 export const dynamic = "force-dynamic";

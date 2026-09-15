@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { db } from "@/lib/db";
-import type { ShortChannel, VideoChannel } from "@/lib/db";
-import { has18Access } from "@/lib/shorts-gate";
+import type { VideoChannel } from "@/lib/db";
 import { canAccessVideoChannel } from "@/lib/videos";
 import {
   deleteDuplicateMembers,
@@ -25,18 +24,6 @@ interface MemberDetail {
   created_at: string;
 }
 
-function shortDetails(ids: number[]): Map<number, MemberDetail> {
-  if (ids.length === 0) return new Map();
-  const rows = db
-    .prepare(
-      `SELECT id, channel, caption AS label, duration, size_bytes, width, height,
-              poster_key, created_at
-         FROM shorts WHERE id IN (${ids.map(() => "?").join(",")})`
-    )
-    .all(...ids) as MemberDetail[];
-  return new Map(rows.map((r) => [r.id, r]));
-}
-
 function videoDetails(ids: number[]): Map<number, MemberDetail> {
   if (ids.length === 0) return new Map();
   const rows = db
@@ -50,22 +37,16 @@ function videoDetails(ids: number[]): Map<number, MemberDetail> {
 }
 
 /** Whether the caller may see a given channel, resolved once per request. */
-async function visibilityFilter(
-  kind: MediaKind
-): Promise<(channel: string) => boolean> {
-  if (kind === "short") {
-    const can18 = await has18Access();
-    return (channel) => (channel as ShortChannel) !== "18plus" || can18;
-  }
+async function visibilityFilter(): Promise<(channel: string) => boolean> {
   const canAdults = await canAccessVideoChannel("adults");
   return (channel) => (channel as VideoChannel) !== "adults" || canAdults;
 }
 
-// Duplicate groups for one media kind, enriched with what the review UI needs
-// to compare quality at a glance.
+// Duplicate groups, enriched with what the review UI needs to compare quality
+// at a glance.
 //
 // Members the caller cannot see are dropped, and a group that falls below two
-// visible members disappears entirely — otherwise the 18+ half of a mixed
+// visible members disappears entirely — otherwise the adult half of a mixed
 // group would be inferable from a gap in the list.
 export async function GET(request: Request) {
   const session = await getSession();
@@ -74,18 +55,19 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const kind = (url.searchParams.get("kind") || "short") as MediaKind;
-  if (kind !== "short" && kind !== "video") {
+  // Videos are the only kind left — a stale ?kind=short link from a bookmarked
+  // panel is rejected rather than quietly answered with the wrong library.
+  const kind = (url.searchParams.get("kind") || "video") as MediaKind;
+  if (kind !== "video") {
     return NextResponse.json({ error: "Unknown kind" }, { status: 400 });
   }
   const includeRecolored = url.searchParams.get("recolored") === "1";
 
   const groups = duplicateGroups(kind, { includeRecolored });
   const allIds = [...new Set(groups.flatMap((g) => g.members))];
-  const details =
-    kind === "short" ? shortDetails(allIds) : videoDetails(allIds);
+  const details = videoDetails(allIds);
 
-  const visible = await visibilityFilter(kind);
+  const visible = await visibilityFilter();
 
   const enriched = groups
     .map((group) => ({
@@ -120,7 +102,10 @@ export async function POST(request: Request) {
     kind?: MediaKind;
     ids?: number[];
   };
-  const kind = body.kind === "video" ? "video" : "short";
+  const kind: MediaKind = "video";
+  if (body.kind && body.kind !== kind) {
+    return NextResponse.json({ error: "Unknown kind" }, { status: 400 });
+  }
   const ids = (body.ids ?? []).filter((n) => Number.isInteger(n) && n > 0);
   if (ids.length < 2) {
     return NextResponse.json(
@@ -129,8 +114,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const canSee = await visibilityFilter(kind);
-  const details = kind === "short" ? shortDetails(ids) : videoDetails(ids);
+  const canSee = await visibilityFilter();
+  const details = videoDetails(ids);
   for (const id of ids) {
     const row = details.get(id);
     if (!row || !canSee(row.channel)) {
@@ -165,7 +150,10 @@ export async function DELETE(request: Request) {
     ids?: number[];
     groupMembers?: number[];
   };
-  const kind = body.kind === "video" ? "video" : "short";
+  const kind: MediaKind = "video";
+  if (body.kind && body.kind !== kind) {
+    return NextResponse.json({ error: "Unknown kind" }, { status: 400 });
+  }
   const ids = (body.ids ?? []).filter((n) => Number.isInteger(n) && n > 0);
   const groupMembers = (body.groupMembers ?? []).filter(
     (n) => Number.isInteger(n) && n > 0
@@ -182,9 +170,8 @@ export async function DELETE(request: Request) {
 
   // Deleting reaches the filesystem, so the channel check is not optional:
   // an id alone says nothing about which channel it belongs to.
-  const canSee = await visibilityFilter(kind);
-  const details =
-    kind === "short" ? shortDetails(groupMembers) : videoDetails(groupMembers);
+  const canSee = await visibilityFilter();
+  const details = videoDetails(groupMembers);
   for (const id of groupMembers) {
     const row = details.get(id);
     if (!row || !canSee(row.channel)) {

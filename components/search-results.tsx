@@ -23,19 +23,18 @@ export interface Results {
   messages: { id: number; snippet: string; peer: string; created_at: string }[];
   channelMessages: { id: number; snippet: string; channel: string; sender: string; created_at: string }[];
   gallery: { id: number; filename: string; snippet: string }[];
-  shorts: { id: number; snippet: string; profile: string | null; channel: string }[];
   videos: { id: number; snippet: string; folder: string; channel: string; duration: number | null }[];
   books: { slug: string; title: string; author: string | null }[];
 }
 
 export const EMPTY: Results = {
-  people: [], posts: [], messages: [], channelMessages: [], gallery: [], shorts: [], videos: [], books: [],
+  people: [], posts: [], messages: [], channelMessages: [], gallery: [], videos: [], books: [],
 };
 
 export function countResults(r: Results): number {
   return (
     r.people.length + r.posts.length + r.messages.length +
-    r.channelMessages.length + r.gallery.length + r.shorts.length +
+    r.channelMessages.length + r.gallery.length +
     r.videos.length + r.books.length
   );
 }
@@ -167,18 +166,6 @@ export default function SearchResultList({
               href={p.author ? `/people/${encodeURIComponent(p.author)}?tab=photos` : "/posts"}
               primary={<Snippet text={p.snippet} />}
               secondary={p.author ? `@${p.author}` : undefined}
-            />
-          ))}
-        </Section>
-      )}
-      {results.shorts.length > 0 && (
-        <Section title="Shorts" icon={<Clapperboard size={13} />}>
-          {cap(results.shorts).map((s) => (
-            <Row
-              key={s.id}
-              href={s.channel === "main" ? "/shorts" : "/shorts18"}
-              primary={<Snippet text={s.snippet} />}
-              secondary={s.profile ? `@${s.profile}` : undefined}
             />
           ))}
         </Section>

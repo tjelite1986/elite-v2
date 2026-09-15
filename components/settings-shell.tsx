@@ -65,7 +65,7 @@ interface SettingsShellProps {
 // Sidebar categories: personal settings, one entry per library section the user
 // may manage, and admin-wide tools. Heavy per-section tooling lives INSIDE the
 // section's panel as small tool tabs instead of one endless page per tool.
-// "shorts" (the main channel) is gone: that library moved to tikshortis.
+// Neither shorts section is here: both libraries are apps of their own.
 type SectionKey = "posts" | "gallery";
 type CategoryKey =
   | "account"
@@ -663,7 +663,7 @@ function ImportTab({
             creator and <code className="text-white/70">[h_tag]</code> adds
             hashtags. A subfolder named after the creator (or the legacy{" "}
             <code className="text-white/70">creator_-_title</code>) still
-            works. Videos route to Shorts under the same handle.
+            works.
           </p>
           <PostsImportButton />
         </Card>
@@ -829,9 +829,10 @@ function AdultPanel({
           <div>
             <h2 className="text-lg font-medium">Show 18+ content everywhere</h2>
             <p className="mt-1 max-w-md text-sm text-white/50">
-              Weave adult content into normal browsing (feeds, profiles, people)
-              instead of only the Shorts 18+ section. If you set a personal 18+
-              PIN below, you&apos;ll need to unlock it to view adult content.
+              Weave adult content into normal browsing (feeds, profiles,
+              people) instead of only the 18+ sections. If you set a personal
+              18+ PIN below, you&apos;ll need to unlock it to view adult
+              content.
             </p>
           </div>
           <button

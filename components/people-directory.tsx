@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Search, Image as ImageIcon, Clapperboard, UserRound } from "lucide-react";
+import { Search, Image as ImageIcon, UserRound } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
 import type { PersonEntry, PeopleSort, PeopleFilter } from "@/lib/directory";
 
@@ -380,20 +380,6 @@ function PersonRow({ person: p }: { person: PersonEntry }) {
               href={`/people/${encodeURIComponent(p.handle)}?tab=photos`}
               icon={<ImageIcon size={12} />}
               label={`${p.photos} photo${p.photos === 1 ? "" : "s"}`}
-            />
-          )}
-          {p.shortsMain > 0 && (
-            <Chip
-              href={`/people/${encodeURIComponent(p.handle)}?tab=shorts`}
-              icon={<Clapperboard size={12} />}
-              label={`${p.shortsMain} short${p.shortsMain === 1 ? "" : "s"}`}
-            />
-          )}
-          {p.shorts18 > 0 && (
-            <Chip
-              href={`/people/${encodeURIComponent(p.handle)}?tab=18plus`}
-              icon={<Clapperboard size={12} />}
-              label={`${p.shorts18} 18+`}
             />
           )}
           {/* A profile saved from the phone before any of its media arrived.

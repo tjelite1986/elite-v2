@@ -78,12 +78,9 @@ export default function BottomNav({
   // viewport — no global bar and no extra padding there.
   const onMessages =
     pathname === "/messages" || pathname.startsWith("/messages/");
-  // The shorts root pages and the posts Videos feed are exact-viewport feeds;
-  // bottom padding would just add a dead scroll gap under them.
-  const fullBleed =
-    pathname === "/shorts" ||
-    pathname === "/shorts18" ||
-    pathname === "/posts/videos";
+  // The posts Videos feed is an exact-viewport feed; bottom padding would just
+  // add a dead scroll gap under it.
+  const fullBleed = pathname === "/posts/videos";
 
   const items = getBottomNavItems(pathname, { username });
   const activeHref = activeNavHref(pathname, items);

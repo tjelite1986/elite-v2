@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import { resolvePerson, handleOf, bioMentionHrefs } from "@/lib/directory";
 import PersonProfile from "@/components/person-profile";
 
@@ -36,10 +36,11 @@ export default async function PersonPage(
     redirect(`/people/${encodeURIComponent(person.handle)}`);
   }
 
-  // Deep-linked tab (?tab=photos etc.) from the directory / search links.
+  // Deep-linked tab (?tab=photos) from the directory / search links. An old
+  // ?tab=shorts link falls through to the profile tab: those sections are their
+  // own apps now.
   const tab = searchParams?.tab;
-  const initialTab =
-    tab === "photos" || tab === "shorts" || tab === "18plus" ? tab : "profile";
+  const initialTab = tab === "photos" ? tab : "profile";
 
   return (
     <PersonProfile

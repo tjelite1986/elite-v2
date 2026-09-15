@@ -409,7 +409,7 @@ export default function ProfileExtrasEditor({
           Other names (aliases)
         </span>
         <p className="mb-2 text-xs text-white/40">
-          Alternate @handles that should resolve to this profile. A short or post
+          Alternate @handles that should resolve to this profile. A post
           tagged with an alias (e.g. a different spelling) then links here.
           Changes apply immediately.
         </p>
@@ -492,8 +492,8 @@ export default function ProfileExtrasEditor({
           Include Stories (24h — only what’s live at sync time)
         </label>
         <p className="mt-1 text-xs text-white/40">
-          Connect an Instagram account to import its photos as posts and videos
-          as shorts on this profile. Highlights and Stories are pulled in
+          Connect an Instagram account to import its photos and videos as posts
+          on this profile. Highlights and Stories are pulled in
           addition to regular posts when enabled. Use the “Sync from Instagram”
           button on the profile to pull now.
         </p>
@@ -531,8 +531,8 @@ export default function ProfileExtrasEditor({
           Auto-poll daily (pull new posts automatically)
         </label>
         <p className="mt-1 text-xs text-white/40">
-          Connect a TikTok account to import its videos as shorts (and photo
-          posts as posts) on this profile. No login cookie is required — use the
+          Connect a TikTok account to import its videos and photo posts as
+          posts on this profile. No login cookie is required — use the
           “Sync from TikTok” button on the profile to pull now.
         </p>
       </div>

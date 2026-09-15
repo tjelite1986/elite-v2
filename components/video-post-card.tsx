@@ -12,7 +12,6 @@ import {
   VolumeX,
   Minimize2,
   Trash2,
-  Clapperboard,
   MoreVertical,
   Download,
   Maximize,
@@ -24,8 +23,7 @@ import { CommentsSheet } from "@/components/post-card";
 import EditCaptionSheet from "@/components/edit-caption-sheet";
 import type { FeedPost, FeedPostMedia } from "@/lib/posts";
 
-// Player interaction tuning — identical to short-card so the Videos tab feels
-// exactly like the Shorts feed.
+// Player interaction tuning, so the Videos tab feels like a vertical feed.
 const SEEK_SECONDS = 10;
 const SEEK_ZONE = 0.35;
 const DOUBLE_TAP_MS = 220;
@@ -70,7 +68,7 @@ function renderCaption(text: string) {
 }
 
 // One full-screen card for one video media item of a post — the Videos tab's
-// counterpart of ShortCard, wired to the posts APIs (like/comments act on the
+// A vertical video card wired to the posts APIs (like/comments act on the
 // whole post; a carousel with several videos renders one card per video).
 export default function VideoPostCard({
   post,
@@ -98,7 +96,7 @@ export default function VideoPostCard({
   onToggleFullscreen?: () => void;
   // The whole post left the feed (deleted / emptied by a move).
   onRemoved?: (postId: number) => void;
-  // Only this video left the post (moved to shorts, siblings remain).
+  // Only this video left the post (siblings remain).
   onMediaRemoved?: (postId: number, mediaId: number) => void;
   // Like/comment-count changes, so sibling cards of the same post stay in sync.
   onPatch?: (postId: number, patch: Partial<FeedPost>) => void;
@@ -273,29 +271,6 @@ export default function VideoPostCard({
   const flashMsg = (text: string) => {
     setMsg(text);
     setTimeout(() => setMsg(null), 2500);
-  };
-
-  // Owner/admin: move this video back to shorts. Only offered on an 18+ post —
-  // the main channel is retired here, so that is the only destination left.
-  const moveToShorts = async () => {
-    if (busyAction) return;
-    setBusyAction(true);
-    setMsg("Moving to Shorts…");
-    try {
-      const res = await fetch(`/api/posts/media/${media.id}/to-short`, { method: "POST" });
-      if (res.ok) {
-        setMsg(null);
-        const d = await res.json().catch(() => ({}));
-        if (d.postDeleted) onRemoved?.(post.id);
-        else onMediaRemoved?.(post.id, media.id);
-      } else {
-        const d = await res.json().catch(() => ({}));
-        flashMsg(d.error || "Move failed");
-      }
-    } catch {
-      flashMsg("Move failed");
-    }
-    setBusyAction(false);
   };
 
   // Owner/admin: delete the whole post (confirmed in a sheet — destructive).
@@ -500,19 +475,6 @@ export default function VideoPostCard({
                     setShowEdit(true);
                   }}
                 />
-                {/* Only an 18+ post has a channel left to move to: the main
-                    library moved to tikshortis and the server refuses a
-                    non-adult clip. */}
-                {post.is_adult && (
-                  <MoreRow
-                    icon={<Clapperboard size={18} className={cn(busyAction && "opacity-50")} />}
-                    label="Move to Shorts"
-                    onClick={() => {
-                      setShowMore(false);
-                      moveToShorts();
-                    }}
-                  />
-                )}
                 <MoreRow
                   icon={<Trash2 size={18} className="text-red-400" />}
                   label="Delete post"
@@ -623,7 +585,7 @@ function RailButton({
   );
 }
 
-// One row in the 3-dot menu sheet (matches short-card's MoreRow).
+// One row in the 3-dot menu sheet.
 function MoreRow({
   icon,
   label,

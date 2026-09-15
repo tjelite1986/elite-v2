@@ -52,7 +52,7 @@ export default function AdultPinSettings({ hasPin: initial }: { hasPin: boolean 
       </div>
       <p className="mt-1 max-w-md text-sm text-white/50">
         Adult content is open by default. Set a personal PIN to lock the 18+
-        surfaces (Shorts 18+, adult posts &amp; apps) on your account — you&apos;ll
+        surfaces (adult videos, posts &amp; apps) on your account — you&apos;ll
         enter it once per 2 hours per device.
       </p>
 

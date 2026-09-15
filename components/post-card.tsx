@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Heart, MessageCircle, X, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
-import { SOURCE_RE } from "@/lib/shorts-caption";
+import { SOURCE_RE } from "@/lib/caption-source";
 import PostAvatar from "@/components/post-avatar";
 import PostInlineVideo from "@/components/post-inline-video";
 import Markdown from "@/components/markdown";

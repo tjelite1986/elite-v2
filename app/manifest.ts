@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Elite",
     short_name: "Elite",
-    description: "Your personal hub — photos, shorts, posts and chat.",
+    description: "Your personal hub — photos, videos, posts and chat.",
     start_url: "/",
     scope: "/",
     display: "standalone",

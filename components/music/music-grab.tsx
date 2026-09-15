@@ -129,7 +129,7 @@ export default function MusicGrab({ library }: { library: MusicLibrary }) {
     setError(null);
     try {
       const r = await fetch(
-        `/api/shorts/grab/resolve?url=${encodeURIComponent(url.trim())}`
+        `/api/grab/resolve?url=${encodeURIComponent(url.trim())}`
       );
       const d = await r.json();
       if (d.ok === false) {

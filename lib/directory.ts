@@ -4,7 +4,6 @@ import { qb, getOne, getAll } from "./kysely";
 import { getProfileExtras, ProfileLink, ProfileField } from "./profiles";
 import { resolveBadges } from "./badges";
 import { getPrimaryHandle, personContentIds, getGroupMembers } from "./profile-links";
-import { shortIdsMentioning } from "./short-mentions";
 
 // A badge as sent to the client — the BadgeDef's `earned` predicate is dropped
 // (a function prop would break server→client serialization).
@@ -18,9 +17,9 @@ export interface PersonBadge {
 }
 
 // Cross-section "people" directory: merges the three identity tables
-// (user_profiles, post_creators, short_profiles) by lowercased handle and
-// reports where each person has content — Photos (posts), Shorts (main),
-// Shorts 18+ — so one page links to a person's content across every section.
+// (user_profiles, post_creators) by lowercased handle and reports where each
+// person has content, so one page links to a person's content across every
+// section.
 // At a few hundred identities the merge is done in JS each request (sub-ms).
 
 export interface PersonEntry {
@@ -29,10 +28,6 @@ export interface PersonEntry {
   userId: number | null; // real app user (vs mirrored creator)
   photos: number; // visible post count (adult filtered unless include18)
   photosHref: string | null;
-  shortsMain: number;
-  shortsMainId: number | null;
-  shorts18: number;
-  shorts18Id: number | null;
   hasAvatar: boolean; // any avatar set (handle_avatars or legacy columns)
   /**
    * A creator with a picture or a bio but nothing to show yet — a profile that
@@ -74,8 +69,8 @@ const FILTER_PREDICATES: Record<PeopleFilter, (p: PersonEntry) => boolean> = {
   "no-tiktok": (p) => !p.hasTiktok,
 };
 
-// Same slug rule used for short_profiles names elsewhere, so a clip creator maps
-// to the shared handle namespace. Exported so shorts pages can link a creator
+// The shared handle namespace: every section normalises a name the same way, so
+// one person resolves to one page. Exported so section pages can link a creator
 // name to its unified /people profile.
 export function handleOf(name: string): string {
   return String(name)
@@ -92,10 +87,6 @@ function blank(handle: string): PersonEntry {
     userId: null,
     photos: 0,
     photosHref: null,
-    shortsMain: 0,
-    shortsMainId: null,
-    shorts18: 0,
-    shorts18Id: null,
     hasAvatar: false,
     hasProfileOnly: false,
     createdAt: null,
@@ -134,19 +125,11 @@ export interface ResolvedPerson {
   creatorId: number | null; // photo creator
   isOwn: boolean;
   // Follow target: a person is followed via their user, else photo creator, else
-  // (video-only creators) one of their shorts profiles. null = nothing to follow.
-  followType: "user" | "creator" | "shorts" | null;
+  // null = nothing to follow.
+  followType: "user" | "creator" | null;
   followId: number | null;
   viewerFollows: boolean;
   photos: number;
-  shortsMainId: number | null;
-  shortsMain: number;
-  shortsMainAutoPoll: boolean;
-  shortsMainPollable: boolean;
-  shorts18Id: number | null;
-  shorts18: number;
-  shorts18AutoPoll: boolean;
-  shorts18Pollable: boolean;
   // Instagram cookie-sync config/status (from profile_extras), keyed by handle.
   instagramHandle: string | null;
   igAutoPoll: boolean;
@@ -162,7 +145,7 @@ export interface ResolvedPerson {
 }
 
 // Resolve a handle to its identity across every section, for the unified
-// profile page. include18 controls whether 18+ shorts are counted/linked.
+// profile page. include18 controls whether adult posts are counted/linked.
 export function resolvePerson(
   handle: string,
   viewerId: number,
@@ -171,7 +154,7 @@ export function resolvePerson(
   // Resolve the requested handle to its primary "face" (if linked), then gather
   // every linked member's content ids so counts/feeds aggregate the whole group.
   const h = getPrimaryHandle(handleOf(handle));
-  const ids = personContentIds(h, include18);
+  const ids = personContentIds(h);
 
   const user = getOne<{
     user_id: number;
@@ -197,41 +180,7 @@ export function resolvePerson(
       .where("username", "=", h)
   );
 
-  const shorts = getAll<{
-    id: number;
-    name: string;
-    channel: string;
-    auto_poll: number;
-    source_type: string;
-    source_ref: string;
-  }>(
-    qb
-      .selectFrom("short_profiles")
-      .select(["id", "name", "channel", "auto_poll", "source_type", "source_ref"])
-  );
-  let shortsMainId: number | null = null;
-  let shorts18Id: number | null = null;
-  // Poll/download settings make sense only for a pollable source (not 'manual').
-  const pollOf = (s: { source_type: string; source_ref: string }) =>
-    s.source_type !== "manual" && Boolean(s.source_ref);
-  let shortsMainAutoPoll = false;
-  let shorts18AutoPoll = false;
-  let shortsMainPollable = false;
-  let shorts18Pollable = false;
-  for (const s of shorts) {
-    if (handleOf(s.name) !== h) continue;
-    if (s.channel === "18plus") {
-      shorts18Id = s.id;
-      shorts18AutoPoll = Boolean(s.auto_poll);
-      shorts18Pollable = pollOf(s);
-    } else {
-      shortsMainId = s.id;
-      shortsMainAutoPoll = Boolean(s.auto_poll);
-      shortsMainPollable = pollOf(s);
-    }
-  }
-
-  if (!user && !creator && shortsMainId === null && shorts18Id === null) {
+  if (!user && !creator) {
     return null;
   }
 
@@ -258,67 +207,13 @@ export function resolvePerson(
         )?.c ?? 0
       : 0;
 
-  // Clips on a person's profile come from BOTH the creator profile (profile_id)
-  // AND the person's own uploads (uploader_id), so a user's uploaded/imported
-  // clips count here too — mirroring how posts union author_user_id. Privacy is
-  // applied so the badge matches what the feed renders (public + viewer's own).
-  // Clips on a person's profile, unioned across every linked member's creator
-  // profiles (profile_id) and own uploads (uploader_id). Privacy still applies.
-  // Clip ids that @mention this person (or an alias), per channel — surfaced on
-  // the profile even when imported under another creator profile.
-  const members = getGroupMembers(h);
-  const mentionedMainIds = shortIdsMentioning(members, "main");
-  const mentioned18Ids = include18 ? shortIdsMentioning(members, "18plus") : [];
-
-  const clipCount = (
-    profileIds: number[],
-    channel: "main" | "18plus",
-    mentionedIds: number[]
-  ): number => {
-    if (
-      profileIds.length === 0 &&
-      ids.userIds.length === 0 &&
-      mentionedIds.length === 0
-    )
-      return 0;
-    return (
-      getOne<{ c: number }>(
-        qb
-          .selectFrom("shorts")
-          .select((eb) => eb.fn.countAll<number>().as("c"))
-          .where("channel", "=", channel)
-          .where("is_deleted", "=", 0)
-          .where("status", "=", "ready")
-          .where((eb) =>
-            eb.or(
-              [
-                profileIds.length ? eb("profile_id", "in", profileIds) : null,
-                ids.userIds.length ? eb("uploader_id", "in", ids.userIds) : null,
-                mentionedIds.length ? eb("id", "in", mentionedIds) : null,
-              ].filter((c): c is NonNullable<typeof c> => c !== null)
-            )
-          )
-          .where((eb) =>
-            eb.or([
-              eb("is_private", "=", 0),
-              eb("uploader_id", "=", viewerId),
-            ])
-          )
-      )?.c ?? 0
-    );
-  };
-
-  // Following state for the primary follow target (user > creator > shorts, so a
-  // video-only creator is still followable).
-  const shortsFollowId = shortsMainId ?? shorts18Id;
-  const followType: "user" | "creator" | "shorts" | null = user
+  // Following state for the primary follow target (user > creator).
+  const followType: "user" | "creator" | null = user
     ? "user"
     : creator
       ? "creator"
-      : shortsFollowId !== null
-        ? "shorts"
-        : null;
-  const followId = user?.user_id ?? creator?.id ?? shortsFollowId ?? null;
+      : null;
+  const followId = user?.user_id ?? creator?.id ?? null;
   const viewerFollows =
     followType !== null &&
     followId !== null &&
@@ -343,10 +238,7 @@ export function resolvePerson(
 
   // Followers: anyone following any of this person's identities. Following: only
   // real users follow others.
-  const countFollowers = (
-    type: "user" | "creator" | "shorts",
-    id: number
-  ): number =>
+  const countFollowers = (type: "user" | "creator", id: number): number =>
     getOne<{ c: number }>(
       qb
         .selectFrom("follows")
@@ -357,9 +249,6 @@ export function resolvePerson(
   let followers = 0;
   for (const uid of ids.userIds) followers += countFollowers("user", uid);
   for (const cid of ids.creatorIds) followers += countFollowers("creator", cid);
-  for (const sid of ids.shortsMainIds) followers += countFollowers("shorts", sid);
-  if (include18)
-    for (const sid of ids.shorts18Ids) followers += countFollowers("shorts", sid);
   const following = user
     ? getOne<{ c: number }>(
         qb
@@ -399,14 +288,6 @@ export function resolvePerson(
     followId,
     viewerFollows,
     photos,
-    shortsMainId,
-    shortsMain: clipCount(ids.shortsMainIds, "main", mentionedMainIds),
-    shortsMainAutoPoll,
-    shortsMainPollable,
-    shorts18Id: include18 ? shorts18Id : null,
-    shorts18: include18 ? clipCount(ids.shorts18Ids, "18plus", mentioned18Ids) : 0,
-    shorts18AutoPoll: include18 ? shorts18AutoPoll : false,
-    shorts18Pollable: include18 ? shorts18Pollable : false,
     instagramHandle: extras?.instagramHandle ?? null,
     igAutoPoll: extras?.igAutoPoll ?? false,
     igLastSyncedAt: extras?.igLastSyncedAt ?? null,
@@ -542,45 +423,6 @@ export function getPeople(
     }
   }
 
-  // Mirrored video creators (shorts), split by channel.
-  const shorts = getAll<{
-    id: number;
-    name: string;
-    channel: string;
-    created_at: string | null;
-    clips: number;
-  }>(
-    qb
-      .selectFrom("short_profiles as sp")
-      .select([
-        "sp.id",
-        "sp.name",
-        "sp.channel",
-        "sp.created_at",
-        // Count only PUBLIC clips in the directory list — it has no viewer
-        // context, so counting private clips would leak their existence to
-        // everyone. The accurate "public + viewer's own" count is shown on the
-        // profile page (resolvePerson, which is viewer-aware).
-        sql<number>`(SELECT COUNT(*) FROM shorts s WHERE s.profile_id = sp.id AND s.is_deleted = 0 AND s.status = 'ready' AND s.is_private = 0)`.as(
-          "clips"
-        ),
-      ])
-  );
-  for (const s of shorts) {
-    const p = get(handleOf(s.name));
-    if (!p.displayName) p.displayName = s.name;
-    p.createdAt = earliest(p.createdAt, s.created_at);
-    if (s.channel === "18plus") {
-      // Only surface 18+ counts/links when the viewer may see adult content.
-      if (!include18) continue;
-      p.shorts18 += s.clips;
-      if (s.clips > 0) p.shorts18Id = s.id;
-    } else {
-      p.shortsMain += s.clips;
-      if (s.clips > 0) p.shortsMainId = s.id;
-    }
-  }
-
   // Linked-social flags per handle, set before the collapse so a linked member's
   // Instagram/TikTok is folded into the primary "face" below.
   for (const [key, entry] of Array.from(people.entries())) {
@@ -605,15 +447,9 @@ export function getPeople(
     if (primary === key) continue;
     const target = get(primary);
     target.photos += entry.photos;
-    target.shortsMain += entry.shortsMain;
-    target.shorts18 += entry.shorts18;
     if (target.userId === null && entry.userId !== null) target.userId = entry.userId;
     if (!target.displayName && entry.displayName) target.displayName = entry.displayName;
     if (!target.photosHref && entry.photosHref) target.photosHref = entry.photosHref;
-    if (target.shortsMainId === null && entry.shortsMainId !== null)
-      target.shortsMainId = entry.shortsMainId;
-    if (target.shorts18Id === null && entry.shorts18Id !== null)
-      target.shorts18Id = entry.shorts18Id;
     if (entry.hasAvatar) target.hasAvatar = true;
     if (entry.hasInstagram) target.hasInstagram = true;
     if (entry.hasTiktok) target.hasTiktok = true;
@@ -629,7 +465,7 @@ export function getPeople(
   // once the first post lands.
   let list = Array.from(people.values()).filter((p) => {
     const visible =
-      p.photos > 0 || p.shortsMain > 0 || (include18 && p.shorts18 > 0);
+      p.photos > 0;
     if (visible) p.hasProfileOnly = false;
     else if (p.hasAvatar) p.hasProfileOnly = true;
     return p.userId !== null || visible || p.hasProfileOnly;
@@ -671,8 +507,8 @@ export function getPeople(
       if ((b.userId !== null ? 1 : 0) !== (a.userId !== null ? 1 : 0)) {
         return (b.userId !== null ? 1 : 0) - (a.userId !== null ? 1 : 0);
       }
-      const at = a.photos + a.shortsMain + (include18 ? a.shorts18 : 0);
-      const bt = b.photos + b.shortsMain + (include18 ? b.shorts18 : 0);
+      const at = a.photos;
+      const bt = b.photos;
       if (bt !== at) return bt - at;
       return a.handle.localeCompare(b.handle);
     });

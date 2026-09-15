@@ -8,7 +8,7 @@
 #   - generate a .env (auto-filled secrets + prompted values + optional placeholders)
 #   - generate a matching docker-compose.yml (container-path env + host mounts + labels)
 #   - generate a Traefik reverse-proxy stack (compose + static config + acme.json)
-#   - generate a grabbit media-grabber stack wired to the shorts import folder
+#   - generate a grabbit media-grabber stack
 #   (every recurring script runs via the in-app Admin -> Background jobs, so
 #   there is nothing host-side to schedule)
 #
@@ -34,7 +34,6 @@ STORAGE=(
   "profile|/profile-store|PROFILE_ROOT"
   "import|/import-store|IMPORT_ROOT"
   "posts|/posts-store|POSTS_ROOT"
-  "shorts|/shorts-store|SHORTS_ROOT"
   "books|/books-store|BOOKS_ROOT"
   "instagram|/instagram-store|IG_COOKIES_ROOT"
   "tiktok|/tiktok-store|TIKTOK_COOKIES_ROOT"
@@ -289,10 +288,10 @@ write_env() {
       7) rc=0; yesno "Set an 18+ PIN?" || rc=$?
          case $rc in
            2) step=6 ;;
-           0) if pin="$(ask "SHORTS_18_PIN" "$pin")"; then step=8; fi ;;
+           0) if pin="$(ask "ADULT_PIN" "$pin")"; then step=8; fi ;;
            *) pin=""; step=8 ;;
          esac ;;
-      8) rc=0; yesno "Use the grabbit media grabber (shorts Grab tab)?" || rc=$?
+      8) rc=0; yesno "Use the grabbit media grabber?" || rc=$?
          case $rc in
            2) step=7 ;;
            0) USE_GRABBIT=1; step=9 ;;
@@ -343,7 +342,7 @@ write_env() {
     fi
     echo
     echo "# --- 18+ PIN (optional) ---"
-    if [[ -n "$pin" ]]; then echo "SHORTS_18_PIN=$pin"; else echo "# SHORTS_18_PIN=CHANGE_ME"; fi
+    if [[ -n "$pin" ]]; then echo "ADULT_PIN=$pin"; else echo "# ADULT_PIN=CHANGE_ME"; fi
     echo
     echo "# --- grabbit media grabber (optional) ---"
     if [[ $USE_GRABBIT -eq 1 ]]; then
@@ -568,7 +567,7 @@ EOF
 write_grabbit() {
   valid_root "$DATA_ROOT" || { say "Set a valid data root first."; return; }
   hr; say "grabbit media grabber -> $GRABBIT_DIR/"
-  say "Backs the shorts Grab tab (internal http://grabbit:3000) + a public, password-gated UI."
+  say "Reachable internally at http://grabbit:3000 + a public, password-gated UI."
   hint "(answer < to go back a step)"
   local gdomain="" src="" gpass="" gsecret token mkfolders=0
   local step=1 rc
@@ -623,10 +622,6 @@ services:
     networks: [traefik]
     env_file: .env
     environment:
-      - ELITE_ROOT=/elitev2-shorts
-      # Max clip length (seconds) allowed into the shorts library; longer
-      # videos are routed to the download library instead. 0 disables it.
-      - SHORTS_MAX_DURATION=600
       # Plain download library, auto-routed by type.
       - DOWNLOAD_DIR=/downloads
       - VIDEOS_DOWNLOAD_DIR=/downloads/videos
@@ -635,9 +630,6 @@ services:
       - PHOTOS_DOWNLOAD_DIR=/downloads/photos
     volumes:
       - $DATA_ROOT/grabbit/data:/data
-      # elite-v2 shorts store: files saved under <channel>/_import are
-      # picked up by the shorts import job.
-      - $DATA_ROOT/shorts:/elitev2-shorts
       - $DATA_ROOT/grabbit/downloads:/downloads
     labels:
       - "traefik.enable=true"
@@ -655,8 +647,7 @@ EOF
   if [[ $mkfolders -eq 1 ]]; then
     ensure_dirs "$DATA_ROOT/grabbit/data" \
       "$DATA_ROOT/grabbit/downloads/videos" "$DATA_ROOT/grabbit/downloads/mp3" \
-      "$DATA_ROOT/grabbit/downloads/adults" "$DATA_ROOT/grabbit/downloads/photos" \
-      "$DATA_ROOT/shorts"
+      "$DATA_ROOT/grabbit/downloads/adults" "$DATA_ROOT/grabbit/downloads/photos"
     say "Created grabbit folders."
   fi
 

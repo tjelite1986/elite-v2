@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import { getShowAdultOutside } from "@/lib/profiles";
 import {
   getPeople,
@@ -13,7 +13,7 @@ import {
 export const dynamic = "force-dynamic";
 
 // Paginated cross-section people directory. 18+ clip counts only contribute once
-// the shorts18 PIN is unlocked.
+// the adult PIN is unlocked.
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

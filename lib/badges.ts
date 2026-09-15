@@ -19,9 +19,7 @@ export interface BadgeDef {
 interface Stats {
   userId: number;
   photos: number;
-  shorts: number;
   followers: number;
-  likes: number;
 }
 
 export const BADGES: BadgeDef[] = [
@@ -55,7 +53,10 @@ export const BADGES: BadgeDef[] = [
     description: "Posted 10 shorts.",
     icon: "Clapperboard",
     color: "text-rose-300",
-    earned: (s) => s.shorts >= 10,
+    // Retired: the shorts libraries are separate apps now, so nobody can earn
+    // this again. The definition stays so the accounts that DID earn it keep
+    // showing it — resolveBadges renders only badges present in this list.
+    earned: () => false,
   },
   {
     id: "connected",
@@ -71,7 +72,8 @@ export const BADGES: BadgeDef[] = [
     description: "Earned 100 likes on your shorts.",
     icon: "Heart",
     color: "text-pink-300",
-    earned: (s) => s.likes >= 100,
+    // Retired with the library, like "Creator" above.
+    earned: () => false,
   },
 ];
 
@@ -86,16 +88,8 @@ function statsFor(userId: number): Stats {
       "SELECT COUNT(*) c FROM gallery_items WHERE user_id = ? AND is_deleted = 0",
       userId
     ),
-    shorts: one(
-      "SELECT COUNT(*) c FROM shorts WHERE uploader_id = ? AND is_deleted = 0",
-      userId
-    ),
     followers: one(
       "SELECT COUNT(*) c FROM follows WHERE target_type = 'user' AND target_id = ?",
-      userId
-    ),
-    likes: one(
-      "SELECT COUNT(*) c FROM short_likes sl JOIN shorts s ON s.id = sl.short_id WHERE s.uploader_id = ?",
       userId
     ),
   };

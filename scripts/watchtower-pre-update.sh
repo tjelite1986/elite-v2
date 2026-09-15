@@ -2,7 +2,7 @@
 # Watchtower pre-update hook — hold off an automatic update mid-transcode.
 #
 # Watchtower stops the container the moment a new :latest digest appears, and the
-# shorts transcoder runs inside this container: a killed pass leaves nothing
+# video transcoder runs inside this container: a killed pass leaves nothing
 # reusable, so the clip is encoded again from the start. Exiting 75 (EX_TEMPFAIL)
 # makes Watchtower skip this cycle and try again on the next poll, by which time
 # the queue has usually drained.

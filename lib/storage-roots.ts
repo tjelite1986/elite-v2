@@ -57,3 +57,59 @@ export const IMPORT_SECTIONS = [
   "posts",
   "books",
 ] as const;
+
+// --- Per-user home -------------------------------------------------------
+
+// Filesystem-safe folder name for a name, so a folder always maps to one slug.
+function slugify(name: string | null | undefined): string {
+  const slug = (name || "unknown")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/^[._-]+|[._-]+$/g, "")
+    .slice(0, 64);
+  return slug || "unknown";
+}
+
+// Per-user home folder name for an account (filesystem-safe), e.g. "u_anna".
+// Falls back to the numeric id when the user has no username yet.
+export function userHomeDir(userId: number, username?: string | null): string {
+  const slug = username ? slugify(username) : "unknown";
+  return `u_${slug && slug !== "unknown" ? slug : userId}`;
+}
+
+function ensureDir(dir: string) {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+// Drop folders need to be writable by whoever places files there (e.g. a Samba
+// user that differs from the container uid), so the leaf import dirs are opened
+// up. Best effort — a chmod failure must not break provisioning.
+function makeDroppable(dir: string) {
+  try {
+    fs.chmodSync(dir, 0o777);
+  } catch {
+    /* best effort */
+  }
+}
+
+// Pre-create a user's per-user home up front (instead of lazily on first upload),
+// so every account has the same browsable layout from day one:
+//   <PROFILE_ROOT>/<userHome>/<PROFILE_SECTIONS>/   (served)
+//   <IMPORT_ROOT>/<userHome>/<IMPORT_SECTIONS>/     (drop tree)
+// The import leaf dirs are world-writable so a Samba/other-uid user can drop files
+// (the container runs as a different uid). Idempotent. Returns the userHome name.
+export function ensureUserHome(
+  userId: number,
+  username?: string | null
+): string {
+  const home = userHomeDir(userId, username);
+  for (const sec of PROFILE_SECTIONS) {
+    ensureDir(path.join(PROFILE_ROOT, home, sec));
+  }
+  for (const sec of IMPORT_SECTIONS) {
+    const dir = path.join(IMPORT_ROOT, home, sec);
+    ensureDir(dir);
+    makeDroppable(dir);
+  }
+  return home;
+}

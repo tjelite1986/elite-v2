@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession, getUserById } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { db } from "@/lib/db";
-import { createGateToken, GATE_COOKIE, gateCookieOptions } from "@/lib/shorts-gate";
+import { createGateToken, GATE_COOKIE, gateCookieOptions } from "@/lib/adult-gate";
 
 export const dynamic = "force-dynamic";
 

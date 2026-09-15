@@ -7,8 +7,8 @@
 ![SQLite](https://img.shields.io/badge/SQLite-WAL-003b57?logo=sqlite)
 ![Docker](https://img.shields.io/badge/Docker-multi--stage-2496ed?logo=docker&logoColor=white)
 
-A private, invite-only personal hub: a shared photo/video gallery, short-video
-and post feeds, a long-form video library, a shared bookshelf, an in-app app
+A private, invite-only personal hub: a shared photo/video gallery, post feeds,
+a long-form video library, a shared bookshelf, an in-app app
 store, real-time messaging, and account management behind a dark, mobile-first
 interface built around a single bottom navigation bar.
 
@@ -35,13 +35,13 @@ experience. **Here for the internals?** See
 > Captured on a sandbox instance seeded with placeholder media. Thumbnails in
 > the 18+ section are additionally obscured.
 
-| Profile | Shorts | Background jobs |
-| ------- | ------ | --------------- |
-| ![Unified profile with editor, custom fields and photo/shorts tabs](screenshots/gif/profile.gif) | ![Shorts explore grid, vertical player, in-player actions and the 18+ section](screenshots/gif/shorts.gif) | ![In-app job scheduler with per-job intervals and run history](screenshots/gif/background-jobs.gif) |
+| Profile | Background jobs |
+| ------- | --------------- |
+| ![Unified profile with editor, custom fields and a photos tab](screenshots/gif/profile.gif) | ![In-app job scheduler with per-job intervals and run history](screenshots/gif/background-jobs.gif) |
 
 | Settings | Library tools | Admin tools |
 | -------- | ------------- | ----------- |
-| ![Account, appearance themes, notifications, device sessions and 18+ access](screenshots/gif/settings.gif) | ![Shorts, photos, gallery, profile linking and bulk rename tools](screenshots/gif/settings-library.gif) | ![Member management, per-section permissions and broadcast announcements](screenshots/gif/settings-admin.gif) |
+| ![Account, appearance themes, notifications, device sessions and 18+ access](screenshots/gif/settings.gif) | ![Photos, gallery, profile linking and bulk rename tools](screenshots/gif/settings-library.gif) | ![Member management, per-section permissions and broadcast announcements](screenshots/gif/settings-admin.gif) |
 
 ## Screenshots
 
@@ -77,20 +77,11 @@ experience. **Here for the internals?** See
   shared as a public `/share/<token>` link or downloaded as a ZIP.
 - **Memories** — an "On this day" view that resurfaces media from the same
   date in previous years.
-- **Shorts** — a TikTok-style vertical video feed with an immersive player,
-  per-user public/private clips, playlists, and a PIN-gated 18+ section
-  (`/shorts18`). Explore and every profile offer a **grid / feed view toggle**,
-  and clips are editable (title / source / tags) straight from the grid or the
-  player's menu. Clips can be auto-polled (`yt-dlp`), transcoded, and
-  deduplicated. An optional "Grab from web" button appears if you point
-  `GRABBIT_URL` at a
-  [grabbit](https://github.com/tjelite1986/grabbit) media-grabber instance.
 - **Posts** — an Instagram-style feed with likes, comments, follows, stories,
   rich markdown composing (`react-markdown` + `remark-gfm`), `@mention`
   autocomplete, and link-preview cards. Photos open in a shared lightbox; a
-  **Videos** tab inside Posts plays video posts in the same immersive swipe
-  view as Shorts, with its own grid / feed toggle. Captions are editable from
-  any surface.
+  **Videos** tab inside Posts plays video posts in an immersive swipe view,
+  with its own grid / feed toggle. Captions are editable from any surface.
 - **Video library** — a separate long-form library (`/videos`, plus a PIN-gated
   `/videos18`) that mirrors `VIDEOS_ROOT` from disk rather than importing:
   a scan job picks up new files, generates posters and storyboards, and drops
@@ -99,13 +90,13 @@ experience. **Here for the internals?** See
   browser can't play (HEVC, AC-3, `.mkv`/`.avi`) are transcoded in the
   background, and 18+ titles can be matched to metadata from a `.nfo` sidecar
   or ThePornDB.
-- **Search & Ask AI** — a global `/search` across posts, shorts, videos, people
+- **Search & Ask AI** — a global `/search` across posts, videos, people
   and books (SQLite FTS5, with a LIKE fallback for builds without it), and an
   `/ask` page that answers questions with cited web sources via the Perplexity
   API.
-- **Return where you left off** — every feed and grid (Shorts, 18+, Explore,
-  posts, Videos, profiles) restores your exact scroll position or the clip you
-  were on when you open a profile and press Back, rather than jumping to the top.
+- **Return where you left off** — every feed and grid (posts, Videos, the
+  gallery, profiles) restores your exact scroll position or the item you were
+  on when you open a profile and press Back, rather than jumping to the top.
 - **One navigation bar** — a global bottom nav whose entries change per section,
   with a right-hand drawer behind **Menu** for everything else. There is no
   second row of tabs anywhere, and the device Back button closes the topmost
@@ -142,16 +133,16 @@ experience. **Here for the internals?** See
 - **Messaging** — real-time direct messages and group channels with presence
   (`last_seen`), reactions, replies, edits, and soft-delete, over a WebSocket
   endpoint served alongside Next.js by a custom server.
-- **Instagram / TikTok sync** — profile-driven import that routes photos to
-  posts and videos to shorts (`gallery-dl` / `yt-dlp`); Instagram is
+- **Instagram / TikTok sync** — profile-driven import that routes photos and
+  videos into posts (`gallery-dl` / `yt-dlp`); Instagram is
   cookie-based, TikTok works with or without cookies.
 - **Unified Settings** — one `/settings` page with a category nav: Account,
   Appearance, Notifications, Sessions and 18+ access (a personal PIN plus a
   "show 18+ content everywhere" toggle), per-section library settings
-  (Shorts / 18+ videos / Photos / Gallery with Import, Duplicates and Cleaning
+  (18+ videos / Photos / Gallery with Import, Duplicates and Cleaning
   tabs), and library tools — profile **Link / Merge / Auto-connect**, and a
   batch **Rename** that re-titles media and renames the file on disk to match.
-- **Duplicate detection** — two-stage scanners for shorts, posts and gallery:
+- **Duplicate detection** — two-stage scanners for posts and gallery:
   perceptual-hash (dHash) candidates confirmed by SSIM pixel comparison, with
   keep/delete review UI and dismissable false matches. A scan never deletes
   anything on its own.
@@ -197,7 +188,7 @@ flowchart LR
   B[Browser / PWA] -->|HTTPS| T[Traefik]
   T --> S["server.mjs — one Node process<br/>Next.js 15 · ws WebSocket · job scheduler"]
   S --> D[("SQLite WAL<br/>better-sqlite3")]
-  S --> F["storage roots<br/>gallery · posts · shorts · videos · books"]
+  S --> F["storage roots<br/>gallery · posts · videos · books"]
   S -->|"yt-dlp / gallery-dl"| X[(external sites)]
   S -.->|optional| G[grabbit media grabber]
 ```
@@ -233,8 +224,8 @@ Duplicate detection is two-stage: a fast perceptual dHash pass proposes
 candidates, then SSIM pixel comparison confirms before anything is flagged.
 
 **Import pipeline.** Each user has a drop tree (`u_<user>/{gallery, posts,
-shorts, shorts18, books}`) outside served storage. A filename grammar
-(`title [h_tag][f_collection][id_n].ext`) encodes hashtags, albums/playlists
+books}`) outside served storage. A filename grammar
+(`title [h_tag][f_collection][id_n].ext`) encodes hashtags, albums
 and the DB id; imported files are renamed to that canonical form, so a stored
 file re-dropped into the tree is recognized by its `[id_]` and skipped instead
 of duplicated. Sidecar `.md` files supply captions.
@@ -245,7 +236,7 @@ interval, run-now, view output). The scheduler ticks inside the production
 server — no cron or systemd needed for the common case; only jobs that need
 host-level access (file ownership fixes) ship as optional systemd units.
 
-**Two kinds of library.** Posts, shorts and gallery media are *imported*: files
+**Two kinds of library.** Posts and gallery media are *imported*: files
 move out of a drop tree into per-user served storage and the DB owns the layout.
 The long-form video library is the opposite — `VIDEOS_ROOT` stays exactly as you
 arranged it on disk and a scan job mirrors it into the DB, so adding a film is a
@@ -384,8 +375,9 @@ For just trying the app out, `npm run dev` is all you need.
 
 ### Background jobs (optional — only for a real server)
 
-The app has helper jobs for things like importing media, polling for new shorts,
-transcoding videos, cleaning up old stories, and checking for app updates. They
+The app has helper jobs for things like importing media, polling connected
+Instagram/TikTok profiles, transcoding videos, cleaning up old stories, and
+checking for app updates. They
 do **not** run on their own — you choose when (and whether) they run.
 
 For just trying the app out you can ignore them entirely; the app works fully
@@ -430,7 +422,7 @@ Install and enable them yourself (they are not set up automatically):
 sudo cp deploy/systemd/elitev2-*.{service,timer} /etc/systemd/system/
 sudo cp scripts/systemd/elitev2-*.{service,timer} /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now elitev2-shorts-import.timer   # repeat per timer you want
+sudo systemctl enable --now elitev2-posts-import.timer   # repeat per timer you want
 ```
 
 **Important — you almost certainly need to edit the unit files first.** They
@@ -450,7 +442,7 @@ match your setup:
 Open each `.service` file, adjust those lines, then run the
 `daemon-reload` + `enable --now` commands above. Check that a timer is active
 with `systemctl list-timers | grep elitev2`, and view a job's output with
-`journalctl -u elitev2-shorts-import.service`.
+`journalctl -u elitev2-posts-import.service`.
 
 ### Importing your own media (drop folders)
 
@@ -458,12 +450,12 @@ Each account has a drop tree under `IMPORT_ROOT`, kept separate from served
 storage:
 
 ```
-<IMPORT_ROOT>/u_<username>/{gallery, posts, shorts18, books}/
+<IMPORT_ROOT>/u_<username>/{gallery, posts, books}/
 ```
 
 Drop files into the matching section and the per-user importer ingests them for
-that account (`shorts18` → the 18+ shorts library, `books` → the shared
-library, attributed to you). Two ways to group and tag a file:
+that account (`books` → the shared library, attributed to you). Two ways to
+group and tag a file:
 
 - **Subfolder** — a file inside `gallery/holiday/` joins the "holiday" album.
 - **Filename tokens** — brackets are the delimiter (so the title may contain
@@ -473,9 +465,8 @@ library, attributed to you). Two ways to group and tag a file:
   <title> [h_<tag>]...[f_<collection>][id_<dbid>].<ext>
   ```
 
-  - `[h_tag]` — a hashtag, repeatable. Posts/gallery get real tags; shorts get
-    them appended to the caption.
-  - `[f_collection]` — the album (gallery) or playlist (shorts) to file it under.
+  - `[h_tag]` — a hashtag, repeatable. Posts and gallery items get real tags.
+  - `[f_collection]` — the album (gallery) or creator (posts) to file it under.
     A bare `[Collection]` (no prefix) still works for backward compatibility.
   - `[id_n]` — the app's DB id; set automatically on stored files and used to
     skip duplicates on re-import.
@@ -507,11 +498,10 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 
 | Variable        | Description                                            |
 | --------------- | ----------------------------------------------------- |
-| `PROFILE_ROOT`  | Per-user **served** content root: `u_<user>/{gallery,posts,shorts,shorts18,cookies}`. |
-| `IMPORT_ROOT`   | Top-level per-user **drop** tree (staging, kept separate from served storage): `u_<user>/{gallery,posts,shorts,shorts18,books}`. See [drop folders](#importing-your-own-media-drop-folders). |
+| `PROFILE_ROOT`  | Per-user **served** content root: `u_<user>/{gallery,posts,cookies}`. |
+| `IMPORT_ROOT`   | Top-level per-user **drop** tree (staging, kept separate from served storage): `u_<user>/{gallery,posts,books}`. See [drop folders](#importing-your-own-media-drop-folders). |
 | `GALLERY_ROOT`  | Legacy central gallery root — read-only fallback for pre-per-user media. |
 | `POSTS_ROOT`    | Posts media for mirrored creators + avatars/banners (legacy bulk-import drop). |
-| `SHORTS_ROOT`   | Shorts media for mirrored creators / auto-poll (legacy bulk-import drop). |
 | `VIDEOS_ROOT`   | **Scanned, not imported.** Long-form video library: `main/` feeds `/videos`, `adults/` feeds `/videos18`. Your folder structure is preserved as-is. |
 | `BOOKS_ROOT`    | **Shared** bookshelf storage (EPUB / PDF / CBZ) — one library for all users. |
 
@@ -532,11 +522,11 @@ Configure via environment variables (e.g. an `.env` file — not committed):
 
 | Variable              | Description                                          |
 | --------------------- | --------------------------------------------------- |
-| `IMPORT_DIR` / `POSTS_IMPORT_DIR` / `SHORTS_IMPORT_DIR` | Legacy *creator* bulk-import drop dirs (distinct from the per-user `IMPORT_ROOT` tree). |
+| `IMPORT_DIR` / `POSTS_IMPORT_DIR` | Legacy *creator* bulk-import drop dirs (distinct from the per-user `IMPORT_ROOT` tree). |
 | `IMPORT_CRON_SECRET`  | Shared secret for import trigger endpoints.         |
 | `APPSTORE_URL`        | Where the separate [App Store](https://github.com/tjelite1986/appstore) app is served. `/store` redirects there and the menu entry opens it; unset means the entry lands on a short "not connected" note instead. |
 | `SESSION_COOKIE_DOMAIN` | Widens the session cookie from this host to a whole domain (e.g. `.example.com`), so a sibling app on the same domain — the App Store — can verify the same login through `/api/auth/verify`. Unset keeps sessions host-only. |
-| `GRABBIT_URL` / `GRABBIT_INTERNAL_TOKEN` | URL and shared token of an optional external media-grabber service, e.g. [grabbit](https://github.com/tjelite1986/grabbit); enables the shorts "Grab from web" button. The token authenticates container-to-container calls — without it any container on the shared network could use grabbit. (`LADDA_URL` is honored as a legacy alias.) |
+| `GRABBIT_URL` / `GRABBIT_INTERNAL_TOKEN` | URL and shared token of an optional external media-grabber service, e.g. [grabbit](https://github.com/tjelite1986/grabbit); the music library reads a source URL through it. The token authenticates container-to-container calls — without it any container on the shared network could use grabbit. (`LADDA_URL` is honored as a legacy alias.) |
 | `IG_COOKIES_ROOT` / `IG_COOKIES_PATH` / `IG_SRC` | Instagram cookie pool folder, the default cookie file, and the sync source. See the [cookies guide](guides/COOKIES.md). |
 | `IG_MAX_PER_RUN` / `IG_MAX_PER_COOKIE_PER_RUN` / `IG_RETRIES` / `IG_SLEEP_REQUEST` / `IG_PROFILE_SLEEP_SECONDS` / `IG_COOLDOWN_MINUTES` | Instagram rate-limit pacing: batch caps, retries, per-request and per-profile delays, and how long a blocked cookie is benched (default 60 min). |
 | `TIKTOK_COOKIES_ROOT` / `TIKTOK_COOKIES_PATH` | TikTok cookies (optional — public profiles download anonymously). |
@@ -696,7 +686,7 @@ image. Rebuild the image without cache so it compiles against the right runtime:
 
 **Docker: "permission denied" writing to a mounted storage folder.**
 The container writes as a non-root user. Make sure the host folders mounted as
-storage roots (gallery, posts, shorts, etc.) are writable — e.g.
+storage roots (gallery, posts, videos, etc.) are writable — e.g.
 `chmod -R 777 /path/to/storage` for a quick local fix.
 
 **Downloading a video or polling a creator fails with "yt-dlp not found".**

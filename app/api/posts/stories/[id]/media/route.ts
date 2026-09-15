@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import { getSession } from "@/lib/auth";
 import { isFollowing } from "@/lib/posts";
 import { getStory, adultAuthorId } from "@/lib/stories";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import { mediaPathFor, imageMimeFor } from "@/lib/posts-storage";
 
 export const dynamic = "force-dynamic";

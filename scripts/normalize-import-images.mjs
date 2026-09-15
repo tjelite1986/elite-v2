@@ -15,15 +15,7 @@
 //      not an importable extension (and no browser renders it), so a dropped
 //      .tiff would otherwise sit in the tree forever, skipped without a word.
 //
-// Optional relocation (--relocate-photos): photos sitting in a shorts/ section
-// are video-only territory — the shorts importer skips images silently, so they
-// sit in the drop tree forever. The flag moves them (with any .md sidecar) to
-// posts/<same subfolder>, where a subfolder names the same creator profile.
-// shorts18/ photos are NEVER relocated automatically: the posts importer has no
-// 18+ gate, so moving them would publish adult images as public posts. They are
-// counted and listed instead so the operator can decide.
-//
-// Flags: --dry-run (report only), --relocate-photos (see above).
+// Flags: --dry-run (report only).
 // Output: human log lines + a final `RESULT {json}` line the API route parses.
 
 import { execFileSync } from "node:child_process";
@@ -34,9 +26,8 @@ const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const IMPORT_ROOT = process.env.IMPORT_ROOT || path.join(DATA_DIR, "_import");
 
 const DRY_RUN = process.argv.includes("--dry-run");
-const RELOCATE = process.argv.includes("--relocate-photos");
 
-const SECTIONS = ["gallery", "posts", "shorts", "shorts18"];
+const SECTIONS = ["gallery", "posts"];
 
 const log = (m) => console.log(`[normalize-import] ${m}`);
 
@@ -182,44 +173,6 @@ function fixExtension(absPath, kind, res) {
   return dest;
 }
 
-const VIDEO_EXTS = new Set([".mp4", ".mov", ".webm", ".m4v", ".3gp", ".avi", ".mkv"]);
-
-// A same-stem video next to an image marks the image as that clip's poster
-// sidecar — it must stay with its video, not be relocated as a photo.
-function isPosterSidecar(absPath) {
-  const dir = path.dirname(absPath);
-  const stem = path.basename(absPath, path.extname(absPath));
-  const webStem = stem.toLowerCase().endsWith(".web") ? stem.slice(0, -".web".length) : stem;
-  for (const ext of VIDEO_EXTS) {
-    if (fs.existsSync(path.join(dir, `${stem}${ext}`)) || fs.existsSync(path.join(dir, `${webStem}${ext}`))) {
-      return true;
-    }
-  }
-  return fs.existsSync(path.join(dir, `${stem}.web.mp4`));
-}
-
-// Move a normalized photo (and its .md sidecar) out of a video-only shorts/
-// section into the posts/ section, preserving the creator subfolder.
-function relocateToPosts(absPath, userDir, collection, res) {
-  const destDir = collection ? path.join(userDir, "posts", collection) : path.join(userDir, "posts");
-  const name = path.basename(absPath);
-  if (DRY_RUN) {
-    log(`would relocate: ${absPath} -> ${path.relative(userDir, path.join(destDir, name))}`);
-    res.relocated++;
-    return;
-  }
-  fs.mkdirSync(destDir, { recursive: true });
-  const stem = path.basename(name, path.extname(name));
-  const dest = uniquePath(destDir, stem, path.extname(name));
-  fs.renameSync(absPath, dest);
-  const sidecar = path.join(path.dirname(absPath), `${stem}.md`);
-  if (fs.existsSync(sidecar)) {
-    fs.renameSync(sidecar, uniquePath(destDir, stem, ".md"));
-  }
-  log(`relocated: ${absPath} -> ${path.relative(userDir, dest)}`);
-  res.relocated++;
-}
-
 // Loose files plus one level of subfolders — the same shape lib/user-import.ts
 // sweeps, so everything this script can see the importer can see too.
 function* walkSection(sectionDir) {
@@ -253,9 +206,6 @@ const res = {
   scanned: 0,
   converted: 0,
   renamed: 0,
-  relocated: 0,
-  stuckShortsPhotos: 0,
-  stuckAdultPhotos: 0,
   errors: [],
 };
 
@@ -288,28 +238,13 @@ for (const userDir of userDirs) {
       } else if (OK_EXTS[kind] && !OK_EXTS[kind].has(path.extname(current).toLowerCase())) {
         current = fixExtension(current, kind, res);
       }
-
-      // Photos in a shorts section are never imported (video-only sweep) —
-      // unless they are a clip's poster sidecar, which must stay put.
-      if (section === "shorts" && !isPosterSidecar(current)) {
-        if (RELOCATE) {
-          relocateToPosts(current, userDir, item.collection, res);
-        } else {
-          res.stuckShortsPhotos++;
-          log(`photo stuck in video-only section (use --relocate-photos): ${current}`);
-        }
-      } else if (section === "shorts18" && !isPosterSidecar(current)) {
-        res.stuckAdultPhotos++;
-        log(`left in place (18+, needs manual routing): ${current}`);
-      }
     }
   }
 }
 
 log(
   `done: scanned=${res.scanned} converted=${res.converted} renamed=${res.renamed}` +
-    ` relocated=${res.relocated} stuckShortsPhotos=${res.stuckShortsPhotos}` +
-    ` stuckAdultPhotos=${res.stuckAdultPhotos} errors=${res.errors.length}` +
+    ` errors=${res.errors.length}` +
     (DRY_RUN ? " (dry run)" : "")
 );
 for (const e of res.errors) log(`ERROR ${e}`);

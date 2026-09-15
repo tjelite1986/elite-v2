@@ -3,7 +3,7 @@ import { getSession } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
 import { authorSlug, storePostImage } from "@/lib/posts-storage";
 import { getActiveStoryGroups, createStory } from "@/lib/stories";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;

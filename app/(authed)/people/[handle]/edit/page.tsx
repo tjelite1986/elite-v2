@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { ensureUserProfile, getProfileExtras } from "@/lib/profiles";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import { resolvePerson } from "@/lib/directory";
 import { listAliases } from "@/lib/profile-links";
 import ProfileExtrasEditor from "@/components/profile-extras-editor";

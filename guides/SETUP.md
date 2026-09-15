@@ -20,7 +20,7 @@ Related guides:
 | `elitev2` container | The Next.js app + WebSocket server (`server.mjs`), SQLite DB | Yes |
 | Traefik | Reverse proxy terminating TLS in front of the container | Yes (or any proxy) |
 | Storage roots | Host folders bind-mounted into the container for media | Yes |
-| `grabbit` container | Optional media grabber behind the shorts "Grab from web" button | No |
+| `grabbit` container | Optional media grabber the music library reads source URLs through | No |
 | Background jobs | Import / poll / transcode / cleanup — in-app scheduler or systemd timers | Recommended |
 | Cookies | `cookies.txt` files for the Instagram (required) / TikTok (optional) sync | Only for sync |
 
@@ -42,10 +42,9 @@ so make them writable (`chmod -R 777` is the blunt fix):
 
 ```
 /mnt/data/elitev2/
-├── profile/      # PROFILE_ROOT  — per-user served media (u_<user>/{gallery,posts,shorts,shorts18,cookies})
+├── profile/      # PROFILE_ROOT  — per-user served media (u_<user>/{gallery,posts,cookies})
 ├── import/       # IMPORT_ROOT   — per-user drop tree (staging, see README "drop folders")
 ├── posts/        # POSTS_ROOT    — mirrored-creator posts media
-├── shorts/       # SHORTS_ROOT   — mirrored-creator shorts (18plus/ only; the main channel moved to tikshortis)
 ├── videos/       # VIDEOS_ROOT   — long-form video library (main/ and adults/)
 ├── books/        # BOOKS_ROOT    — shared bookshelf (EPUB/PDF/CBZ)
 ├── backup/       # BACKUP_DIR    — nightly SQLite snapshots (db-backup job)
@@ -64,8 +63,8 @@ The SQLite database lives in a named volume mounted at `/app/data`
 > placeholders), and writes a matching `docker-compose.yml` — all pointing at
 > one data root and domain you choose. It replaces the manual folder + `.env` +
 > compose steps in sections 3–5. It can also generate the surrounding stacks:
-> a Traefik reverse proxy (`traefik/`) and a grabbit media grabber wired to the
-> shorts import folder (`grabbit/`). Every recurring script is scheduled in-app
+> a Traefik reverse proxy (`traefik/`) and a grabbit media grabber (`grabbit/`).
+> Every recurring script is scheduled in-app
 > under **Settings → Background jobs**, so there is nothing host-side to
 > install for them. The rest of this section documents
 > the same pieces by hand, for when you want to understand or customize them.
@@ -94,7 +93,6 @@ services:
       - PROFILE_ROOT=/profile-store
       - IMPORT_ROOT=/import-store
       - POSTS_ROOT=/posts-store
-      - SHORTS_ROOT=/shorts-store
       - VIDEOS_ROOT=/videos-store
       - BOOKS_ROOT=/books-store
       - BACKUP_DIR=/backup
@@ -102,7 +100,7 @@ services:
       - IG_COOKIES_PATH=/instagram-store/cookies.txt
       - TIKTOK_COOKIES_ROOT=/tiktok-store
       - TIKTOK_COOKIES_PATH=/tiktok-store/cookies.txt
-      # Optional: point the shorts "Grab" button at grabbit (section 5)
+      # Optional: point the music library at grabbit (section 5)
       - GRABBIT_URL=http://grabbit:3000
       - GRABBIT_INTERNAL_TOKEN=${GRABBIT_INTERNAL_TOKEN}
     volumes:
@@ -110,7 +108,6 @@ services:
       - /mnt/data/elitev2/profile:/profile-store
       - /mnt/data/elitev2/import:/import-store
       - /mnt/data/elitev2/posts:/posts-store
-      - /mnt/data/elitev2/shorts:/shorts-store
       - /mnt/data/elitev2/videos:/videos-store
       - /mnt/data/elitev2/books:/books-store
       - /mnt/data/elitev2/backup:/backup
@@ -180,7 +177,7 @@ invite-only by design).
 
 ### Optional extras
 
-The core app (auth, gallery, shorts, posts, messaging, books, admin) runs with
+The core app (auth, gallery, posts, messaging, books, admin) runs with
 just the above. These add peripheral features and are **off unless you wire
 them**:
 
@@ -190,7 +187,7 @@ them**:
 | **Weather widget** location | `WEATHER_PLACE`, `WEATHER_LAT`, `WEATHER_LON` (defaults to a built-in city otherwise). Data via Open-Meteo, no key needed. |
 | **Content-owner accounts** | `PUBLIC_EMAIL`/`PUBLIC_PASSWORD` and `ADULTS_EMAIL`/`ADULTS_PASSWORD` seed two maintenance accounts for the non-adult / adult content buckets (used by admin "act-as"). |
 | **App Store** | The store is a separate app. `APPSTORE_URL` points `/store` and the menu entry at it, and `SESSION_COOKIE_DOMAIN=.example.com` lets it verify this app's login instead of asking for its own. |
-| **yt-dlp / curl-impersonate** | The image ships `ffmpeg`, `gallery-dl` and `instaloader`, but **not** yt-dlp — sites change too fast to bake it in. Bind-mount a current binary into the container and point `YT_DLP_BIN` at it (same for `CURL_IMPERSONATE_BIN`). Without it, video downloads and the shorts poller can't run. |
+| **yt-dlp / curl-impersonate** | The image ships `ffmpeg`, `gallery-dl` and `instaloader`, but **not** yt-dlp — sites change too fast to bake it in. Bind-mount a current binary into the container and point `YT_DLP_BIN` at it (same for `CURL_IMPERSONATE_BIN`). Without it, video downloads and the profile sync jobs can't run. |
 | **Ask AI** (`/ask`) | `PERPLEXITY_API_KEY` (plus optional `PERPLEXITY_MODEL` / `PERPLEXITY_SYSTEM_PROMPT`). Without a key the Ask page reports the feature as unconfigured; nothing else breaks. |
 | **18+ video metadata** | `TPDB_API_KEY` lets the `videos-metadata` job look up titles/performers for adult library files that have no `.nfo` sidecar. Optional — sidecars work without it. |
 | **Keep video originals** | `VIDEOS_KEEP_ORIGINALS=1` makes the transcode job keep the source file instead of replacing it (costs disk). |
@@ -198,12 +195,11 @@ them**:
 
 ## 5. Optional: the grabbit media grabber
 
-[grabbit](https://github.com/tjelite1986/grabbit) adds a "Grab from web" tab
-to the shorts section: paste a video/profile URL, clips land in the shorts
-import folder and are ingested automatically.
+[grabbit](https://github.com/tjelite1986/grabbit) downloads a video or profile
+URL on the server. Elite v2 reads a source link through it when tagging music;
+grabbit's own web UI does the downloading and files the result.
 
-1. Clone and run grabbit on the **same** `traefik` network, with the shorts
-   root shared:
+1. Clone and run grabbit on the **same** `traefik` network:
 
    ```yaml
    services:
@@ -212,11 +208,8 @@ import folder and are ingested automatically.
        container_name: grabbit
        networks: [traefik]
        environment:
-         - ELITE_ROOT=/elitev2-shorts
          - GRABBIT_PASSWORD=${GRABBIT_PASSWORD}         # gates its own web UI
          - GRABBIT_INTERNAL_TOKEN=${GRABBIT_INTERNAL_TOKEN}
-       volumes:
-         - /mnt/data/elitev2/shorts:/elitev2-shorts
    ```
 
 2. Elite v2 is already pointed at it — the `GRABBIT_URL` and
@@ -227,10 +220,9 @@ import folder and are ingested automatically.
    container on the shared network could use grabbit unauthenticated.
 
    (If you skip grabbit entirely, just delete the two `GRABBIT_*` lines from
-   the section-4 compose — the Grab tab simply won't appear.)
+   the section-4 compose.)
 
-3. `docker compose up -d` both stacks. The Grab tab appears for admins under
-   **Shorts**; grabbed clips are picked up by the shorts import job.
+3. `docker compose up -d` both stacks.
 
 ## 6. Background jobs
 
@@ -249,7 +241,7 @@ Every recurring job — including the per-user drop-folder import — has a row 
 the panel. A matching systemd unit ships in `deploy/systemd/` for each, in case
 you prefer host-level scheduling. You can also trigger the drop-folder import
 by hand from **Settings → Photos → Import → Per-user folder import** (the same
-card appears on Shorts, 18+ videos and Gallery).
+card appears on 18+ videos and Gallery).
 
 What each underlying script does is catalogued in [SCRIPTS.md](SCRIPTS.md).
 
@@ -276,11 +268,10 @@ What each underlying script does is catalogued in [SCRIPTS.md](SCRIPTS.md).
 3. **Settings → 18+ access** — set a personal PIN if you use the 18+ sections.
 4. **Settings → Permissions** — grant non-admin users access to any settings
    sections they should manage.
-5. **Settings → Background jobs** — enable the jobs you need (start with shorts
-   import, posts import, transcode, stories cleanup).
-6. Upload one photo, one clip and one book to confirm the storage mounts are
+5. **Settings → Background jobs** — enable the jobs you need (start with posts
+   import, transcode, stories cleanup).
+6. Upload one photo, one video and one book to confirm the storage mounts are
    writable.
-7. If using grabbit: paste a URL in **Shorts → Grab** and watch it land.
 
 ## 9. Troubleshooting
 

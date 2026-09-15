@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { ensureUserProfile } from "./profiles";
-import { ensureUserHome } from "./shorts-storage";
+import { ensureUserHome } from "./storage-roots";
 
 // Give the env-seeded content-owner accounts (public@/adults@) a public profile
 // (username/handle) + per-user home tree, mirroring registration. Kept in its own

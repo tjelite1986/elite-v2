@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import { getShowAdultOutside } from "@/lib/profiles";
 import { getFeed, FeedScope } from "@/lib/posts";
 import { personContentIds } from "@/lib/profile-links";
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
       // accept explicit comma-separated userId/creatorId lists (back-compat).
       const handle = url.searchParams.get("handle");
       if (handle) {
-        const ids = personContentIds(handle, true);
+        const ids = personContentIds(handle);
         scope = { kind: "person", userIds: ids.userIds, creatorIds: ids.creatorIds };
       } else {
         scope = {

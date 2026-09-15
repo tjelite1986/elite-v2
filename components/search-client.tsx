@@ -54,7 +54,7 @@ export default function SearchClient({
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search posts, messages, photos, shorts, videos, books, people"
+          placeholder="Search posts, messages, photos, videos, books, people"
           className="w-full bg-transparent text-sm text-white placeholder-white/40 focus:outline-none"
         />
       </div>

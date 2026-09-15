@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { getSession } from "@/lib/auth";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import { getPost } from "@/lib/posts";
 import PostCard from "@/components/post-card";
 import PostDeleteButton from "@/components/post-delete-button";
@@ -24,8 +24,10 @@ export default async function PostPermalinkPage(
   const post = getPost(Number(params.id), viewerId);
   if (!post) notFound();
   if (post.is_adult && !(await has18Access())) {
-    // Send adult content through the existing 18+ unlock flow.
-    redirect("/shorts18");
+    // Send adult content through the existing 18+ unlock flow. /videos18 is the
+    // adult section this app still serves; /shorts18 is a redirect out to
+    // another app, which would take the visitor off this one entirely.
+    redirect("/videos18");
   }
 
   const isAdmin = session.role === "admin";

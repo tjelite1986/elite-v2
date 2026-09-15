@@ -7,9 +7,8 @@
 // (instagram_handle). For a target profile this script downloads that IG
 // account's new media into the posts import folder under the LOCAL handle:
 //     <POSTS_ROOT>/_import/<localHandle>/
-// then runs the importers so the media attaches to THAT profile:
+// then runs the importer so the media attaches to THAT profile:
 //     import-posts.mjs   (photos -> posts, videos -> video posts / Videos tab)
-//     import-shorts.mjs  (any clips dropped in the shorts _import folders)
 //
 // Download via gallery-dl (handles IG photos, carousels, and videos with a
 // session cookie). Per-profile archive dedups across runs; a lockfile guards
@@ -440,7 +439,7 @@ for (const [i, t] of targets.entries()) {
 
 db.close();
 
-// Ingest whatever was downloaded: photos -> posts, videos -> shorts. Best
+// Ingest whatever was downloaded into posts. Best
 // effort; the host import timers would pick it up anyway.
 if (totalAdded > 0) {
   const node = process.execPath;
@@ -453,18 +452,6 @@ if (totalAdded > 0) {
     });
   } catch (err) {
     log(`import-posts failed: ${String(err.message || err).slice(0, 200)}`);
-  }
-  // Only the 18+ drop folder is swept: the main shorts library moved to
-  // tikshortis on 2026-08-31 and this app has no main channel any more.
-  try {
-    log("running import-shorts.mjs (18plus)");
-    execFileSync(node, [path.join(scriptsDir, "import-shorts.mjs")], {
-      stdio: "inherit",
-      timeout: 10 * 60 * 1000,
-      env: { ...process.env, IMPORT_CHANNEL: "18plus" },
-    });
-  } catch (err) {
-    log(`import-shorts (18plus) failed: ${String(err.message || err).slice(0, 200)}`);
   }
 }
 

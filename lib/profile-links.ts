@@ -36,12 +36,10 @@ export function getGroupMembers(handle: string): string[] {
 export interface PersonContentIds {
   userIds: number[];
   creatorIds: number[];
-  shortsMainIds: number[];
-  shorts18Ids: number[];
 }
 
-// Stored usernames/names are not guaranteed to be normalized (imports and
-// short profiles keep display-ish names), so matching must apply norm() to the
+// Stored usernames/names are not guaranteed to be normalized (imports keep
+// display-ish names), so matching must apply norm() to the
 // stored value — a plain `WHERE username IN (...)` would miss rows. Registering
 // norm() as a SQL function lets SQLite do that filtering without materializing
 // every profile row in JS.
@@ -50,12 +48,8 @@ db.function("norm_handle", { deterministic: true }, (s) =>
 );
 
 // Resolve every content id (across all linked members) for a handle, so callers
-// can union them in feed/count queries. 18+ short profiles are excluded unless
-// include18.
-export function personContentIds(
-  handle: string,
-  include18: boolean
-): PersonContentIds {
+// can union them in feed/count queries.
+export function personContentIds(handle: string): PersonContentIds {
   const members = getGroupMembers(handle);
   const ph = members.map(() => "?").join(", ");
 
@@ -75,22 +69,7 @@ export function personContentIds(
       .all(...members) as { id: number }[]
   ).map((r) => r.id);
 
-  const shorts = db
-    .prepare(
-      `SELECT id, channel FROM short_profiles WHERE norm_handle(name) IN (${ph})`
-    )
-    .all(...members) as { id: number; channel: string }[];
-  const shortsMainIds: number[] = [];
-  const shorts18Ids: number[] = [];
-  for (const s of shorts) {
-    if (s.channel === "18plus") {
-      if (include18) shorts18Ids.push(s.id);
-    } else {
-      shortsMainIds.push(s.id);
-    }
-  }
-
-  return { userIds, creatorIds, shortsMainIds, shorts18Ids };
+  return { userIds, creatorIds };
 }
 
 // True if the handle is a non-primary member of some group (its profile page
@@ -140,7 +119,7 @@ export function unlinkProfile(memberHandle: string): void {
 // its own: an alternate @handle/name that should resolve to a face. Sharing the
 // profile_links table means a single resolution path (getPrimaryHandle /
 // resolvePerson) serves both real linked profiles and bare name aliases — so a
-// short or post whose title tags a mis-/alternate-spelled handle still links to
+// post whose title tags a mis-/alternate-spelled handle still links to
 // the right profile.
 
 // Alias handles pointing at a face (its primary). The primary itself is

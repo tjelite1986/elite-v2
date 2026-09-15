@@ -14,7 +14,6 @@ export type SearchResults = {
   messages: { id: number; snippet: string; peer: string; created_at: string }[];
   channelMessages: { id: number; snippet: string; channel: string; sender: string; created_at: string }[];
   gallery: { id: number; filename: string; snippet: string }[];
-  shorts: { id: number; snippet: string; profile: string | null; channel: string }[];
   // `snippet` is the video title, carrying [match] markers like the other
   // sections so the client highlights it the same way.
   videos: {
@@ -73,14 +72,6 @@ function searchPeople(q: string, viewer: SearchViewer): SearchResults["people"] 
         ORDER BY username LIMIT ?`
     )
     .all(like, like, LIMIT) as { username: string; display_name: string | null }[];
-  const shortProfiles = db
-    .prepare(
-      `SELECT DISTINCT name FROM short_profiles
-        WHERE LOWER(name) LIKE ?${viewer.adult ? "" : " AND channel = 'main'"}
-        ORDER BY name LIMIT ?`
-    )
-    .all(like, LIMIT) as { name: string }[];
-
   const byHandle = new Map<string, SearchResults["people"][number]>();
   const add = (username: string, display_name: string | null, type: "user" | "creator") => {
     const h = handleOf(username);
@@ -88,7 +79,6 @@ function searchPeople(q: string, viewer: SearchViewer): SearchResults["people"] 
   };
   for (const u of users) add(u.username, u.display_name, "user");
   for (const c of creators) add(c.username, c.display_name, "creator");
-  for (const s of shortProfiles) add(handleOf(s.name), s.name, "creator");
   return Array.from(byHandle.values()).slice(0, LIMIT);
 }
 
@@ -202,33 +192,6 @@ function searchGallery(match: string | null, q: string, viewer: SearchViewer): S
     .all(like, like, like, viewer.userId, LIMIT) as SearchResults["gallery"];
 }
 
-function searchShorts(match: string | null, q: string, viewer: SearchViewer): SearchResults["shorts"] {
-  const guards = `s.is_deleted = 0 AND s.status = 'ready'
-    AND (s.is_private = 0 OR s.uploader_id = @me${viewer.isAdmin ? " OR 1 = 1" : ""})
-    ${viewer.adult ? "" : "AND s.channel = 'main'"}`;
-  if (match && hasFts("shorts_fts")) {
-    return db
-      .prepare(
-        `SELECT s.id, snippet(shorts_fts, 0, '[', ']', '…', 12) AS snippet, s.channel,
-                sp.name AS profile
-           FROM shorts_fts JOIN shorts s ON s.id = shorts_fts.rowid
-           LEFT JOIN short_profiles sp ON sp.id = s.profile_id
-          WHERE shorts_fts MATCH @q AND ${guards}
-          ORDER BY rank LIMIT ${LIMIT}`
-      )
-      .all({ q: match, me: viewer.userId }) as SearchResults["shorts"];
-  }
-  return db
-    .prepare(
-      `SELECT s.id, substr(s.caption, 1, 120) AS snippet, s.channel, sp.name AS profile
-         FROM shorts s
-         LEFT JOIN short_profiles sp ON sp.id = s.profile_id
-        WHERE s.caption LIKE @q AND ${guards}
-        ORDER BY s.id DESC LIMIT ${LIMIT}`
-    )
-    .all({ q: likePattern(q), me: viewer.userId }) as SearchResults["shorts"];
-}
-
 // Long-form video library. Shared (no per-user scoping), but the adults channel
 // is only searchable once the 18+ gate is satisfied — otherwise a title would
 // leak through search even though the section itself is locked.
@@ -279,7 +242,6 @@ export function globalSearch(q: string, viewer: SearchViewer): SearchResults {
     messages: searchMessages(match, q, viewer),
     channelMessages: searchChannelMessages(match, q, viewer),
     gallery: searchGallery(match, q, viewer),
-    shorts: searchShorts(match, q, viewer),
     videos: searchVideos(match, q, viewer),
     books: searchBooks(q),
   };

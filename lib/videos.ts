@@ -5,7 +5,7 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { db } from "./db";
 import type { VideoRow, VideoChannel } from "./db";
-import { has18Access } from "./shorts-gate";
+import { has18Access } from "./adult-gate";
 import {
   VIDEO_CHANNELS,
   artworkStem,

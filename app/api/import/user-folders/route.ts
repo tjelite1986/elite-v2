@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 // Scan every user's per-user `_import` drop tree and import each section
-// (shorts/main, shorts/18plus, posts, gallery) with the dropping user as owner.
+// (posts, gallery, books) with the dropping user as owner.
 // Authorized either by an admin session (the "Import now" button) or by the
 // host timer presenting the shared IMPORT_CRON_SECRET, so a single code path
 // serves both. Optional body { user } limits the run to one account.

@@ -9,8 +9,6 @@ interface Person {
   displayName: string | null;
   userId: number | null;
   photos: number;
-  shortsMain: number;
-  shorts18: number;
 }
 
 interface Group {
@@ -58,7 +56,7 @@ export default function LinkProfiles() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const total = (p: Person) => p.photos + p.shortsMain + p.shorts18;
+  const total = (p: Person) => p.photos;
 
   const face = useMemo(() => {
     if (primary && sel.has(primary)) return primary;
@@ -121,8 +119,6 @@ export default function LinkProfiles() {
   const counts = (p: Person) =>
     [
       p.photos ? `${p.photos} photos` : "",
-      p.shortsMain ? `${p.shortsMain} shorts` : "",
-      p.shorts18 ? `${p.shorts18} 18+` : "",
     ]
       .filter(Boolean)
       .join(" · ") || "no content";

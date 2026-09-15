@@ -58,11 +58,11 @@ interface Attachment {
   album_name?: string;
 }
 
+// A clip shared into a chat before the shorts libraries became their own apps.
+// The id and the poster route are gone with them, so only the caption is still
+// meaningful — it is shown as a plain quote rather than a link that 404s.
 interface ShortAttachment {
-  id: number;
-  channel: string;
   caption: string | null;
-  has_poster: boolean;
 }
 
 function parseAttachment(m: Message): Attachment | null {
@@ -80,7 +80,7 @@ function parseShortAttachment(m: Message): ShortAttachment | null {
   if (m.attachment_type !== "short" || !m.attachment_data) return null;
   try {
     const d = JSON.parse(m.attachment_data);
-    if (typeof d.id === "number") return d as ShortAttachment;
+    if (typeof d.id === "number") return { caption: d.caption ?? null };
   } catch {
     /* ignore */
   }
@@ -752,32 +752,17 @@ export default function MessengerClient({
                     )}
 
                     {shortAtt && (
-                      <a
-                        href={`/shorts${shortAtt.channel === "18plus" ? "/18" : ""}?focus=${shortAtt.id}`}
-                        className="mt-1 flex items-center gap-3 rounded-xl bg-black/20 p-2 text-left transition hover:bg-black/30"
-                      >
-                        <span className="relative size-14 shrink-0 overflow-hidden rounded-lg bg-white/10">
-                          {shortAtt.has_poster && (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={`/api/shorts/${shortAtt.id}/poster?c=2`}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          )}
-                          <span className="absolute inset-0 flex items-center justify-center">
-                            <Play size={18} className="drop-shadow" />
-                          </span>
-                        </span>
+                      <span className="mt-1 flex items-center gap-2 rounded-xl bg-black/20 p-2 text-left opacity-70">
+                        <Play size={14} className="shrink-0" />
                         <span className="min-w-0">
-                          <span className="flex items-center gap-1.5 font-medium">
-                            <Play size={14} /> Short
+                          <span className="block text-xs font-medium">
+                            Shared clip
                           </span>
-                          <span className="block max-w-[180px] truncate text-xs opacity-70">
-                            {shortAtt.caption || "Watch clip"}
+                          <span className="block max-w-[180px] truncate text-xs">
+                            {shortAtt.caption || "This library is its own app now"}
                           </span>
                         </span>
-                      </a>
+                      </span>
                     )}
 
                     {m.edited_at && (

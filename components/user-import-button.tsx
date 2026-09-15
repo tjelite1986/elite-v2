@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FolderInput, Loader2 } from "lucide-react";
 
 // Admin trigger to import every user's per-user `_import` drop tree
-// (shorts/main, shorts/18plus, posts, gallery). The host timer runs the same
+// (posts, gallery, books). The host timer runs the same
 // scan every few minutes; this button is for an immediate run.
 export default function UserImportButton() {
   const [busy, setBusy] = useState(false);
@@ -42,7 +42,7 @@ export default function UserImportButton() {
         <code className="rounded bg-white/10 px-1 py-0.5 text-xs">
           u_&lt;user&gt;/_import/
         </code>{" "}
-        into their shorts, posts and gallery. Runs automatically every few
+        into their posts, gallery and books. Runs automatically every few
         minutes.
       </p>
       <button

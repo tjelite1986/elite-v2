@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { PostMediaRow, PostRow, ShortRow } from "@/lib/db";
+import { PostMediaRow, PostRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
 import { getHandleAvatar, setHandleAvatar } from "@/lib/profiles";
 import { handleOf } from "@/lib/directory";
 import { avatarPathFor, imageMimeFor, mediaPathFor, storeAvatar } from "@/lib/posts-storage";
-import { posterPathFor } from "@/lib/shorts-storage";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +26,6 @@ async function authorize(handle: string) {
 // profile being viewed, never re-derived from the media's owner. Three sources:
 //   - multipart `file`: a (cropped) uploaded image
 //   - JSON `{ mediaId }`: an existing post photo
-//   - JSON `{ shortId }`: a clip's video thumbnail (poster frame)
 export async function POST(request: Request, props: { params: Promise<{ username: string }> }) {
   const params = await props.params;
   const handle = handleOf(params.username);
@@ -36,34 +34,18 @@ export async function POST(request: Request, props: { params: Promise<{ username
 
   const contentType = request.headers.get("content-type") || "";
 
-  // JSON: reuse an existing photo (mediaId) or a clip thumbnail (shortId).
+  // JSON: reuse an existing post photo (mediaId).
   if (contentType.includes("application/json")) {
     const body = await request.json().catch(() => ({}));
-    // A non-admin may only reuse media they OWN (their own posts/clips) — the
-    // avatar is served publicly, so picking arbitrary media would exfiltrate
-    // private/18+ content the caller can't otherwise view. Admins are exempt.
+    // A non-admin may only reuse media they OWN (their own posts) — the avatar
+    // is served publicly, so picking arbitrary media would exfiltrate private
+    // content the caller can't otherwise view. Admins are exempt.
     const isAdmin = auth.session.role === "admin";
     const userId = Number(auth.session.sub);
     try {
       let sourcePath: string;
       let nameHint: string;
-      if (body?.shortId != null) {
-        const short = getOne<ShortRow>(
-          qb
-            .selectFrom("shorts")
-            .selectAll()
-            .where("id", "=", Number(body.shortId))
-            .where("is_deleted", "=", 0)
-        );
-        if (!short || !short.poster_key) {
-          return NextResponse.json({ error: "This clip has no thumbnail yet." }, { status: 400 });
-        }
-        if (!isAdmin && short.uploader_id !== userId) {
-          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        }
-        sourcePath = posterPathFor(short.channel, short.poster_key);
-        nameHint = short.poster_key;
-      } else if (body?.mediaId != null) {
+      if (body?.mediaId != null) {
         const media = getOne<PostMediaRow>(
           qb.selectFrom("post_media").selectAll().where("id", "=", Number(body.mediaId))
         );
@@ -82,7 +64,7 @@ export async function POST(request: Request, props: { params: Promise<{ username
         sourcePath = mediaPathFor(media.storage_key);
         nameHint = media.storage_key;
       } else {
-        return NextResponse.json({ error: "mediaId or shortId is required." }, { status: 400 });
+        return NextResponse.json({ error: "mediaId is required." }, { status: 400 });
       }
       if (!fs.existsSync(sourcePath)) {
         return NextResponse.json({ error: "Source image missing." }, { status: 404 });

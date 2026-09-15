@@ -193,166 +193,12 @@ function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_smart_albums_user ON smart_albums(user_id);
 
-    -- Short-video ("shorts") feed: a standalone TikTok-style module with its own
-    -- storage, separate from the gallery. channel splits the safe-for-work feed
-    -- ('main') from the PIN-gated adult feed ('18plus').
-    CREATE TABLE IF NOT EXISTS shorts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      channel TEXT NOT NULL DEFAULT 'main',
-      -- Adult-content sorting bucket (18+ channel): straight/gay/lesbian/trans/
-      -- solo, or 'uncategorized' until an admin sorts it. The same profile can have
-      -- clips in different categories.
-      category TEXT NOT NULL DEFAULT 'uncategorized',
-      profile_id INTEGER REFERENCES short_profiles(id) ON DELETE SET NULL,
-      uploader_id INTEGER REFERENCES users(id),
-      caption TEXT,
-      storage_key TEXT NOT NULL,
-      poster_key TEXT,
-      mime_type TEXT NOT NULL DEFAULT 'video/mp4',
-      width INTEGER,
-      height INTEGER,
-      duration REAL,
-      size_bytes INTEGER NOT NULL DEFAULT 0,
-      source TEXT NOT NULL DEFAULT 'upload',
-      source_id TEXT,
-      status TEXT NOT NULL DEFAULT 'ready',
-      -- 0 = public (everyone on the channel), 1 = private (only the uploader + admins).
-      is_private INTEGER NOT NULL DEFAULT 0,
-      is_deleted INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_shorts_channel_created
-      ON shorts(channel, is_deleted, created_at);
-
-    CREATE TABLE IF NOT EXISTS short_likes (
-      short_id INTEGER NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (short_id, user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS short_comments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      short_id INTEGER NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      body TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_short_comments_short
-      ON short_comments(short_id, created_at);
-
-    -- Auto-poll source profiles. Created now, exercised in phase v1c. skipped_ids
-    -- holds a JSON array of source-specific ids the poller should keep skipping.
-    CREATE TABLE IF NOT EXISTS short_profiles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      channel TEXT NOT NULL DEFAULT 'main',
-      source_type TEXT NOT NULL DEFAULT 'yt-dlp',
-      source_ref TEXT NOT NULL,
-      auto_poll INTEGER NOT NULL DEFAULT 0,
-      videos_limit INTEGER NOT NULL DEFAULT 20,
-      skipped_ids TEXT NOT NULL DEFAULT '[]',
-      last_polled_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Linked aliases: when an admin merges several profiles for the same model
-    -- (different handles, e.g. @lillielucas + @lillieinlove) into one, each
-    -- merged-away name maps to the surviving profile so a future import of that
-    -- handle reuses it instead of recreating a duplicate. Names stored lowercase.
-    CREATE TABLE IF NOT EXISTS short_profile_aliases (
-      channel TEXT NOT NULL,
-      name TEXT NOT NULL,
-      profile_id INTEGER NOT NULL REFERENCES short_profiles(id) ON DELETE CASCADE,
-      PRIMARY KEY (channel, name)
-    );
-
-    -- User-curated collections of shorts (TikTok calls these "Favorites").
-    CREATE TABLE IF NOT EXISTS short_playlists (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS short_playlist_items (
-      playlist_id INTEGER NOT NULL REFERENCES short_playlists(id) ON DELETE CASCADE,
-      short_id INTEGER NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
-      added_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (playlist_id, short_id)
-    );
-
-    -- Duplicate-scan results. scripts/scan-shorts-duplicates.mjs groups clips
-    -- that are byte-identical (same sha256) or perceptually identical (matching
-    -- sampled-frame hashes + similar duration), then marks the highest-quality
-    -- member to keep. Reported for admin review — nothing is deleted
-    -- automatically. The whole table is rewritten on each scan; one row per
-    -- short that belongs to a group, tied together by group_key.
-    CREATE TABLE IF NOT EXISTS short_dupe_groups (
-      group_key TEXT NOT NULL,
-      short_id INTEGER NOT NULL REFERENCES shorts(id) ON DELETE CASCADE,
-      channel TEXT NOT NULL,
-      match_type TEXT NOT NULL,            -- 'exact' | 'perceptual'
-      quality_score REAL NOT NULL DEFAULT 0,
-      is_best INTEGER NOT NULL DEFAULT 0,  -- the clip to keep; others are dupes
-      scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (group_key, short_id)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_short_dupe_short
-      ON short_dupe_groups(short_id);
-
-    -- Single-row progress beacon for the duplicate scan, so the admin UI can
-    -- poll while the detached scan runs.
-    CREATE TABLE IF NOT EXISTS short_dupe_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
-      started_at TEXT,
-      finished_at TEXT,
-      scanned INTEGER NOT NULL DEFAULT 0,
-      groups INTEGER NOT NULL DEFAULT 0,
-      message TEXT
-    );
-
-    -- Per-clip fingerprint cache (sha256 + JSON array of frame hashes) so repeat
-    -- scans skip hashing/decoding clips whose file size is unchanged. Written by
-    -- scripts/scan-shorts-duplicates.mjs.
-    CREATE TABLE IF NOT EXISTS short_media_fp (
-      short_id INTEGER PRIMARY KEY REFERENCES shorts(id) ON DELETE CASCADE,
-      size_bytes INTEGER NOT NULL,
-      sha TEXT,
-      sig TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Single-row progress beacon for the bulk "fetch original titles" job, so
-    -- the admin UI can poll while scripts/fetch-shorts-titles.mjs runs detached.
-    CREATE TABLE IF NOT EXISTS short_title_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
-      started_at TEXT,
-      finished_at TEXT,
-      processed INTEGER NOT NULL DEFAULT 0,
-      updated INTEGER NOT NULL DEFAULT 0,
-      total INTEGER NOT NULL DEFAULT 0,
-      message TEXT
-    );
-
-    -- The same beacon for the caption backfill, which re-reads the source album
-    -- for clips whose caption is still the bare CDN media id
-    -- (scripts/backfill-shorts-captions.mjs).
-    CREATE TABLE IF NOT EXISTS short_caption_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
-      started_at TEXT,
-      finished_at TEXT,
-      processed INTEGER NOT NULL DEFAULT 0,
-      updated INTEGER NOT NULL DEFAULT 0,
-      total INTEGER NOT NULL DEFAULT 0,
-      message TEXT
-    );
+    -- The shorts tables are NOT created here any more: those libraries are
+    -- separate apps (main -> tikshortis 2026-08-31, 18+ -> adshortis 2026-09-15)
+    -- and nothing in this app reads or writes them. Databases that already have
+    -- the tables keep them untouched — this only stops a FRESH install from
+    -- growing ten empty ones. Dropping them on an existing install is a data
+    -- decision, not a schema one, so it is not done here.
 
     -- Instagram-style social photo feed ("posts"). Shares the one users table;
     -- a post is authored either by a real user OR a mirrored creator, never both.
@@ -371,7 +217,7 @@ function migrate(db: Database.Database) {
     );
 
     -- Mirrored creators imported from the on-disk instagram library. NOT user
-    -- accounts (same distinction as short_profiles).
+    -- accounts.
     CREATE TABLE IF NOT EXISTS post_creators (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT NOT NULL UNIQUE,
@@ -411,7 +257,7 @@ function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
 
-    -- Duplicate-image grouping for the posts library, mirroring short_dupe_groups.
+    -- Duplicate-image grouping for the posts library.
     -- Written by scripts/scan-posts-duplicates.mjs for admin review under the
     -- posts Settings page; the scan deletes nothing. One row per image that
     -- belongs to a group, tied together by group_key. The whole table is
@@ -533,7 +379,7 @@ function migrate(db: Database.Database) {
     -- Avatar chosen for a person, keyed by their shared handle so it works for
     -- every identity type (user / photo creator / video-only creator). Takes
     -- precedence over the legacy avatar_key columns. Set from a post image or a
-    -- shorts/18+ clip poster.
+    -- a clip poster.
     CREATE TABLE IF NOT EXISTS handle_avatars (
       handle TEXT PRIMARY KEY,
       avatar_key TEXT NOT NULL,
@@ -631,8 +477,8 @@ function migrate(db: Database.Database) {
 
     -- Long-form video library (the /videos section). Shared, not per-user: the
     -- files under VIDEOS_ROOT/<channel> are the source of truth and a scan
-    -- mirrors them here, so a row is always reproducible from disk. Separate
-    -- from the shorts table, which models short vertical clips with creators.
+    -- mirrors them here, so a row is always reproducible from disk: a library
+    -- of long-form files on disk, not per-creator uploads.
     CREATE TABLE IF NOT EXISTS videos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       channel TEXT NOT NULL CHECK (channel IN ('main', 'adults')),
@@ -780,7 +626,7 @@ function migrate(db: Database.Database) {
       ON video_segment_summaries(video_id, from_seconds);
 
     -- Perceptual fingerprints of whole clips, for duplicate detection.
-    -- One row per media item; kind keeps shorts and long-form videos in one
+    -- One row per media item; kind keeps every media type in one
     -- table without their ids colliding.
     CREATE TABLE IF NOT EXISTS media_fingerprints (
       kind TEXT NOT NULL,
@@ -1179,50 +1025,6 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE channel_messages ADD COLUMN deleted_at TEXT");
   }
 
-  // Backfill source_id on shorts (external id from auto-poll, for dedup) for
-  // databases created before phase v1c.
-  const shortColumns = (
-    db.prepare("PRAGMA table_info(shorts)").all() as { name: string }[]
-  ).map((c) => c.name);
-  if (shortColumns.length > 0 && !shortColumns.includes("source_id")) {
-    db.exec("ALTER TABLE shorts ADD COLUMN source_id TEXT");
-  }
-  // Backfill the 18+ category bucket for databases created before it.
-  if (shortColumns.length > 0 && !shortColumns.includes("category")) {
-    db.exec(
-      "ALTER TABLE shorts ADD COLUMN category TEXT NOT NULL DEFAULT 'uncategorized'"
-    );
-  }
-  // Per-clip visibility: 0 = public (everyone on the channel), 1 = private (only
-  // the uploader, plus admins). Default 0 so existing/imported/polled clips stay
-  // public; new user uploads default to private in the upload route.
-  if (shortColumns.length > 0 && !shortColumns.includes("is_private")) {
-    db.exec(
-      "ALTER TABLE shorts ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0"
-    );
-  }
-  // Vision summary of the clip, built from a contact sheet made on demand.
-  // Shorts have no storyboard sheet (they are too short for a scrub preview),
-  // so unlike videos the frames are sampled at describe time.
-  if (shortColumns.length > 0) {
-    for (const [name, type] of [
-      ["ai_summary", "TEXT"],
-      ["ai_summary_tags", "TEXT"],
-      ["ai_summary_model", "TEXT"],
-      ["ai_summary_at", "TEXT"],
-      ["ai_summary_error", "TEXT"],
-    ] as const) {
-      if (!shortColumns.includes(name))
-        db.exec(`ALTER TABLE shorts ADD COLUMN ${name} ${type}`);
-    }
-  }
-  db.exec(
-    "CREATE INDEX IF NOT EXISTS idx_shorts_profile_source ON shorts(profile_id, source_id)"
-  );
-  db.exec(
-    "CREATE INDEX IF NOT EXISTS idx_shorts_channel_category ON shorts(channel, category, is_deleted, status)"
-  );
-
   // Backfill GPS columns on gallery_items for databases created before them.
   const galleryColumns = (
     db.prepare("PRAGMA table_info(gallery_items)").all() as { name: string }[]
@@ -1314,7 +1116,7 @@ function migrate(db: Database.Database) {
     `);
   }
 
-  // Per-user preference: surface 18+ content outside the dedicated Shorts 18+
+  // Per-user preference: surface 18+ content outside the dedicated 18+
   // section (still requires the PIN cookie to actually view). Default off.
   const profileColumns = (
     db.prepare("PRAGMA table_info(user_profiles)").all() as { name: string }[]
@@ -1409,7 +1211,6 @@ function migrate(db: Database.Database) {
     { fts: "messages_fts", src: "messages", cols: ["body"] },
     { fts: "channel_messages_fts", src: "channel_messages", cols: ["body"] },
     { fts: "gallery_fts", src: "gallery_items", cols: ["filename", "description", "location_name"] },
-    { fts: "shorts_fts", src: "shorts", cols: ["caption"] },
     { fts: "videos_fts", src: "videos", cols: ["title", "description", "folder"] },
   ];
   for (const { fts, src, cols } of ftsSpecs) {
@@ -1691,101 +1492,6 @@ export interface GalleryAlbumRow {
   created_at: string;
 }
 
-export type ShortChannel = "main" | "18plus";
-
-// Adult-content sorting buckets for the 18+ channel. 'uncategorized' is the
-// default until an admin sorts a clip.
-export type ShortCategory =
-  | "straight"
-  | "gay"
-  | "lesbian"
-  | "trans"
-  | "solo"
-  | "uncategorized";
-
-export interface ShortRow {
-  id: number;
-  channel: ShortChannel;
-  category: ShortCategory;
-  profile_id: number | null;
-  uploader_id: number | null;
-  caption: string | null;
-  storage_key: string;
-  poster_key: string | null;
-  mime_type: string;
-  width: number | null;
-  height: number | null;
-  duration: number | null;
-  size_bytes: number;
-  source: "upload" | "poll" | "import";
-  source_id: string | null;
-  status: "ready" | "pending" | "failed";
-  is_private: number;
-  is_deleted: number;
-  ai_summary: string | null;
-  ai_summary_tags: string | null;
-  ai_summary_model: string | null;
-  ai_summary_at: string | null;
-  ai_summary_error: string | null;
-  created_at: string;
-}
-
-export interface ShortCommentRow {
-  id: number;
-  short_id: number;
-  user_id: number;
-  body: string;
-  created_at: string;
-}
-
-export interface ShortDupeGroupRow {
-  group_key: string;
-  short_id: number;
-  channel: ShortChannel;
-  match_type: "exact" | "perceptual";
-  quality_score: number;
-  is_best: number;
-  scanned_at: string;
-}
-
-export interface ShortDupeStateRow {
-  id: number;
-  status: "idle" | "running" | "done" | "error";
-  started_at: string | null;
-  finished_at: string | null;
-  scanned: number;
-  groups: number;
-  message: string | null;
-}
-
-export interface ShortTitleStateRow {
-  id: number;
-  status: "idle" | "running" | "done" | "error";
-  started_at: string | null;
-  finished_at: string | null;
-  processed: number;
-  updated: number;
-  total: number;
-  message: string | null;
-}
-
-// Same shape, different job: the caption backfill (scripts/backfill-shorts-captions.mjs).
-export type ShortCaptionStateRow = ShortTitleStateRow;
-
-export interface ShortProfileRow {
-  id: number;
-  name: string;
-  channel: ShortChannel;
-  // 'manual' profiles have no poll source (source_ref empty); clips are added by
-  // the import folder or upload instead of auto-polling.
-  source_type: "yt-dlp" | "rss" | "manual";
-  source_ref: string;
-  auto_poll: number;
-  videos_limit: number;
-  skipped_ids: string;
-  last_polled_at: string | null;
-  created_at: string;
-}
 
 // --- Posts module (Instagram-style social photo feed) ---
 
@@ -1860,7 +1566,9 @@ export interface GalleryDupeStateRow {
   message: string | null;
 }
 
-export type FollowTargetType = "user" | "creator" | "shorts";
+// 'shorts' is still accepted by the follows CHECK constraint so rows written
+// before those libraries left stay valid; nothing creates one any more.
+export type FollowTargetType = "user" | "creator";
 
 export interface FollowRow {
   follower_id: number;

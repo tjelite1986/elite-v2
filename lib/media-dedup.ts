@@ -1,8 +1,6 @@
 import { db } from "./db";
-import type { ShortChannel, VideoChannel } from "./db";
-import { videoPathFor } from "./shorts-storage";
+import type { VideoChannel } from "./db";
 import { videoFilePath } from "./videos-storage";
-import { deleteShortFiles } from "./shorts-storage";
 import { deleteVideo } from "./videos";
 import {
   compareFingerprints,
@@ -13,16 +11,18 @@ import {
 // ---------------------------------------------------------------------------
 // Duplicate detection from whole-clip fingerprints.
 //
-// The existing shorts dupe scan groups on exact and per-frame perceptual
-// matches. This is the complement: a signature of how a clip PROGRESSES, which
-// survives re-encoding, rescaling and watermarking, and catches the case where
-// the same scene was uploaded twice from different sources.
+// A signature of how a clip PROGRESSES, which survives re-encoding, rescaling
+// and watermarking, and catches the case where the same scene was added twice
+// from different sources — where an exact or per-frame hash would not.
 //
 // Fingerprinting is ffmpeg-only — no API calls, no cost per item — so unlike
 // the summaries this can run over the whole library freely.
 // ---------------------------------------------------------------------------
 
-export type MediaKind = "short" | "video";
+// One kind for now. The column and the parameter stay because the fingerprint
+// tables are keyed by kind, and the shorts libraries that used to be the second
+// kind are separate apps with dedup of their own.
+export type MediaKind = "video";
 
 export interface FingerprintRow {
   kind: MediaKind;
@@ -38,32 +38,6 @@ interface PendingItem {
   id: number;
   path: string;
   duration: number | null;
-}
-
-function pendingShorts(limit: number): PendingItem[] {
-  const rows = db
-    .prepare(
-      `SELECT s.id, s.channel, s.storage_key, s.duration
-         FROM shorts s
-         LEFT JOIN media_fingerprints f
-                ON f.kind = 'short' AND f.media_id = s.id
-        WHERE f.media_id IS NULL
-          AND s.is_deleted = 0
-          AND s.status = 'ready'
-        ORDER BY s.created_at DESC
-        LIMIT ?`
-    )
-    .all(limit) as {
-    id: number;
-    channel: ShortChannel;
-    storage_key: string;
-    duration: number | null;
-  }[];
-  return rows.map((r) => ({
-    id: r.id,
-    path: videoPathFor(r.channel, r.storage_key),
-    duration: r.duration,
-  }));
 }
 
 function pendingVideos(limit: number): PendingItem[] {
@@ -91,15 +65,7 @@ function pendingVideos(limit: number): PendingItem[] {
   }));
 }
 
-export function pendingFingerprints(): { shorts: number; videos: number } {
-  const shorts = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM shorts s
-         LEFT JOIN media_fingerprints f
-                ON f.kind = 'short' AND f.media_id = s.id
-        WHERE f.media_id IS NULL AND s.is_deleted = 0 AND s.status = 'ready'`
-    )
-    .get() as { n: number };
+export function pendingFingerprints(): { videos: number } {
   const videos = db
     .prepare(
       `SELECT COUNT(*) AS n FROM videos v
@@ -108,7 +74,7 @@ export function pendingFingerprints(): { shorts: number; videos: number } {
         WHERE f.media_id IS NULL AND v.playable = 1`
     )
     .get() as { n: number };
-  return { shorts: shorts.n, videos: videos.n };
+  return { videos: videos.n };
 }
 
 let running = false;
@@ -120,7 +86,7 @@ let lastRun: {
 
 export function fingerprintState(): {
   running: boolean;
-  pending: { shorts: number; videos: number };
+  pending: { videos: number };
   stored: number;
   lastRun: typeof lastRun;
 } {
@@ -139,8 +105,7 @@ export async function fingerprintPending(
   budgetMs = 10 * 60_000
 ): Promise<{ fingerprinted: number; skipped: number; remaining: number }> {
   if (running) {
-    const p = pendingFingerprints();
-    return { fingerprinted: 0, skipped: 0, remaining: p.shorts + p.videos };
+    return { fingerprinted: 0, skipped: 0, remaining: pendingFingerprints().videos };
   }
   running = true;
   const deadline = Date.now() + budgetMs;
@@ -154,51 +119,46 @@ export async function fingerprintPending(
   );
 
   try {
-    for (const kind of ["short", "video"] as const) {
-      for (;;) {
-        if (Date.now() >= deadline) break;
-        const batch =
-          kind === "short" ? pendingShorts(1) : pendingVideos(1);
-        const item = batch[0];
-        if (!item) break;
+    for (;;) {
+      if (Date.now() >= deadline) break;
+      const item = pendingVideos(1)[0];
+      if (!item) break;
 
-        const fp = await fingerprintVideo(item.path, item.duration);
-        if (!fp) {
-          // Unreadable: store an empty marker so the queue does not retry it
-          // forever. It will never match anything, which is correct.
-          insert.run({
-            kind,
-            media_id: item.id,
-            dhash: "",
-            colors: "",
-            frames: 0,
-            duration: item.duration,
-          });
-          skipped++;
-          continue;
-        }
+      const fp = await fingerprintVideo(item.path, item.duration);
+      if (!fp) {
+        // Unreadable: store an empty marker so the queue does not retry it
+        // forever. It will never match anything, which is correct.
         insert.run({
-          kind,
+          kind: "video",
           media_id: item.id,
-          dhash: fp.dhash,
-          colors: fp.colors,
-          frames: fp.frames,
+          dhash: "",
+          colors: "",
+          frames: 0,
           duration: item.duration,
         });
-        fingerprinted++;
+        skipped++;
+        continue;
       }
+      insert.run({
+        kind: "video",
+        media_id: item.id,
+        dhash: fp.dhash,
+        colors: fp.colors,
+        frames: fp.frames,
+        duration: item.duration,
+      });
+      fingerprinted++;
     }
   } finally {
     running = false;
   }
 
-  const p = pendingFingerprints();
   lastRun = {
     finishedAt: new Date().toISOString(),
     fingerprinted,
     skipped,
   };
-  return { fingerprinted, skipped, remaining: p.shorts + p.videos };
+  return { fingerprinted, skipped, remaining: pendingFingerprints().videos };
 }
 
 export function startFingerprintRun(budgetMs?: number): {
@@ -208,8 +168,8 @@ export function startFingerprintRun(budgetMs?: number): {
   if (running) {
     return { started: false, message: "A fingerprint run is already going." };
   }
-  const p = pendingFingerprints();
-  if (p.shorts + p.videos === 0) {
+  const pending = pendingFingerprints().videos;
+  if (pending === 0) {
     return { started: false, message: "Everything is fingerprinted." };
   }
   void fingerprintPending(budgetMs).catch(() => {
@@ -217,7 +177,7 @@ export function startFingerprintRun(budgetMs?: number): {
   });
   return {
     started: true,
-    message: `Fingerprinting ${p.shorts + p.videos} item(s) in the background.`,
+    message: `Fingerprinting ${pending} item(s) in the background.`,
   };
 }
 
@@ -291,35 +251,11 @@ export function deleteDuplicateMembers(
   let skipped = 0;
 
   for (const id of wanted) {
-    if (kind === "short") {
-      const clip = db
-        .prepare(
-          "SELECT id, channel, storage_key, poster_key FROM shorts WHERE id = ? AND is_deleted = 0"
-        )
-        .get(id) as
-        | {
-            id: number;
-            channel: ShortChannel;
-            storage_key: string;
-            poster_key: string | null;
-          }
-        | undefined;
-      if (!clip) {
-        skipped++;
-        continue;
-      }
-      deleteShortFiles(clip.channel, clip.storage_key, clip.poster_key);
-      // Soft delete, matching how the rest of the shorts library retires a
-      // clip — the row stays so re-imports can recognise it.
-      db.prepare("UPDATE shorts SET is_deleted = 1 WHERE id = ?").run(id);
-      deleted++;
-    } else {
-      if (!deleteVideo(id, true)) {
-        skipped++;
-        continue;
-      }
-      deleted++;
+    if (!deleteVideo(id, true)) {
+      skipped++;
+      continue;
     }
+    deleted++;
     db.prepare(
       "DELETE FROM media_fingerprints WHERE kind = ? AND media_id = ?"
     ).run(kind, id);

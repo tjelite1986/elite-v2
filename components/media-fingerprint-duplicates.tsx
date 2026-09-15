@@ -17,7 +17,9 @@ import { cn } from "@/lib/utils";
 import { useConfirm } from "@/components/confirm-dialog";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 
-type Kind = "short" | "video";
+// Videos are the only fingerprinted kind since the shorts libraries became
+// apps of their own. Kept as a named type because the API is still keyed by it.
+type Kind = "video";
 
 interface Member {
   id: number;
@@ -40,7 +42,7 @@ interface Group {
 
 interface State {
   running: boolean;
-  pending: { shorts: number; videos: number };
+  pending: { videos: number };
   stored: number;
   lastRun: {
     finishedAt: string;
@@ -49,11 +51,8 @@ interface State {
   } | null;
 }
 
-// Media URLs differ per kind; nothing else in this view does.
-const posterUrl = (kind: Kind, id: number) =>
-  kind === "short" ? `/api/shorts/${id}/poster?c=2` : `/api/videos/${id}/poster`;
-const videoUrl = (kind: Kind, id: number) =>
-  kind === "short" ? `/api/shorts/${id}/video` : `/api/videos/${id}/stream`;
+const posterUrl = (id: number) => `/api/videos/${id}/poster`;
+const videoUrl = (id: number) => `/api/videos/${id}/stream`;
 
 function fmtSize(bytes: number | null): string {
   if (!bytes) return "—";
@@ -96,15 +95,8 @@ const discardableCount = (groups: Group[]) =>
 // exact/per-frame scan: this one catches the same clip re-encoded, rescaled or
 // watermarked, because it compares how the video progresses rather than how any
 // single frame looks.
-export default function MediaFingerprintDuplicates({
-  initialKind = "short",
-}: {
-  initialKind?: Kind;
-}) {
-  // One panel covers both media kinds: the fingerprint run already does shorts
-  // and library videos together, and the settings page has no video section to
-  // hang a second copy of this on.
-  const [kind, setKind] = useState<Kind>(initialKind);
+export default function MediaFingerprintDuplicates() {
+  const kind: Kind = "video";
   const [state, setState] = useState<State | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -196,10 +188,7 @@ export default function MediaFingerprintDuplicates({
     if (ids.length === 0) return;
     const ok = await confirmAsk({
       title: `Delete ${ids.length} file${ids.length === 1 ? "" : "s"}?`,
-      message:
-        kind === "short"
-          ? "The clips and their posters are removed from disk. This cannot be undone."
-          : "The video files are removed from disk. This cannot be undone.",
+      message: "The video files are removed from disk. This cannot be undone.",
       confirmLabel: "Delete",
     });
     if (!ok) return;
@@ -249,9 +238,7 @@ export default function MediaFingerprintDuplicates({
     const ok = await confirmAsk({
       title: `Discard ${total} duplicate file${total === 1 ? "" : "s"}?`,
       message:
-        kind === "short"
-          ? "The highest-resolution copy in each group is kept; the rest and their posters are removed from disk. This cannot be undone."
-          : "The highest-resolution copy in each group is kept; the rest are removed from disk. This cannot be undone.",
+        "The highest-resolution copy in each group is kept; the rest are removed from disk. This cannot be undone.",
       confirmLabel: "Discard all",
     });
     if (!ok) return;
@@ -325,7 +312,7 @@ export default function MediaFingerprintDuplicates({
     }
   };
 
-  const pending = state ? state.pending.shorts + state.pending.videos : 0;
+  const pending = state ? state.pending.videos : 0;
   const previewGroup = preview
     ? (groups ?? []).find((g) => groupKeyOf(g) === preview.groupKey)
     : null;
@@ -341,23 +328,6 @@ export default function MediaFingerprintDuplicates({
         re-encoded, rescaled or watermarked copy still matches. Costs CPU only —
         no API calls.
       </p>
-
-      <div className="mb-3 inline-flex rounded-full bg-white/5 p-0.5 text-xs">
-        {(["short", "video"] as const).map((k) => (
-          <button
-            key={k}
-            onClick={() => setKind(k)}
-            className={cn(
-              "rounded-full px-3 py-1 transition",
-              kind === k
-                ? "bg-white text-black"
-                : "text-white/60 hover:text-white"
-            )}
-          >
-            {k === "short" ? "Shorts" : "Videos"}
-          </button>
-        ))}
-      </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <button
@@ -476,14 +446,7 @@ export default function MediaFingerprintDuplicates({
                   </button>
                 </div>
 
-                <div
-                  className={cn(
-                    "grid gap-2",
-                    kind === "short"
-                      ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4"
-                      : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3"
-                  )}
-                >
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
                   {group.members.map((m, i) => {
                     const isBest = i === 0;
                     const isSel = picked.has(m.id);
@@ -505,13 +468,10 @@ export default function MediaFingerprintDuplicates({
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
-                            src={posterUrl(kind, m.id)}
+                            src={posterUrl(m.id)}
                             alt=""
                             loading="lazy"
-                            className={cn(
-                              "w-full bg-black/40 object-cover",
-                              kind === "short" ? "aspect-[9/16]" : "aspect-video"
-                            )}
+                            className="aspect-video w-full bg-black/40 object-cover"
                           />
                           <span
                             className={cn(
@@ -605,7 +565,6 @@ export default function MediaFingerprintDuplicates({
 
       {previewGroup && preview && (
         <ComparePlayer
-          kind={kind}
           group={previewGroup}
           selected={selected[preview.groupKey] ?? new Set()}
           onToggle={(id, isBest) => toggle(preview.groupKey, id, isBest)}
@@ -623,13 +582,11 @@ export default function MediaFingerprintDuplicates({
 // audible at a time, so "which of these is the good one" stays a question about
 // picture and length rather than a wall of overlapping sound.
 function ComparePlayer({
-  kind,
   group,
   selected,
   onToggle,
   onClose,
 }: {
-  kind: Kind;
   group: Group;
   selected: Set<number>;
   onToggle: (id: number, isBest: boolean) => void;
@@ -733,16 +690,13 @@ function ComparePlayer({
                 <div className="relative bg-black">
                   <video
                     ref={register(m.id)}
-                    src={videoUrl(kind, m.id)}
-                    poster={posterUrl(kind, m.id)}
+                    src={videoUrl(m.id)}
+                    poster={posterUrl(m.id)}
                     controls
                     loop
                     playsInline
                     preload="metadata"
-                    className={cn(
-                      "w-full bg-black",
-                      kind === "short" ? "max-h-[55vh]" : "aspect-video"
-                    )}
+                    className="aspect-video w-full bg-black"
                   />
                   <button
                     onClick={() => setSoundId(audible ? null : m.id)}

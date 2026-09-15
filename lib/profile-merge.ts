@@ -3,23 +3,17 @@ import { qb, getOne, getAll } from "./kysely";
 import { handleOf } from "./directory";
 
 // Merge one mirrored profile into another, by handle. Files are never moved:
-// post_media.storage_key / shorts.storage_key already include their folder, so
-// re-pointing the foreign keys is enough — the media routes resolve the keys
-// unchanged. Optionally rename the surviving profile to a new name.
+// post_media.storage_key already includes its folder, so re-pointing the foreign
+// keys is enough — the media routes resolve the keys unchanged. Optionally
+// rename the surviving profile to a new name.
 //
-// Restricted to mirrored creators (post_creators / short_profiles). Real user
-// accounts are never merged or deleted.
+// Restricted to mirrored creators (post_creators). Real user accounts are never
+// merged or deleted.
 
 interface CreatorRow {
   id: number;
   username: string;
 }
-interface ShortRow {
-  id: number;
-  name: string;
-  channel: string;
-}
-
 // Reads use the typed Kysely builder. The merge itself (below) stays raw SQL:
 // it runs inside a db.transaction() with SQLite-specific UPDATE OR IGNORE and a
 // dynamic-table helper — none of which a compile-only query builder helps with.
@@ -37,15 +31,6 @@ function creatorByHandle(handle: string): CreatorRow | undefined {
       .select(["id", "username"])
       .where("username", "=", handle)
   );
-}
-
-function shortsByHandle(handle: string): Record<string, ShortRow> {
-  const out: Record<string, ShortRow> = {};
-  const rows = getAll<ShortRow>(
-    qb.selectFrom("short_profiles").select(["id", "name", "channel"])
-  );
-  for (const r of rows) if (handleOf(r.name) === handle) out[r.channel] = r;
-  return out;
 }
 
 // Move a handle-keyed row (avatar/extras) to the final handle if the final
@@ -82,10 +67,8 @@ export function mergeProfiles(opts: {
 
   const sCreator = creatorByHandle(source);
   const tCreator = creatorByHandle(target);
-  const sShorts = shortsByHandle(source);
-  const tShorts = shortsByHandle(target);
 
-  if (!sCreator && Object.keys(sShorts).length === 0) {
+  if (!sCreator) {
     throw new Error("That profile has no content to merge.");
   }
 
@@ -123,38 +106,6 @@ export function mergeProfiles(opts: {
         finalHandle,
         finalCreatorId
       );
-    }
-
-    // --- Shorts (per channel) ---
-    for (const ch of ["main", "18plus"]) {
-      const s = sShorts[ch];
-      const t = tShorts[ch];
-      if (s) {
-        if (!t) {
-          db.prepare("UPDATE short_profiles SET name = ? WHERE id = ?").run(
-            finalHandle,
-            s.id
-          );
-        } else {
-          db.prepare("UPDATE shorts SET profile_id = ? WHERE profile_id = ?").run(
-            t.id,
-            s.id
-          );
-          db.prepare(
-            "UPDATE OR IGNORE follows SET target_id = ? WHERE target_type = 'shorts' AND target_id = ?"
-          ).run(t.id, s.id);
-          db.prepare(
-            "DELETE FROM follows WHERE target_type = 'shorts' AND target_id = ?"
-          ).run(s.id);
-          db.prepare("DELETE FROM short_profiles WHERE id = ?").run(s.id);
-        }
-      }
-      if (t) {
-        db.prepare("UPDATE short_profiles SET name = ? WHERE id = ?").run(
-          finalHandle,
-          t.id
-        );
-      }
     }
 
     // --- Handle-keyed extras (avatar / bio-links-banner) ---

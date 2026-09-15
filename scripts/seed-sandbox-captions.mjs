@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Fill every library's free-text field with generated content: captions with
-// random hashtags for posts, gallery items, shorts and videos; a bio for each
+// random hashtags for posts, gallery items and videos; a bio for each
 // user profile; an author name for each book.
 //
 // This exists for the SANDBOX instance (elitev2-test), where imported
@@ -14,11 +14,10 @@
 //   node scripts/seed-sandbox-captions.mjs --yes --only-empty
 //   node scripts/seed-sandbox-captions.mjs --yes --gallery   # one section only
 //
-// Sections: posts, gallery, shorts, videos, books, profiles (all by default).
+// Sections: posts, gallery, videos, books, profiles (all by default).
 //
 // posts_fts and gallery_fts are kept in sync by triggers; post_hashtags and
-// gallery_tags are rewritten here. Shorts have no tag table at all — their
-// categories are derived from the #tags in the caption (see lib/shorts.ts).
+// gallery_tags are rewritten here.
 
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -29,7 +28,7 @@ const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, "elitev2.db");
 const WRITE = process.argv.includes("--yes");
 const ONLY_EMPTY = process.argv.includes("--only-empty");
 // Default is every section; naming one or more limits the run to those.
-const NAMES = ["posts", "gallery", "shorts", "videos", "books", "profiles"];
+const NAMES = ["posts", "gallery", "videos", "books", "profiles"];
 const picked = NAMES.filter((n) => process.argv.includes(`--${n}`));
 const wanted = picked.length ? picked : NAMES;
 
@@ -118,8 +117,8 @@ const db = new Database(DB_PATH);
 db.pragma("busy_timeout = 5000");
 
 // Posts and gallery items work the same way: a text column on the row, plus a
-// tag table keyed by that row's id. Shorts have no tag table — the #tags in the
-// caption ARE the categories.
+// tag table keyed by that row's id. A section with no tag table keeps its tags
+// inline, as #hashtags in the text itself.
 const SECTIONS = {
   posts: {
     select: `SELECT id FROM posts WHERE is_deleted = 0` +
@@ -134,13 +133,6 @@ const SECTIONS = {
     setText: "UPDATE gallery_items SET description = ? WHERE id = ?",
     clearTags: "DELETE FROM gallery_tags WHERE item_id = ?",
     addTag: "INSERT OR IGNORE INTO gallery_tags (item_id, tag) VALUES (?, ?)",
-  },
-  shorts: {
-    select: `SELECT id FROM shorts WHERE is_deleted = 0` +
-      (ONLY_EMPTY ? ` AND (caption IS NULL OR caption = '')` : ""),
-    setText: "UPDATE shorts SET caption = ? WHERE id = ?",
-    clearTags: null,
-    addTag: null,
   },
   videos: {
     select: `SELECT id FROM videos` +

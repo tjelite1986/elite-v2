@@ -5,8 +5,6 @@ import { getShowAppstore } from "./profiles";
 // Admins implicitly hold every permission (no rows needed). Keep these keys in
 // sync with the settings pages + section layouts that gate on them.
 export const PERMISSIONS = [
-  { key: "shorts_settings", label: "Shorts settings" },
-  { key: "shorts18_settings", label: "18+ settings" },
   { key: "posts_settings", label: "Posts settings" },
   { key: "gallery_settings", label: "Gallery settings" },
   { key: "appstore", label: "App Store" },
@@ -59,21 +57,6 @@ export function hasPermission(
     db
       .prepare("SELECT 1 FROM user_permissions WHERE user_id = ? AND permission = ?")
       .get(userId, key)
-  );
-}
-
-// Section guard for the shorts APIs: channel-scoped calls need that channel's
-// settings permission; cross-channel calls (dupe scan/resolve, action=all)
-// need both. Admins pass implicitly via hasPermission.
-export function hasShortsPermission(
-  session: { sub?: string | number; role?: string } | null | undefined,
-  channel?: "main" | "18plus"
-): boolean {
-  if (channel === "18plus") return hasPermission(session, "shorts18_settings");
-  if (channel === "main") return hasPermission(session, "shorts_settings");
-  return (
-    hasPermission(session, "shorts_settings") &&
-    hasPermission(session, "shorts18_settings")
   );
 }
 

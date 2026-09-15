@@ -92,7 +92,7 @@ export default function ProfileMergeButton({ targetHandle }: { targetHandle: str
 
             <div className="space-y-3 border-b border-white/10 p-3">
               <p className="text-xs text-white/50">
-                Pick another profile — its photos and shorts move into @{targetHandle}
+                Pick another profile — its photos move into @{targetHandle}
                 and it&apos;s removed. Optionally rename the result.
               </p>
               <input

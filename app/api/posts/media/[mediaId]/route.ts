@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 import { PostMediaRow, PostRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 import {
   mediaPathFor,
   thumbKeyFor,

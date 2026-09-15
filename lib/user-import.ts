@@ -3,15 +3,9 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { db } from "./db";
-import type { ShortChannel, ImportReviewRow } from "./db";
+import type { ImportReviewRow } from "./db";
 import { qb, getOne, getAll } from "./kysely";
-import {
-  userHomeDir,
-  storeShortUpload,
-  profileFromFilename,
-  renameShortFiles,
-} from "./shorts-storage";
-import { IMPORT_ROOT } from "./storage-roots";
+import { IMPORT_ROOT, userHomeDir } from "./storage-roots";
 import {
   storePostImage,
   authorSlug,
@@ -24,7 +18,6 @@ import {
 } from "./posts-storage";
 import { ingestMedia } from "./gallery-ingest";
 import { ingestUpload } from "./books";
-import { getAliasProfileId } from "./shorts";
 import { applyToPeople } from "./instagram";
 import {
   getExt,
@@ -35,7 +28,7 @@ import {
 import { getProfileByUserId } from "./profiles";
 import { getPrimaryHandle } from "./profile-links";
 import { parseHashtags } from "./posts";
-import { SOURCE_RE } from "./shorts-caption";
+import { SOURCE_RE } from "./caption-source";
 import {
   parseImportName,
   canonicalStem,
@@ -59,9 +52,9 @@ import {
 // its served storage:
 //   <IMPORT_ROOT>/u_<user>/
 //       posts/     -> the user's own photo posts
-//         (neither shorts folder is read any more: the main library moved out on
-//          2026-08-31 and the 18+ library on 2026-09-15, and each of those apps
-//          has a drop folder of its own)
+//         (no shorts folder is read: both libraries moved out — main on
+//          2026-08-31, 18+ on 2026-09-15 — and each of those apps has a drop
+//          folder of its own)
 //       gallery/   -> the user's own gallery items
 //       books/     -> ingested into the SHARED book library (attributed to user)
 // A user groups content two ways, both yielding the same named collection:
@@ -69,15 +62,14 @@ import {
 //   2. name a file  "<title> [<collection>].<ext>"  -> e.g.
 //      "hoppa rep ar roligt [hoppa rep].jpg" lands in the collection "hoppa rep"
 //      with the caption/title "hoppa rep ar roligt".
-// What a collection maps to differs per section: for shorts/shorts18 it names a
-// CREATOR PROFILE (public, merged across users — like the auto-poll creators);
-// for gallery it is a private gallery_albums row owned by the user; for posts a
+// What a collection maps to differs per section: for gallery it is a private
+// gallery_albums row owned by the user; for posts a
 // subfolder names a creator (public post) while a token only supplies a caption.
 // Files with no token/subfolder import loose as the user's own private content.
 // Imported sources are deleted on success so re-runs don't duplicate.
 
 // Browser-playable video extensions are inserted 'ready'; everything else comes
-// in 'pending' for the host transcoder (matches app/api/shorts/upload).
+// in 'pending' for the host transcoder.
 const WEB_PLAYABLE = new Set(["mp4", "m4v", "webm"]);
 
 export interface ImportSummary {
@@ -147,7 +139,7 @@ const CAPTION_LIMIT = 2200;
 
 // Read a caption sidecar dropped next to a file. Two formats are accepted:
 //
-//   <stem>.md    plain text, the convention the shorts importer uses
+//   <stem>.md    plain text, the convention the grabbit sidecars use
 //   <stem>.json  the piko Instagram patch's post metadata, whose "caption" field
 //                is the original post text (the rest of the object — username,
 //                shortcode, post_url, mentions — is not consumed here)
@@ -737,32 +729,6 @@ function pruneEmptyDirs(sectionDir: string) {
   }
 }
 
-// A subfolder on the 18+ channel maps to a creator profile (like the auto-poll
-// creators), so the folder shows up in /shorts18/profiles. Find-or-create a
-// `manual` short_profiles row. Names are stored/matched LOWERCASE so a re-import
-// reuses the same profile regardless of the source folder's casing.
-export function findOrCreateShortProfile(name: string, channel: ShortChannel): number {
-  const lname = name.toLowerCase();
-  // A merged-away handle (alias) routes to the surviving profile, so re-importing
-  // e.g. a "lillieinlove" folder lands on the merged "lillielucas" profile.
-  const aliased = getAliasProfileId(channel, lname);
-  if (aliased) return aliased;
-  const row = getOne<{ id: number }>(
-    qb
-      .selectFrom("short_profiles")
-      .select("id")
-      .where("channel", "=", channel)
-      .where("name", "=", lname)
-  );
-  if (row) return row.id;
-  return Number(
-    db
-      .prepare(
-        "INSERT INTO short_profiles (name, channel, source_type, source_ref, auto_poll, videos_limit) VALUES (?, ?, 'manual', '', 0, 20)"
-      )
-      .run(lname, channel).lastInsertRowid
-  );
-}
 
 // Normalize a drop-subfolder name to a post_creator handle — same rule as the
 // shared creator importer (scripts/import-posts.mjs creatorUsername) so the SAME
@@ -808,14 +774,9 @@ function countMentions(raw: string): number {
     `(^|[^\\w])@${raw.replace(/[.]/g, "\\.")}(?![a-zA-Z0-9_.])`,
     "i"
   );
-  const captions = [
-    ...getAll<{ caption: string | null }>(
-      qb.selectFrom("posts").select("caption").where("caption", "like", like)
-    ),
-    ...getAll<{ caption: string | null }>(
-      qb.selectFrom("shorts").select("caption").where("caption", "like", like)
-    ),
-  ];
+  const captions = getAll<{ caption: string | null }>(
+    qb.selectFrom("posts").select("caption").where("caption", "like", like)
+  );
   return captions.filter((c) => c.caption && re.test(c.caption)).length;
 }
 
@@ -881,7 +842,7 @@ function findOrCreateAlbum(userId: number, name: string): number {
 // still exists the dropped file is a redundant copy of content already in the
 // library, so the caller skips it. (Numeric id only — books dedup by slug.)
 function rowExists(
-  table: "shorts" | "posts" | "gallery_items",
+  table: "posts" | "gallery_items",
   ownerCol: "uploader_id" | "author_user_id" | "user_id",
   id: number,
   userId: number
@@ -891,8 +852,8 @@ function rowExists(
   );
 }
 
-// Shorts have no tag table, so [h_] hashtags ride along in the caption text
-// (visible + searchable). Appends only the tags not already present.
+// Where a section has no tag table, [h_] hashtags ride along in the caption
+// text (visible + searchable). Appends only the tags not already present.
 function captionWithHashtags(
   base: string | null,
   hashtags: string[]
@@ -905,121 +866,6 @@ function captionWithHashtags(
 }
 
 // --- Section importers ---------------------------------------------------
-
-async function importShortsSection(
-  userId: number,
-  username: string | null,
-  channel: ShortChannel,
-  dir: string,
-  res: ImportSummary
-) {
-  for (const item of collectItems(dir)) {
-    const ext = getExt(item.name);
-    if (!isSupportedVideo(item.name, "")) continue;
-    const parsed = resolve(item);
-    const { title } = parsed;
-    // 18+ collections become creator profiles — keep them lowercase (the convention
-    // used everywhere else) so folders/profiles/files stay consistent and a re-import
-    // never makes a case-variant duplicate profile.
-    let collection = parsed.collection;
-    // A drop subfolder / [f_] becomes a CREATOR PROFILE on BOTH channels now, so
-    // normalize its name to lowercase (the convention everywhere else) so a
-    // re-import never makes a case-variant duplicate profile.
-    if (collection) {
-      collection = collection.toLowerCase();
-      parsed.collection = collection;
-    }
-    const md = readCaptionSidecar(item.abs);
-    if (parsed.siteId && rowExists("shorts", "uploader_id", parsed.siteId, userId)) {
-      consume(item.abs);
-      consumeSidecars(md);
-      res.skipped++;
-      res.details.push(`shorts/${channel} ${item.name}: already imported as #${parsed.siteId}`);
-      continue;
-    }
-    const caption = captionWithHashtags(md.caption ?? (title || null), parsed.hashtags);
-    try {
-      // Subfolder precedence: an explicit collection (drop subfolder or
-      // "[bracket]" token) wins; otherwise a "profilname_-_title" filename lands
-      // in that creator's folder; otherwise storeShortUpload uses its shared
-      // fallback dir — so an imported clip is never stored loose either.
-      // The source is passed as a PATH so multi-GB videos are copied, not
-      // buffered through the Next process.
-      const subdir = collection ?? profileFromFilename(item.name) ?? undefined;
-      const stored = await storeShortUpload(
-        channel,
-        userHomeDir(userId, username),
-        title,
-        item.name,
-        "",
-        item.abs,
-        subdir
-      );
-      const status = WEB_PLAYABLE.has(ext) ? "ready" : "pending";
-      // A subfolder / [f_] becomes a CREATOR PROFILE on BOTH channels (shown in
-      // /shorts and /shorts18 profiles) and its clips are PUBLIC, like the
-      // auto-poll creators — so a user's drop folder named after a creator
-      // aggregates that creator's clips under one handle, merged across users.
-      // A loose file (no collection) stays the user's own private clip.
-      const asProfile = !!collection;
-      const profileId = asProfile
-        ? findOrCreateShortProfile(collection as string, channel)
-        : null;
-      const isPrivate = asProfile ? 0 : 1;
-      const shortId = Number(
-        db
-          .prepare(
-            `INSERT INTO shorts
-               (channel, profile_id, uploader_id, caption, storage_key, poster_key,
-                mime_type, width, height, duration, size_bytes, source, status, is_private)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'import', ?, ?)`
-          )
-          .run(
-            channel,
-            profileId,
-            userId,
-            caption,
-            stored.storageKey,
-            stored.posterKey,
-            stored.mimeType,
-            stored.width,
-            stored.height,
-            stored.duration,
-            stored.sizeBytes,
-            status,
-            isPrivate
-          ).lastInsertRowid
-      );
-      // Rename to the canonical self-describing name now that we know the id.
-      // 18+ stored filenames are lowercased to match the lowercase folder/profile
-      // (the caption keeps its original casing).
-      try {
-        const stem = canonicalStem(parsed, shortId, "clip");
-        const renamed = renameShortFiles(
-          channel,
-          stored.storageKey,
-          stored.posterKey,
-          asProfile ? stem.toLowerCase() : stem
-        );
-        db.prepare("UPDATE shorts SET storage_key = ?, poster_key = ? WHERE id = ?").run(
-          renamed.storageKey,
-          renamed.posterKey,
-          shortId
-        );
-      } catch {
-        /* keep the original stored name if the rename fails */
-      }
-      ensureMentionedProfiles(caption);
-      consumeImported(item.abs, parsed, shortId, "clip", `shorts/${channel}`, res);
-      consumeSidecars(md);
-      res.imported++;
-    } catch (err) {
-      res.skipped++;
-      res.details.push(`shorts/${channel} ${item.name}: ${(err as Error).message}`);
-    }
-  }
-  pruneEmptyDirs(dir);
-}
 
 async function importPostsSection(
   userId: number,

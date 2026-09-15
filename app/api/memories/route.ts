@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { sql } from "kysely";
 import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
-import { has18Access } from "@/lib/shorts-gate";
+import { has18Access } from "@/lib/adult-gate";
 
 export const dynamic = "force-dynamic";
 

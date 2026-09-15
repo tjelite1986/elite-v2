@@ -261,11 +261,6 @@ export default function NavMenuContent({
             hard
           />
         )}
-        {/* Grabs land in the 18+ library — the only one this app still fills.
-            Tikshortis grabs for the main channel itself. */}
-        {isAdmin && (
-          <MenuRow href="/shorts18/grab" icon={<Download size={18} />} label="Grab from web" />
-        )}
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">

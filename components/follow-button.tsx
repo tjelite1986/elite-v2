@@ -9,7 +9,7 @@ export default function FollowButton({
   targetId,
   initialFollowing,
 }: {
-  targetType: "user" | "creator" | "shorts";
+  targetType: "user" | "creator";
   targetId: number;
   initialFollowing: boolean;
 }) {

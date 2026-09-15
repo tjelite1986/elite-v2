@@ -9,15 +9,13 @@ interface Person {
   displayName: string | null;
   userId: number | null;
   photos: number;
-  shortsMain: number;
-  shorts18: number;
 }
 
 const input =
   "w-full rounded-xl bg-white/10 px-4 py-2.5 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400";
 
 // Admin tool: merge several handles for the same person into one, spanning
-// Posts, Shorts and 18+ at once (the unified /people handle namespace). The kept
+// Posts across the unified /people handle namespace. The kept
 // profile survives; the others are re-pointed into it via /api/profiles/merge.
 export default function UnifiedMergeProfiles() {
   const [people, setPeople] = useState<Person[]>([]);
@@ -45,7 +43,7 @@ export default function UnifiedMergeProfiles() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const total = (p: Person) => p.photos + p.shortsMain + p.shorts18;
+  const total = (p: Person) => p.photos;
 
   // The kept profile: the explicit pick if still selected, else the selected one
   // with the most content.
@@ -123,8 +121,6 @@ export default function UnifiedMergeProfiles() {
   const counts = (p: Person) =>
     [
       p.photos ? `${p.photos} photos` : "",
-      p.shortsMain ? `${p.shortsMain} shorts` : "",
-      p.shorts18 ? `${p.shorts18} 18+` : "",
     ]
       .filter(Boolean)
       .join(" · ") || "no content";
@@ -133,7 +129,7 @@ export default function UnifiedMergeProfiles() {
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
       <h2 className="text-lg font-medium">Merge profiles</h2>
       <p className="mt-1 text-sm text-white/50">
-        One list across Posts, Shorts and 18+. Tick the handles for the same
+        One list across every section. Tick the handles for the same
         person, mark the one to keep with the star, then merge.
       </p>
 

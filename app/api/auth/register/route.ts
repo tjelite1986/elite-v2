@@ -6,7 +6,7 @@ import { isCodeExpired } from "@/lib/codes";
 import { getUserByEmail } from "@/lib/auth";
 import { hashPassword } from "@/lib/password";
 import { ensureUserProfile } from "@/lib/profiles";
-import { ensureUserHome } from "@/lib/shorts-storage";
+import { ensureUserHome } from "@/lib/storage-roots";
 import {
   createSessionToken,
   SESSION_COOKIE,

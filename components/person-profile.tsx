@@ -35,16 +35,13 @@ import ProfileBadges from "@/components/profile-badges";
 import FollowButton from "@/components/follow-button";
 import PostViews from "@/components/post-views";
 import PostGrid from "@/components/post-grid";
-import ShortsGrid from "@/components/shorts-grid";
-import ShortsViews from "@/components/shorts-views";
-import ProfileShortsSettings from "@/components/profile-shorts-settings";
 import ProfileMergeButton from "@/components/profile-merge-button";
 import ProfileInstagramSync from "@/components/profile-instagram-sync";
 import ProfileTiktokSync from "@/components/profile-tiktok-sync";
 import AvatarCropModal from "@/components/avatar-crop-modal";
 import type { ResolvedPerson } from "@/lib/directory";
 
-type Tab = "profile" | "photos" | "shorts" | "18plus";
+type Tab = "profile" | "photos";
 
 function Stat({ value, label }: { value: number; label: string }) {
   return (
@@ -56,8 +53,8 @@ function Stat({ value, label }: { value: number; label: string }) {
 }
 
 // Unified cross-section profile: header + tabs. The default "Profile" tab holds
-// all the profile info (bio/links/Instagram + a content overview); the other
-// tabs (Photos / Shorts / 18+) drill into a single section.
+// all the profile info (bio/links/Instagram + a content overview); the Photos
+// tab drills into that section.
 export default function PersonProfile({
   person,
   isAdmin,
@@ -77,40 +74,22 @@ export default function PersonProfile({
   const router = useRouter();
   const canManage = person.isOwn || isAdmin;
   // Scope feeds by handle: the server expands it across every linked member
-  // (non-destructive profile links), unioning their posts/shorts under this face.
+  // (non-destructive profile links), unioning their posts under this face.
   const personQuery: Record<string, string> = {
     scope: "person",
     handle: person.handle,
   };
 
-  // Shorts on a profile come from BOTH the creator profile (profile_id) AND the
-  // person's own uploads (uploader_id), across all linked members — resolved
-  // server-side from the handle.
-  const shortsQuery = (channel: "main" | "18plus"): Record<string, string> => ({
-    channel,
-    handle: person.handle,
-  });
-  // Person-scoped watch page: the immersive feed uses the SAME handle scope as
-  // the grid, so the tapped clip is always in the feed and playback starts at
-  // it (a profile/channel-scoped feed could miss uploads or linked members'
-  // clips and started at the wrong video).
-  const shortsHref = (channel: "main" | "18plus"): string => {
-    const base = channel === "18plus" ? "/shorts18" : "/shorts";
-    return `${base}/person/${encodeURIComponent(person.handle)}/watch?focus=`;
-  };
-
   const tabs: { id: Tab; label: string; show: boolean }[] = [
     { id: "profile", label: "Profile", show: true },
     { id: "photos", label: "Photos", show: person.photos > 0 },
-    { id: "shorts", label: "Shorts", show: person.shortsMain > 0 },
-    { id: "18plus", label: "18+", show: person.shorts18 > 0 },
   ];
   const visible = tabs.filter((t) => t.show);
   const [tab, setTab] = useState<Tab>(initialTab);
 
   // Switch tab AND mirror it into the URL query (replaceState — no new history
-  // entry). Opening a clip pushes the person watch route; pressing Back then
-  // returns to `?tab=shorts` instead of the profile's default tab.
+  // entry). Opening a photo pushes its route; pressing Back then returns to
+  // `?tab=photos` instead of the profile's default tab.
   const selectTab = (id: Tab) => {
     setTab(id);
     if (typeof window === "undefined") return;
@@ -162,8 +141,6 @@ export default function PersonProfile({
   };
   const pickPhoto = (mediaId: number) =>
     openCropFromUrl(`/api/posts/media/${mediaId}`, `photo-${mediaId}.jpg`);
-  const pickShort = (shortId: number) =>
-    openCropFromUrl(`/api/shorts/${shortId}/poster`, `clip-${shortId}.jpg`);
 
   // Upload an image file as this profile's picture. Handle-scoped so it works on
   // any profile (admins) or your own, including profiles with no media of their
@@ -217,8 +194,6 @@ export default function PersonProfile({
           </div>
           <div className="mt-3 flex max-w-sm justify-between">
             <Stat value={person.photos} label="photos" />
-            <Stat value={person.shortsMain} label="shorts" />
-            {person.shorts18 > 0 && <Stat value={person.shorts18} label="18+" />}
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {!person.isOwn &&
@@ -261,7 +236,7 @@ export default function PersonProfile({
                 >
                   <Upload size={14} /> Profile photo
                 </button>
-                {(person.photos > 0 || person.shortsMain > 0 || person.shorts18 > 0) && (
+                {person.photos > 0 && (
                   <button
                     onClick={() => setSelecting((v) => !v)}
                     className="flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold transition hover:bg-white/15"
@@ -275,12 +250,12 @@ export default function PersonProfile({
         </div>
       </header>
 
-      {/* Select-a-profile-picture mode: scroll the real grids and tap any
-          photo or clip. */}
+      {/* Select-a-profile-picture mode: scroll the real grid and tap any
+          photo. */}
       {selecting ? (
         <div className="space-y-6">
           <div className="sticky top-16 z-30 flex items-center justify-between rounded-xl bg-rose-500/90 px-4 py-2.5 text-sm font-semibold backdrop-blur">
-            <span>{busy ? "Setting…" : "Tap a photo or clip to use as profile picture"}</span>
+            <span>{busy ? "Setting…" : "Tap a photo to use as profile picture"}</span>
             <button onClick={() => setSelecting(false)} aria-label="Cancel" className="ml-3">
               <X size={18} />
             </button>
@@ -288,26 +263,6 @@ export default function PersonProfile({
           {person.photos > 0 && (
             <Section label="Photos">
               <PostGrid query={personQuery} empty="No photos." onSelect={pickPhoto} />
-            </Section>
-          )}
-          {person.shortsMain > 0 && (
-            <Section label="Shorts">
-              <ShortsGrid
-                query={shortsQuery("main")}
-                hrefPrefix="#"
-                empty="No shorts."
-                onSelect={pickShort}
-              />
-            </Section>
-          )}
-          {person.shorts18 > 0 && (
-            <Section label="18+">
-              <ShortsGrid
-                query={shortsQuery("18plus")}
-                hrefPrefix="#"
-                empty="No clips."
-                onSelect={pickShort}
-              />
             </Section>
           )}
         </div>
@@ -430,8 +385,6 @@ export default function PersonProfile({
                 <Stat value={person.followers} label="followers" />
                 <Stat value={person.following} label="following" />
                 <Stat value={person.photos} label="photos" />
-                <Stat value={person.shortsMain} label="shorts" />
-                {person.shorts18 > 0 && <Stat value={person.shorts18} label="18+" />}
               </div>
 
               {canManage && person.instagramHandle && (
@@ -460,25 +413,8 @@ export default function PersonProfile({
                 />
               )}
 
-              {isAdmin && (
-                <ProfileShortsSettings
-                  channels={[
-                    // Only the 18+ channel is managed here: the main shorts
-                    // library moved to tikshortis, which polls for itself.
-                    ...(person.shorts18Id && person.shorts18Pollable
-                      ? [{
-                          id: person.shorts18Id,
-                          channel: "18plus" as const,
-                          autoPoll: person.shorts18AutoPoll,
-                          basePath: "/shorts18",
-                        }]
-                      : []),
-                  ]}
-                />
-              )}
-
-              {/* Profile-info only — no content here. Photos/Shorts/18+ live in
-                  their own tabs. More profile fields get added to this tab. */}
+              {/* Profile-info only — no content here. Photos live in their own
+                  tab. More profile fields get added to this tab. */}
             </div>
           )}
 
@@ -489,28 +425,6 @@ export default function PersonProfile({
               viewer={{ userId: viewerId, isAdmin }}
               storageKey="posts-view-profile"
               restoreKey={`profile:${person.handle}:posts`}
-            />
-          )}
-
-          {tab === "shorts" && person.shortsMain > 0 && (
-            <ShortsViews
-              query={shortsQuery("main")}
-              hrefPrefix={shortsHref("main")}
-              empty="No shorts yet."
-              storageKey="shorts-view-profile"
-              restoreKey={`profile:${person.handle}:main`}
-              feed={{ channel: "main", handle: person.handle, viewerId, isAdmin }}
-            />
-          )}
-
-          {tab === "18plus" && person.shorts18 > 0 && (
-            <ShortsViews
-              query={shortsQuery("18plus")}
-              hrefPrefix={shortsHref("18plus")}
-              empty="No clips yet."
-              storageKey="shorts18-view-profile"
-              restoreKey={`profile:${person.handle}:18plus`}
-              feed={{ channel: "18plus", handle: person.handle, viewerId, isAdmin }}
             />
           )}
         </>

@@ -6,7 +6,7 @@ import PeopleDirectory from "@/components/people-directory";
 export const dynamic = "force-dynamic";
 
 // Cross-section people directory: every user + mirrored creator, with links to
-// wherever they have content (Photos / Shorts / Shorts 18+).
+// wherever they have content.
 export default async function PeoplePage() {
   const session = await getSession();
   if (!session) redirect("/login");

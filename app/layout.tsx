@@ -5,7 +5,7 @@ import PwaRegister from "@/components/pwa-register";
 
 export const metadata: Metadata = {
   title: "Elite",
-  description: "Your personal hub — photos, shorts, posts and chat.",
+  description: "Your personal hub — photos, videos, posts and chat.",
   manifest: "/manifest.webmanifest",
   applicationName: "Elite",
   appleWebApp: {
