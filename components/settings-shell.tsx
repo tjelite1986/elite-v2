@@ -13,11 +13,9 @@ import {
   ShieldAlert,
   Store,
   Film,
-  Flame,
   Image as ImageIcon,
   Images,
   Users,
-  Upload,
   PenLine,
   UserPlus,
   CalendarClock,
@@ -32,21 +30,14 @@ import AppearanceSettings from "@/components/appearance-settings";
 import AdultPinSettings from "@/components/adult-pin-settings";
 import UnifiedMergeProfiles from "@/components/unified-merge-profiles";
 import LinkProfiles from "@/components/link-profiles";
-import ShortsImportButton from "@/components/shorts-import-button";
 import PostsImportButton from "@/components/posts-import-button";
 import UserImportButton from "@/components/user-import-button";
-import ShortsDuplicates from "@/components/shorts-duplicates";
-import MediaFingerprintDuplicates from "@/components/media-fingerprint-duplicates";
 import PostsDuplicates from "@/components/posts-duplicates";
-import ShortsCleanup from "@/components/shorts-cleanup";
 import PostsCleanup from "@/components/posts-cleanup";
 import GalleryDuplicates from "@/components/gallery-duplicates";
 import GalleryCleanup from "@/components/gallery-cleanup";
-import ShortsTitleFetch from "@/components/shorts-title-fetch";
-import ShortsCaptionBackfill from "@/components/shorts-caption-backfill";
 import InstagramAutoConnect from "@/components/instagram-auto-connect";
 import TiktokAutoConnect from "@/components/tiktok-auto-connect";
-import ShortsAdmin from "@/components/shorts-admin";
 import RenameTools from "@/components/rename-tools";
 import AdminInvites from "@/components/admin-invites";
 import JobsManager from "@/components/jobs-manager";
@@ -58,7 +49,6 @@ interface SettingsShellProps {
   isAdmin: boolean;
   username: string | null;
   perms: {
-    shorts18: boolean;
     posts: boolean;
     gallery: boolean;
     appstore: boolean;
@@ -76,7 +66,7 @@ interface SettingsShellProps {
 // may manage, and admin-wide tools. Heavy per-section tooling lives INSIDE the
 // section's panel as small tool tabs instead of one endless page per tool.
 // "shorts" (the main channel) is gone: that library moved to tikshortis.
-type SectionKey = "shorts18" | "posts" | "gallery";
+type SectionKey = "posts" | "gallery";
 type CategoryKey =
   | "account"
   | "appearance"
@@ -159,10 +149,6 @@ const SECTION_META: Record<
   SectionKey,
   { label: string; desc: string }
 > = {
-  shorts18: {
-    label: "18+ videos",
-    desc: "Import, deduplicate and maintain the 18+ video library.",
-  },
   posts: {
     label: "Photos",
     desc: "Import, deduplicate and maintain the photo posts library.",
@@ -185,10 +171,7 @@ export default function SettingsShell({
   accentPresets,
   bgThemes,
 }: SettingsShellProps) {
-  const hasAnySection = perms.shorts18 || perms.posts || perms.gallery;
-  // The shorts dupe scan/resolve used to span both channels; only the 18+ one
-  // is left here, so its own permission is enough (admins hold all).
-  const bothShorts = isAdmin || perms.shorts18;
+  const hasAnySection = perms.posts || perms.gallery;
 
   const nav = useMemo(() => {
     const personal: NavItem[] = [
@@ -204,8 +187,6 @@ export default function SettingsShell({
       personal.push({ key: "apps", label: "App Store", icon: <Store size={16} /> });
 
     const library: NavItem[] = [];
-    if (perms.shorts18)
-      library.push({ key: "shorts18", label: "18+ videos", icon: <Flame size={16} /> });
     if (perms.posts)
       library.push({ key: "posts", label: "Photos", icon: <ImageIcon size={16} /> });
     if (perms.gallery)
@@ -240,14 +221,6 @@ export default function SettingsShell({
 
   // Which tool tabs a category offers (empty = plain panel).
   const toolsFor = (key: CategoryKey): ToolTab[] => {
-    if (key === "shorts18") {
-      const t: ToolTab[] = [{ key: "import", label: "Import" }];
-      if (bothShorts) t.push({ key: "duplicates", label: "Duplicates" });
-      t.push({ key: "cleaning", label: "Cleaning" });
-      if (isAdmin)
-        t.push({ key: "titles", label: "Titles" }, { key: "sources", label: "Sources" });
-      return t;
-    }
     if (key === "posts" || key === "gallery") {
       return [
         { key: "import", label: "Import" },
@@ -278,14 +251,13 @@ export default function SettingsShell({
       const raw = window.location.hash.replace("#", "");
       if (!raw) return;
       const [cat, sub] = raw.split(":");
-      const firstSection = (["shorts18", "posts", "gallery"] as const).find(
+      const firstSection = (["posts", "gallery"] as const).find(
         (s) => perms[s]
       );
       const legacy: Record<string, [CategoryKey, string] | undefined> = {
         import: firstSection ? [firstSection, "import"] : undefined,
         duplicates: firstSection ? [firstSection, "duplicates"] : undefined,
         cleaning: firstSection ? [firstSection, "cleaning"] : undefined,
-        fetch: ["shorts18", "titles"],
         sync: ["profiles", "connect"],
         merge: ["profiles", "link"],
         danger: ["account", ""],
@@ -359,7 +331,7 @@ export default function SettingsShell({
       </div>
     );
 
-  const activeSection = (["shorts18", "posts", "gallery"] as const).find(
+  const activeSection = (["posts", "gallery"] as const).find(
     (s) => s === active
   );
 
@@ -612,34 +584,12 @@ function LibraryToolPanel({
     );
   }
   if (tool === "duplicates") {
-    // Two complementary scans for clips: the existing exact/per-frame one, and
-    // the fingerprint scan that catches re-encodes the first cannot.
-    if (section === "shorts18")
-      return (
-        <>
-          <ShortsDuplicates channel="18plus" />
-          <MediaFingerprintDuplicates />
-        </>
-      );
     if (section === "posts") return <PostsDuplicates />;
     return <GalleryDuplicates />;
   }
   if (tool === "cleaning") {
-    if (section === "shorts18") return <ShortsCleanup channel="18plus" />;
     if (section === "posts") return <PostsCleanup />;
     return <GalleryCleanup />;
-  }
-  if (tool === "titles" && isAdmin) {
-    const channel = "18plus" as const;
-    return (
-      <>
-        <ShortsTitleFetch channel={channel} />
-        <ShortsCaptionBackfill channel={channel} />
-      </>
-    );
-  }
-  if (tool === "sources" && isAdmin) {
-    return <ShortsAdmin channel="18plus" basePath="/shorts18" />;
   }
   return null;
 }
@@ -658,23 +608,6 @@ function ImportTab({
   const u = username ?? "…";
 
   const personal: Record<SectionKey, React.ReactNode> = {
-    shorts18: (
-      <Card>
-        <h2 className="text-base font-medium">Your drop folder</h2>
-        <p className="mb-2 mt-1 text-sm text-white/50">
-          Drop video files here and they import as your own 18+ clips:
-        </p>
-        <code className="block rounded-lg bg-white/5 px-3 py-2 text-xs text-white/70">
-          _import/u_{u}/shorts18/
-        </code>
-        <Link
-          href="/shorts18/upload"
-          className="mt-3 flex w-fit items-center gap-2 rounded-full bg-rose-500 px-5 py-2.5 text-sm font-semibold transition active:scale-95"
-        >
-          <Upload size={16} /> Upload to 18+
-        </Link>
-      </Card>
-    ),
     posts: (
       <Card>
         <h2 className="text-base font-medium">Your drop folder</h2>
@@ -710,32 +643,9 @@ function ImportTab({
     ),
   };
 
-  const sharedShorts = (channel: "18plus") => (
-    <Card>
-      <h2 className="text-base font-medium">Shared creator folder</h2>
-      <p className="mb-2 mt-1 text-sm text-white/50">
-        Drop files into the shared creator import folder, then sort them in:
-      </p>
-      <code className="mb-2 block rounded-lg bg-white/5 px-3 py-2 text-xs text-white/70">
-        shorts/{channel}/_import/
-      </code>
-      <p className="mb-3 text-sm text-white/50">
-        Name a file{" "}
-        <code className="text-white/70">title [h_tag][f_profile].mp4</code> —{" "}
-        <code className="text-white/70">[f_profile]</code> sets the creator
-        profile and <code className="text-white/70">[h_tag]</code> adds
-        hashtags. A subfolder named after the creator (or the legacy{" "}
-        <code className="text-white/70">profile_-_title</code>) still works.
-      </p>
-      <ShortsImportButton channel={channel} />
-    </Card>
-  );
-
   return (
     <div className="flex flex-col gap-6">
       {personal[section]}
-
-      {isAdmin && section === "shorts18" && sharedShorts("18plus")}
 
       {isAdmin && section === "posts" && (
         <Card>

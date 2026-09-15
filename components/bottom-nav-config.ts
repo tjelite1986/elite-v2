@@ -1,18 +1,14 @@
 import type { LucideIcon } from "lucide-react";
 import {
   CircleUser,
-  Clapperboard,
   Disc3,
-  Hash,
   Heart,
   Compass,
   Download,
   Film,
-  Flame,
   House,
   Images,
   ListMusic,
-  ListVideo,
   MessageCircle,
   Music4,
   Newspaper,
@@ -41,8 +37,8 @@ const DEFAULT_ITEMS: BottomNavItem[] = [
 // Ordered longest-prefix-first. The sections
 // have no top pill bars anymore: the bottom bar carries the four most useful
 // in-section destinations and the overflow lives in the Menu sheet's
-// section block (see getBottomNavExtras). The 18+ section must stay strictly
-// inside /shorts18 (never cross-link to main shorts).
+// section block (see getBottomNavExtras). Neither shorts section appears here
+// any more: both libraries are separate apps, reachable from the Menu sheet.
 const SECTIONS: {
   prefix: string;
   items: (ctx: { username: string }) => BottomNavItem[];
@@ -55,7 +51,7 @@ const SECTIONS: {
       { label: "Videos 18+", href: "/videos18", icon: Film },
       { label: "Performers", href: "/videos18/performers", icon: Users },
       { label: "Analysis", href: "/videos18/analysis", icon: Sparkles },
-      { label: "Shorts 18+", href: "/shorts18", icon: Flame },
+      { label: "Posts", href: "/posts", icon: Newspaper },
     ],
   },
   {
@@ -63,18 +59,8 @@ const SECTIONS: {
     items: () => [
       { label: "Videos", href: "/videos", icon: Film },
       { label: "Analysis", href: "/videos/analysis", icon: Sparkles },
-      // No shorts tab: the main shorts library moved to tikshortis, and the
-      // 18+ one is gated — it must not be cross-linked from a main section.
+      // No shorts tab: both shorts libraries are separate apps now.
       { label: "Posts", href: "/posts", icon: Newspaper },
-    ],
-  },
-  {
-    prefix: "/shorts18",
-    items: () => [
-      { label: "Videos", href: "/shorts18", icon: Flame },
-      { label: "Explore", href: "/shorts18/explore", icon: Compass },
-      { label: "Profiles", href: "/shorts18/profiles", icon: Users },
-      { label: "Playlists", href: "/shorts18/playlists", icon: ListVideo },
     ],
   },
   {
@@ -119,13 +105,6 @@ export function getBottomNavExtras(
   pathname: string,
   ctx: { isAdmin: boolean }
 ): BottomNavItem[] {
-  if (pathname === "/shorts18" || pathname.startsWith("/shorts18/")) {
-    return [
-      { label: "Categories", href: "/shorts18/tags", icon: Hash },
-      { label: "Analysis", href: "/shorts18/analysis", icon: Sparkles },
-      { label: "Mine", href: "/shorts18/mine", icon: Clapperboard },
-    ];
-  }
   if (pathname === "/music" || pathname.startsWith("/music/")) {
     return [
       { label: "Artists", href: "/music/artists", icon: Users },

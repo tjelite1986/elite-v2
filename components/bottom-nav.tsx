@@ -27,6 +27,7 @@ export default function BottomNav({
   showAppstore = true,
   showMusic = true,
   tikshortisUrl,
+  adshortisUrl,
   children,
 }: {
   username: string;
@@ -38,6 +39,7 @@ export default function BottomNav({
   showAppstore?: boolean;
   showMusic?: boolean;
   tikshortisUrl?: string | null;
+  adshortisUrl?: string | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -161,6 +163,7 @@ export default function BottomNav({
             showAppstore={showAppstore}
             showMusic={showMusic}
             tikshortisUrl={tikshortisUrl}
+            adshortisUrl={adshortisUrl}
             extras={extras}
           />
         </>

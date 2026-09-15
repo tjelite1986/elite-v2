@@ -2,13 +2,13 @@ import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-// The main shorts channel moved to tikshortis on 2026-08-31 and its last clips
-// left this app on 2026-09-15 — elite-v2 is 18+-only now. Every old /shorts
-// link (bookmarks, the PWA's start URL, a shared clip URL) lands on the 18+
-// library instead of a 404.
+// Both shorts channels have left this app: main to its own app on 2026-08-31,
+// 18+ on 2026-09-15. Every old /shorts link lands on the app that owns the
+// library now — see the sibling /shorts18 route for why the address comes from
+// the environment.
 export default async function RetiredShortsPage(props: {
   params: Promise<{ rest?: string[] }>;
 }) {
   await props.params;
-  redirect("/shorts18");
+  redirect(process.env.ADSHORTIS_URL || "/");
 }

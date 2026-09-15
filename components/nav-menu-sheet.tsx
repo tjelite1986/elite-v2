@@ -19,6 +19,7 @@ export default function NavMenuSheet({
   showAppstore = true,
   showMusic = true,
   tikshortisUrl,
+  adshortisUrl,
   extras = [],
 }: {
   open: boolean;
@@ -33,6 +34,7 @@ export default function NavMenuSheet({
   showMusic?: boolean;
   // Passed straight through to the menu; see nav-menu-content.tsx.
   tikshortisUrl?: string | null;
+  adshortisUrl?: string | null;
   // Section-contextual overflow destinations (the old top pill bars' tabs
   // that don't fit the bottom bar), shown as a block above the app links.
   extras?: BottomNavItem[];
@@ -55,6 +57,7 @@ export default function NavMenuSheet({
           showAppstore={showAppstore}
           showMusic={showMusic}
           tikshortisUrl={tikshortisUrl}
+          adshortisUrl={adshortisUrl}
           beforeSections={
             canActAs || extras.length > 0 ? (
               <>

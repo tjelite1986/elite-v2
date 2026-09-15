@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   Images,
-  Clapperboard,
   HardDrive,
   Users,
   MessageCircle,
@@ -49,19 +48,6 @@ export default async function Home() {
       .where("user_id", "=", userId)
       .where("is_deleted", "=", 0)
   );
-  const short = getOne<{ n: number; bytes: number | null }>(
-    qb
-      .selectFrom("shorts")
-      .select((eb) => [
-        eb.fn.countAll<number>().as("n"),
-        eb.fn.sum<number>("size_bytes").as("bytes"),
-      ])
-      .where("uploader_id", "=", userId)
-      // 18+ is the only shorts library left here (main moved to tikshortis).
-      .where("channel", "=", "18plus")
-      .where("is_deleted", "=", 0)
-  );
-
   const profile = getOne<{ username: string; display_name: string | null }>(
     qb
       .selectFrom("user_profiles")
@@ -70,18 +56,18 @@ export default async function Home() {
   );
 
   const photoCount = photo?.n ?? 0;
-  const shortCount = short?.n ?? 0;
-  const storage = (photo?.bytes ?? 0) + (short?.bytes ?? 0);
+  // Shorts are no longer counted here: both libraries are separate apps, and a
+  // dashboard that kept counting the rows left behind would report someone
+  // else's storage as this app's.
+  const storage = photo?.bytes ?? 0;
   const storageSegments = [
     { label: "Photos", bytes: photo?.bytes ?? 0, colour: "#38bdf8" },
-    { label: "Shorts", bytes: short?.bytes ?? 0, colour: "#a78bfa" },
   ];
   // Greet with the public handle / display name, never the email (which is PII).
   const name = profile?.display_name || profile?.username || "there";
 
   const stats = [
     { icon: <Images size={18} />, label: "Photos", value: photoCount.toLocaleString(), href: "/gallery" },
-    { icon: <Clapperboard size={18} />, label: "Shorts", value: shortCount.toLocaleString(), href: "/shorts18" },
     { icon: <HardDrive size={18} />, label: "Storage", value: formatBytes(storage), href: "/gallery" },
   ];
   // `hard` leaves the app: the store is its own site on its own host, so the
@@ -93,7 +79,6 @@ export default async function Home() {
     hard?: boolean;
   }[] = [
     { icon: <Images size={20} />, label: "Photos", href: "/gallery" },
-    { icon: <Clapperboard size={20} />, label: "Shorts", href: "/shorts18" },
     { icon: <Users size={20} />, label: "People", href: "/people" },
     { icon: <MessageCircle size={20} />, label: "Messages", href: "/messages" },
   ];

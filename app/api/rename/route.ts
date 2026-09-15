@@ -1,22 +1,20 @@
 import { NextResponse } from "next/server";
 import path from "node:path";
-import { db, ShortRow, PostMediaRow, GalleryItemRow } from "@/lib/db";
+import { db, PostMediaRow, GalleryItemRow } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { parseHashtags } from "@/lib/posts";
-import { canAccessChannel, getShort } from "@/lib/shorts";
 import { canonicalStem } from "@/lib/import-naming";
-import { renameShortFiles } from "@/lib/shorts-storage";
 import { renamePostImageFiles } from "@/lib/posts-storage";
 import { renameGalleryFiles } from "@/lib/gallery-storage";
 import { setItemTags } from "@/lib/gallery-tags";
 
 export const dynamic = "force-dynamic";
 
-// "shorts" (the main channel) is gone with the library it named — tikshortis
-// owns it — so only the 18+ clips are renameable here.
-type Section = "shorts18" | "posts" | "gallery";
-const SECTIONS: Section[] = ["shorts18", "posts", "gallery"];
-const channelFor = (_s: Section) => "18plus" as const;
+// Neither shorts channel lives here any more — main went to tikshortis on
+// 2026-08-31, 18+ to adshortis on 2026-09-15 — and each owns the renaming of
+// its own clips. Photos and the gallery are what is left to re-title.
+type Section = "posts" | "gallery";
+const SECTIONS: Section[] = ["posts", "gallery"];
 
 // Normalize a free-form tag input (array of words or a "#a #b" / "a, b" string)
 // into the same canonical hashtag list the importer/caption parser produces.
@@ -51,10 +49,6 @@ export async function GET(request: Request) {
   if (!section || !SECTIONS.includes(section)) {
     return NextResponse.json({ error: "Invalid section." }, { status: 400 });
   }
-  // Same PIN barrier as every other 18+ surface.
-  if (section === "shorts18" && !(await canAccessChannel("18plus"))) {
-    return NextResponse.json({ error: "Locked" }, { status: 403 });
-  }
   const q = (searchParams.get("q") ?? "").trim();
   const like = `%${q}%`;
 
@@ -68,7 +62,7 @@ export async function GET(request: Request) {
          ORDER BY id DESC LIMIT 60`
       )
       .all({ userId, like }) as { id: number; title: string }[];
-  } else if (section === "posts") {
+  } else {
     rows = db
       .prepare(
         `SELECT id, COALESCE(caption, '') AS title FROM posts
@@ -77,19 +71,6 @@ export async function GET(request: Request) {
          ORDER BY id DESC LIMIT 60`
       )
       .all({ userId, like }) as { id: number; title: string }[];
-  } else {
-    rows = db
-      .prepare(
-        `SELECT id, COALESCE(caption, '') AS title FROM shorts
-         WHERE is_deleted = 0 AND channel = @channel
-         ${isAdmin ? "" : "AND uploader_id = @userId"}
-         ${q ? "AND caption LIKE @like" : ""}
-         ORDER BY id DESC LIMIT 60`
-      )
-      .all({ userId, like, channel: channelFor(section) }) as {
-      id: number;
-      title: string;
-    }[];
   }
   return NextResponse.json({ items: rows });
 }
@@ -109,9 +90,6 @@ export async function POST(request: Request) {
   const id = Number(body?.id);
   if (!SECTIONS.includes(section) || !Number.isInteger(id)) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
-  }
-  if (section === "shorts18" && !(await canAccessChannel("18plus"))) {
-    return NextResponse.json({ error: "Locked" }, { status: 403 });
   }
   const title = String(body?.title ?? "").trim();
   const hashtags = normTags(body?.tags);
@@ -171,40 +149,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, caption });
     }
 
-    // shorts / shorts18
-    const channel = channelFor(section);
-    const short = getShort(id) as ShortRow | undefined;
-    if (!short || short.channel !== channel) {
-      return NextResponse.json({ error: "Not found." }, { status: 404 });
-    }
-    if (short.uploader_id !== userId && !isAdmin) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-    const newStem = canonicalStem(meta, short.id);
-    const { storageKey, posterKey } = renameShortFiles(
-      channel,
-      short.storage_key,
-      short.poster_key,
-      newStem
-    );
-    try {
-      db.prepare(
-        "UPDATE shorts SET caption = ?, storage_key = ?, poster_key = ? WHERE id = ?"
-      ).run(buildCaption(title, hashtags), storageKey, posterKey, short.id);
-    } catch (err) {
-      // Compensate: move the files back so disk and DB stay consistent.
-      const oldStem = path.basename(
-        short.storage_key,
-        path.extname(short.storage_key)
-      );
-      try {
-        renameShortFiles(channel, storageKey, posterKey, oldStem);
-      } catch {
-        /* leave for the orphan report */
-      }
-      throw err;
-    }
-    return NextResponse.json({ ok: true, storage_key: storageKey });
+    return NextResponse.json({ error: "Invalid section." }, { status: 400 });
   } catch (err) {
     console.error("rename failed", err);
     return NextResponse.json({ error: "Rename failed." }, { status: 500 });

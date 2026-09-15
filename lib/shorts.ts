@@ -1,31 +1,35 @@
 import { sql } from "kysely";
 import { db, ShortRow, ShortChannel, ShortCategory } from "./db";
 import { qb, getOne, getAll } from "./kysely";
-import { has18Access } from "./shorts-gate";
 import { personContentIds } from "./profile-links";
 
-// elite-v2 is 18+-only: the main shorts library moved to tikshortis on
-// 2026-08-31 and its last rows were removed on 2026-09-15. Every channel
-// parsed from a request therefore resolves to 18plus — nothing in this app may
-// read or create a main-channel row any more. Write routes additionally reject
-// an explicit "main" so a stale client gets an error instead of silently
-// writing into the adult library (see isRetiredChannel).
+// elite-v2 no longer has a shorts section. The main library moved to its own
+// app on 2026-08-31, the 18+ library followed on 2026-09-15, and both channels
+// are retired here: the pages redirect to the app that owns the library now and
+// nothing in this one may read or write a shorts row.
+//
+// The module itself stays. The tables are still in the schema, /posts and
+// /people still join against them, and a parser that answers with a channel is
+// what keeps those call sites compiling — it just no longer leads anywhere.
 export function parseChannel(_value: string | null | undefined): ShortChannel {
   return "18plus";
 }
 
-// A request that still names the retired main channel. Callers that WRITE
-// (upload, import, profile create/edit, channel move, grabs) refuse it.
-export function isRetiredChannel(value: string | null | undefined): boolean {
-  return value === "main";
+// Every channel is retired. Callers that WRITE (upload, import, profile
+// create/edit, channel move, grabs) refuse on this, so a stale client or a
+// bookmarked form gets an error rather than quietly seeding a library this app
+// no longer serves — which is exactly how the main channel refilled itself once
+// after its rows were deleted but its write paths left open.
+export function isRetiredChannel(_value: string | null | undefined): boolean {
+  return true;
 }
 
-// A user may always see the main channel. The 18+ channel additionally requires
-// a valid PIN-unlock cookie. Checked here so every route enforces it the same
-// way — the gate is never assumed from another layer.
-export async function canAccessChannel(channel: ShortChannel): Promise<boolean> {
-  if (channel === "main") return true;
-  return has18Access();
+// No channel is readable from here any more. Checked in every route that serves
+// a clip, so the refusal is in one place rather than assumed from the absence of
+// rows — a row that reappears (a restored backup, a stray import) must still not
+// be served by this app.
+export async function canAccessChannel(_channel: ShortChannel): Promise<boolean> {
+  return false;
 }
 
 export function getShort(id: number): ShortRow | undefined {

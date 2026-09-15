@@ -87,6 +87,7 @@ export default function NavMenuContent({
   showAppstore = true,
   showMusic = true,
   tikshortisUrl,
+  adshortisUrl,
 }: {
   myUsername: string;
   myEmail: string;
@@ -105,6 +106,7 @@ export default function NavMenuContent({
   // Absolute URL of the standalone shorts app, from the server env. Absent
   // means it is not deployed here and the row simply does not appear.
   tikshortisUrl?: string | null;
+  adshortisUrl?: string | null;
 }) {
   // The sketch's header shows @handle + "View profile" without the email, but
   // both callers still pass it — keep the prop so the API stays stable.
@@ -208,12 +210,19 @@ export default function NavMenuContent({
 
       <div className="mt-1 border-t border-white/10 pt-1">
         <MenuRow href="/posts" icon={<Newspaper size={18} />} label="InstaElite" />
-        <MenuRow href="/shorts18" icon={<Flame size={18} />} label="Shorts 18+" />
+        {/* Neither shorts library is in this app any more: main left on
+            2026-08-31, 18+ on 2026-09-15. Both rows are `hard` links, because
+            those addresses are not routes here. */}
+        {adshortisUrl && (
+          <MenuRow
+            href={adshortisUrl}
+            icon={<Flame size={18} />}
+            label="Adshortis"
+            sub="The 18+ shorts library"
+            hard
+          />
+        )}
         {tikshortisUrl && (
-          // The main shorts library IS Tikshortis: it moved out of this app on
-          // 2026-08-31 and the last clips left on 2026-09-15, so this row is
-          // the only way to it. `hard`, because that address is not one of this
-          // app's routes.
           <MenuRow
             href={tikshortisUrl}
             icon={<Play size={18} />}

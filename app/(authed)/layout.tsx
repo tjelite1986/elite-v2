@@ -55,6 +55,7 @@ export default async function AuthedLayout({
       // component: a NEXT_PUBLIC_ variable would bake the address into
       // the image at build time instead of reading it at run time.
       tikshortisUrl={process.env.TIKSHORTIS_URL || null}
+      adshortisUrl={process.env.ADSHORTIS_URL || null}
     >
       {children}
     </BottomNav>

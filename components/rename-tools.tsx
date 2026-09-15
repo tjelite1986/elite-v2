@@ -4,11 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Search, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// No "shorts": the main shorts library moved to tikshortis.
-type Section = "shorts18" | "posts" | "gallery";
+// No shorts of either kind: the main library moved to tikshortis and the 18+
+// one to adshortis, and each app renames its own clips.
+type Section = "posts" | "gallery";
 
 const SECTION_LABELS: Record<Section, string> = {
-  shorts18: "18+",
   posts: "Photos (Posts)",
   gallery: "Gallery",
 };
@@ -27,12 +27,12 @@ export default function RenameTools({
   perms,
 }: {
   isAdmin: boolean;
-  perms: { shorts18: boolean; posts: boolean; gallery: boolean };
+  perms: { posts: boolean; gallery: boolean };
 }) {
-  const sections = (["shorts18", "posts", "gallery"] as Section[]).filter(
+  const sections = (["posts", "gallery"] as Section[]).filter(
     (s) => perms[s]
   );
-  const [section, setSection] = useState<Section>(sections[0] ?? "shorts18");
+  const [section, setSection] = useState<Section>(sections[0] ?? "posts");
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);

@@ -58,10 +58,10 @@ import {
 // Per-user folder import. Each account owns a top-level drop tree, separate from
 // its served storage:
 //   <IMPORT_ROOT>/u_<user>/
-//       shorts18/  -> the user's own shorts on the 18+ channel
-//         (the old "shorts/" main-channel folder is no longer read: that
-//          library moved to tikshortis)
 //       posts/     -> the user's own photo posts
+//         (neither shorts folder is read any more: the main library moved out on
+//          2026-08-31 and the 18+ library on 2026-09-15, and each of those apps
+//          has a drop folder of its own)
 //       gallery/   -> the user's own gallery items
 //       books/     -> ingested into the SHARED book library (attributed to user)
 // A user groups content two ways, both yielding the same named collection:
@@ -1542,16 +1542,10 @@ async function runUserFolderImportInner(opts?: {
     if (!fs.existsSync(base)) continue;
     res.users++;
 
-    // No "shorts" (main) section any more: that library moved to tikshortis on
-    // 2026-08-31, so a file dropped in the old folder is left alone rather than
-    // imported into a channel this app no longer serves.
-    await importShortsSection(
-      user.userId,
-      user.username,
-      "18plus",
-      path.join(base, "shorts18"),
-      res
-    );
+    // Neither shorts section is imported any more — both libraries are separate
+    // apps now. A file dropped in an old folder is left alone rather than
+    // imported into a channel this app no longer serves; the folders themselves
+    // are left on disk, since deleting someone's drop is not this job's call.
     await importPostsSection(user.userId, user.username, path.join(base, "posts"), res);
     await importGallerySection(user.userId, path.join(base, "gallery"), res);
     await importBooksSection(user.userId, path.join(base, "books"), res);

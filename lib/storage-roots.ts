@@ -25,12 +25,12 @@ export const BOOKS_ROOT =
 
 // Per-user permanent sections under PROFILE_ROOT/u_<user>/. Books is intentionally
 // absent (shared library); `cookies` holds per-user service cookies (e.g. the
-// Instagram session for the per-user sync).
+// Instagram session for the per-user sync). Neither shorts section is created
+// any more: both libraries left this app (main 2026-08-31, 18+ 2026-09-15) and
+// the 18+ uploads that lived here were merged into that app's own tree.
 export const PROFILE_SECTIONS = [
   "gallery",
   "posts",
-  "shorts",
-  "shorts18",
   "cookies",
 ] as const;
 
@@ -49,12 +49,11 @@ export function storageRootAvailable(dir: string): boolean {
 
 // Per-user drop sections under IMPORT_ROOT/u_<user>/. Books IS present here — the
 // dropped file is staged per user but ingested into the shared BOOKS_ROOT.
-// "shorts" (the main channel) is gone: that library moved to tikshortis, and a
-// folder nothing imports from is worse than no folder. Existing ones are left
-// on disk untouched.
+// Both shorts sections are gone: those libraries are separate apps now, and a
+// folder nothing imports from is worse than no folder. Existing ones are left on
+// disk untouched.
 export const IMPORT_SECTIONS = [
   "gallery",
   "posts",
-  "shorts18",
   "books",
 ] as const;
