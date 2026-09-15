@@ -1286,6 +1286,14 @@ function migrate(db: Database.Database) {
   //    revoking it afterwards must stay revoked, which is exactly what the
   //    version marker buys. Admins are skipped: hasPermission() lets them
   //    through without a row, and writing one would only be noise.
+  //
+  // 2: the shorts tables. Both shorts channels became apps of their own (main
+  //    to tikshortis 2026-08-31, 18+ to adshortis 2026-09-15) and 3f2c85d
+  //    removed the code, so a fresh install never creates these. An existing
+  //    database still carries them, holding only tombstones — every `shorts`
+  //    row is is_deleted = 1, and nothing outside the group references them
+  //    (no foreign key points in, and `follows` only ever stored 'creator').
+  //    Dropped here so the schema stops describing a section that is gone.
   const dataVersion = db.pragma("user_version", { simple: true }) as number;
   if (dataVersion < 1) {
     db.prepare(
@@ -1293,6 +1301,33 @@ function migrate(db: Database.Database) {
        SELECT id, 'appstore' FROM users WHERE role <> 'admin'`
     ).run();
     db.pragma("user_version = 1");
+  }
+
+  if (dataVersion < 2) {
+    // Triggers first: they name shorts_fts, which is dropped below. Dropping
+    // the FTS5 table takes its shadow tables (_data/_idx/_docsize/_config)
+    // with it, so they are not listed.
+    for (const trigger of ["shorts_fts_ai", "shorts_fts_ad", "shorts_fts_au"]) {
+      db.exec(`DROP TRIGGER IF EXISTS ${trigger}`);
+    }
+    for (const table of [
+      "shorts_fts",
+      "short_caption_state",
+      "short_title_state",
+      "short_comments",
+      "short_likes",
+      "short_playlist_items",
+      "short_playlists",
+      "short_dupe_state",
+      "short_dupe_groups",
+      "short_media_fp",
+      "short_profile_aliases",
+      "short_profiles",
+      "shorts",
+    ]) {
+      db.exec(`DROP TABLE IF EXISTS ${table}`);
+    }
+    db.pragma("user_version = 2");
   }
 }
 
