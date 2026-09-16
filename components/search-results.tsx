@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import {
-  Newspaper,
+  
   MessageCircle,
   Users,
   Image as ImageIcon,
-  Clapperboard,
+  
   Film,
   BookOpen,
   Hash,
@@ -18,8 +18,7 @@ import PostAvatar from "@/components/post-avatar";
 // be added in one place and the two surfaces can never drift apart.
 
 export interface Results {
-  people: { username: string; display_name: string | null; type: "user" | "creator" }[];
-  posts: { id: number; snippet: string; author: string | null; created_at: string }[];
+  people: { username: string; display_name: string | null }[];
   messages: { id: number; snippet: string; peer: string; created_at: string }[];
   channelMessages: { id: number; snippet: string; channel: string; sender: string; created_at: string }[];
   gallery: { id: number; filename: string; snippet: string }[];
@@ -28,12 +27,12 @@ export interface Results {
 }
 
 export const EMPTY: Results = {
-  people: [], posts: [], messages: [], channelMessages: [], gallery: [], videos: [], books: [],
+  people: [], messages: [], channelMessages: [], gallery: [], videos: [], books: [],
 };
 
 export function countResults(r: Results): number {
   return (
-    r.people.length + r.posts.length + r.messages.length +
+    r.people.length + r.messages.length +
     r.channelMessages.length + r.gallery.length +
     r.videos.length + r.books.length
   );
@@ -127,7 +126,7 @@ export default function SearchResultList({
         <Section title="People" icon={<Users size={13} />}>
           {cap(results.people).map((p) => (
             <Link
-              key={`${p.type}-${p.username}`}
+              key={p.username}
               href={`/people/${encodeURIComponent(p.username)}`}
               className="flex items-center gap-3 px-3 py-2.5 transition hover:bg-white/5"
             >
@@ -154,18 +153,6 @@ export default function SearchResultList({
               href={`${v.channel === "main" ? "/videos" : "/videos18"}/${v.id}`}
               primary={<Snippet text={v.snippet} />}
               secondary={[v.folder, duration(v.duration)].filter(Boolean).join(" · ")}
-            />
-          ))}
-        </Section>
-      )}
-      {results.posts.length > 0 && (
-        <Section title="Posts" icon={<Newspaper size={13} />}>
-          {cap(results.posts).map((p) => (
-            <Row
-              key={p.id}
-              href={p.author ? `/people/${encodeURIComponent(p.author)}?tab=photos` : "/posts"}
-              primary={<Snippet text={p.snippet} />}
-              secondary={p.author ? `@${p.author}` : undefined}
             />
           ))}
         </Section>

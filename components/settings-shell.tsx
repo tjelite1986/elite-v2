@@ -13,10 +13,10 @@ import {
   MonitorSmartphone,
   ShieldAlert,
   Store,
-  Film,
-  Image as ImageIcon,
+  
+  
   Images,
-  Users,
+  
   PenLine,
   UserPlus,
   CalendarClock,
@@ -37,7 +37,6 @@ import RenameTools from "@/components/rename-tools";
 import AdminInvites from "@/components/admin-invites";
 import JobsManager from "@/components/jobs-manager";
 import AdminAnnounce from "@/components/admin-announce";
-import ImportReview from "@/components/import-review";
 import UserPermissions from "@/components/user-permissions";
 
 interface SettingsShellProps {
@@ -558,8 +557,6 @@ function ImportTab({
           Drop folders are scanned automatically every few minutes.
         </p>
       )}
-
-      <ImportReview />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import path from "node:path";
 import { db, GalleryItemRow } from "@/lib/db";
 import { getSession } from "@/lib/auth";
-import { parseHashtags } from "@/lib/posts";
+import { parseHashtags } from "@/lib/import-naming";
 import { canonicalStem } from "@/lib/import-naming";
 import { renameGalleryFiles } from "@/lib/gallery-storage";
 import { setItemTags } from "@/lib/gallery-tags";
@@ -30,10 +30,6 @@ function normTags(raw: unknown): string[] {
 
 // Build a human caption that also embeds the hashtags, so the caption and the
 // filename stem carry the same metadata.
-function buildCaption(title: string, hashtags: string[]): string | null {
-  const tags = hashtags.map((t) => `#${t}`).join(" ");
-  return [title.trim(), tags].filter(Boolean).join(" ").trim() || null;
-}
 
 // GET /api/rename?section=...&q=...
 // List candidate items to rename (own items; admins see all). Returns the

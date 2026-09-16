@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect,  useState } from "react";
 import Link from "next/link";
 import {
   Archive,
@@ -10,16 +10,14 @@ import {
   Loader2,
   MessageCircleQuestion,
   MessagesSquare,
-  Plus,
+  
   Trash2,
   UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useBackDismiss } from "@/lib/use-back-dismiss";
+
 import PostAvatar from "@/components/post-avatar";
 import NavMenuContent from "@/components/nav-menu-content";
-import StoryViewer from "@/components/story-viewer";
-import type { StoryGroup } from "@/lib/stories";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -40,146 +38,6 @@ function initials(name: string): string {
   const local = name.split("@")[0] || name;
   const letters = local.replace(/[^a-zA-Z0-9]/g, "");
   return (letters.slice(0, 2) || "?").toUpperCase();
-}
-
-// ---------------------------------------------------------------------------
-// Stories tab — Messenger-style grid of story cards. Reuses the 24h stories
-// backend from the posts module (/api/posts/stories) and the fullscreen
-// StoryViewer. First card adds to your story; your active story (if any) and
-// followed users' stories follow as image cards.
-// ---------------------------------------------------------------------------
-
-export function StoriesTab({ myUsername }: { myUsername: string }) {
-  const [groups, setGroups] = useState<StoryGroup[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [viewerAt, setViewerAt] = useState<number | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [avatarFailed, setAvatarFailed] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  useBackDismiss(viewerAt !== null, () => setViewerAt(null));
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/posts/stories");
-      if (res.ok) setGroups((await res.json()).groups || []);
-    } catch {
-      /* noop */
-    } finally {
-      setLoaded(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const upload = async (file: File) => {
-    setUploading(true);
-    const fd = new FormData();
-    fd.set("file", file);
-    try {
-      await fetch("/api/posts/stories", { method: "POST", body: fd });
-      await load();
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const mine = groups.find((g) => g.isSelf);
-  const ordered = mine ? [mine, ...groups.filter((g) => !g.isSelf)] : groups;
-
-  return (
-    <div className="h-full overflow-y-auto">
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        hidden
-        onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
-      />
-      <div className="px-4 pt-4 text-2xl font-bold">Stories</div>
-      <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-5">
-        {/* Add to story */}
-        <button
-          onClick={() => fileRef.current?.click()}
-          className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-white/5 text-left transition hover:bg-white/10"
-        >
-          {!avatarFailed ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={`/api/profiles/${encodeURIComponent(myUsername)}/avatar?c=2`}
-              alt=""
-              className="h-full w-full object-cover"
-              onError={() => setAvatarFailed(true)}
-            />
-          ) : (
-            <span className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-500/40 to-purple-600/40 text-3xl font-bold text-white/70">
-              {initials(myUsername)}
-            </span>
-          )}
-          <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-3 pt-8 text-sm font-semibold">
-            Add to story
-          </span>
-          <span className="absolute left-3 top-3 flex size-9 items-center justify-center rounded-full bg-white text-black shadow">
-            {uploading ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <Plus size={18} />
-            )}
-          </span>
-        </button>
-
-        {/* Story cards */}
-        {ordered.map((g) => (
-          <button
-            key={g.userId}
-            onClick={() => setViewerAt(groups.indexOf(g))}
-            className="relative aspect-[3/4] overflow-hidden rounded-2xl bg-white/5 text-left"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/posts/stories/${g.stories[0]?.id}/media`}
-              alt=""
-              className="h-full w-full object-cover transition group-hover:scale-105"
-            />
-            <span
-              className={cn(
-                "absolute left-2.5 top-2.5 block rounded-full p-[2px]",
-                g.allViewed
-                  ? "bg-white/40"
-                  : "bg-gradient-to-tr from-rose-500 to-amber-400"
-              )}
-            >
-              <span className="block rounded-full bg-black p-[2px]">
-                <PostAvatar username={g.username} size={34} />
-              </span>
-            </span>
-            <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/80 to-transparent p-3 pt-8 text-sm font-semibold">
-              {g.isSelf ? "Your story" : g.username}
-            </span>
-          </button>
-        ))}
-      </div>
-      {loaded && groups.length === 0 && (
-        <div className="px-4 pb-6 text-sm text-white/40">
-          No active stories from people you follow. Stories disappear after 24
-          hours.
-        </div>
-      )}
-
-      {viewerAt !== null && groups[viewerAt] && (
-        <StoryViewer
-          groups={groups}
-          startGroup={viewerAt}
-          onClose={() => {
-            setViewerAt(null);
-            load();
-          }}
-        />
-      )}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -505,7 +363,6 @@ export function MenuTab({
     </div>
   );
 }
-
 
 interface MessengerMenuRow {
   icon: React.ReactNode;

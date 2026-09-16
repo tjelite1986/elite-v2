@@ -6,18 +6,18 @@ import {
   type InviteRequestRow,
   type MessageRow,
   type DmContactRow,
-  type ImportReviewRow,
+  
   type GalleryItemRow,
   type GalleryAlbumRow,
   type UserProfileRow,
-  type PostCreatorRow,
-  type PostRow,
-  type PostMediaRow,
-  type PostCommentRow,
-  type PostDupeStateRow,
+  
+  
+  
+  
+  
   type GalleryDupeStateRow,
-  type FollowRow,
-  type StoryRow,
+  
+  
   type NotificationRow,
   type VideoRow,
   type VideoProgressRow,
@@ -34,27 +34,7 @@ interface GalleryAlbumItemRow {
   item_id: number;
   added_at: string;
 }
-interface HandleAvatarRow {
-  handle: string;
-  avatar_key: string;
-  updated_at: string;
-}
-interface PostDupeGroupRow {
-  group_key: string;
-  media_id: number;
-  post_id: number;
-  match_type: string;
-  quality_score: number;
-  is_best: number;
-  scanned_at: string;
-  distance: number;
-  similarity: number;
-}
-interface PostDupeIgnoredRow {
-  a_media_id: number;
-  b_media_id: number;
-  created_at: string;
-}
+
 interface GalleryDupeGroupRow {
   group_key: string;
   item_id: number;
@@ -70,15 +50,7 @@ interface GalleryDupeIgnoredRow {
   b_item_id: number;
   created_at: string;
 }
-interface PostHashtagRow {
-  post_id: number;
-  tag: string;
-}
-interface PostLikeRow {
-  post_id: number;
-  user_id: number;
-  created_at: string;
-}
+
 interface MediaFpRow {
   // shared shape of post_media_fp (keyed by media_id) and gallery_media_fp (item_id)
   size_bytes: number;
@@ -86,47 +58,22 @@ interface MediaFpRow {
   sig: string | null;
   updated_at: string;
 }
-interface ProfileExtraRow {
-  handle: string;
-  bio: string | null;
-  links_json: string | null;
-  fields_json: string | null;
-  location: string | null;
-  banner_key: string | null;
-  updated_at: string;
-  instagram_handle: string | null;
-  ig_auto_poll: number;
-  ig_stories: number;
-  ig_highlights: number;
-  ig_last_synced_at: string | null;
-  ig_last_sync_error: string | null;
-  ig_syncing: number;
-  tiktok_handle: string | null;
-  tt_auto_poll: number;
-  tt_last_synced_at: string | null;
-  tt_last_sync_error: string | null;
-  tt_syncing: number;
-}
-interface StoryViewRow {
-  story_id: number;
-  user_id: number;
-  viewed_at: string;
-}
 
 // Complete typed schema map. Reuses the hand-written row interfaces from db.ts
 // (which already get updated on every migration) so there is no second source
 // of truth, and literal unions (role, status, ...) carry over.
 //
-// The shorts tables are deliberately absent: those libraries are separate apps
-// now, their rows here are tombstones, and leaving them off the map makes a new
-// query against them a compile error rather than a silent read of dead data.
+// The shorts and posts tables are deliberately absent: those libraries are
+// separate apps now (main shorts -> Tikshortis 2026-08-31, 18+ shorts ->
+// Adshortis 2026-09-15, posts -> Elitogram 2026-09-16), and leaving them off
+// the map makes a new query against them a compile error rather than a silent
+// read of dead data.
 export interface DB {
   users: UserRow;
   registration_codes: CodeRow;
   invite_requests: InviteRequestRow;
   messages: MessageRow;
   dm_contacts: DmContactRow;
-  import_review: ImportReviewRow;
   gallery_items: GalleryItemRow;
   gallery_albums: GalleryAlbumRow;
   gallery_album_items: GalleryAlbumItemRow;
@@ -135,22 +82,7 @@ export interface DB {
   gallery_dupe_state: GalleryDupeStateRow;
   gallery_media_fp: MediaFpRow & { item_id: number };
   user_profiles: UserProfileRow;
-  post_creators: PostCreatorRow;
-  posts: PostRow;
-  post_media: PostMediaRow;
-  post_media_fp: MediaFpRow & { media_id: number };
-  post_comments: PostCommentRow;
-  post_likes: PostLikeRow;
-  post_hashtags: PostHashtagRow;
-  post_dupe_groups: PostDupeGroupRow;
-  post_dupe_ignored: PostDupeIgnoredRow;
-  post_dupe_state: PostDupeStateRow;
-  follows: FollowRow;
-  stories: StoryRow;
-  story_views: StoryViewRow;
   notifications: NotificationRow;
-  profile_extras: ProfileExtraRow;
-  handle_avatars: HandleAvatarRow;
   videos: VideoRow;
   video_progress: VideoProgressRow;
   video_likes: VideoLikeRow;

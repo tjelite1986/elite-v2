@@ -6,7 +6,7 @@ import {
   Bell,
   Camera,
   ChevronRight,
-  Download,
+  
   Film,
   Flame,
   Github,
@@ -25,7 +25,7 @@ import {
   Settings,
   Sparkles,
   Store,
-  Users,
+  
 } from "lucide-react";
 import PostAvatar from "@/components/post-avatar";
 import { APPSTORE_URL } from "@/lib/appstore-url";

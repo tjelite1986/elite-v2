@@ -1,5 +1,4 @@
 import path from "node:path";
-import { parseHashtags } from "./posts";
 
 // Pure naming layer shared by the folder importer (lib/user-import.ts) and the
 // interactive upload routes. Only depends on parseHashtags (regex) so it stays
@@ -94,4 +93,19 @@ export function uploadStem(
     new Set([...parsed.hashtags, ...parseHashtags(caption ?? null)])
   );
   return canonicalStem({ ...parsed, hashtags }, dbId, fallback);
+}
+
+// Hashtags in a caption, lowercased and de-duplicated, in the order they
+// appear. It lived in the posts module until that library became its own app;
+// the import namer and the rename route are what still read them.
+export function parseHashtags(caption: string | null): string[] {
+  if (!caption) return [];
+  const tags: string[] = [];
+  const re = /#([a-z0-9_]{1,50})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(caption)) !== null) {
+    const tag = m[1].toLowerCase();
+    if (!tags.includes(tag)) tags.push(tag);
+  }
+  return tags;
 }

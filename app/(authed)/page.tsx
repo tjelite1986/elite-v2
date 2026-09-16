@@ -10,7 +10,7 @@ import {
 import { getSession } from "@/lib/auth";
 import { showsAppstore } from "@/lib/permissions";
 import { APPSTORE_URL } from "@/lib/appstore-url";
-import { qb, getOne, getAll } from "@/lib/kysely";
+import { qb, getOne } from "@/lib/kysely";
 import WeatherWidget from "@/components/weather-widget";
 import ServerWidget from "@/components/server-widget";
 import ClockWidget from "@/components/clock-widget";

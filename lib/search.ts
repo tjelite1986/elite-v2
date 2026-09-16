@@ -4,13 +4,11 @@
 // falls back to LIKE when the SQLite build lacks FTS5.
 
 import { db } from "./db";
-import { handleOf } from "./directory";
 
 export type SearchViewer = { userId: number; isAdmin: boolean; adult: boolean };
 
 export type SearchResults = {
-  people: { username: string; display_name: string | null; type: "user" | "creator" }[];
-  posts: { id: number; snippet: string; author: string | null; created_at: string }[];
+  people: { username: string; display_name: string | null }[];
   messages: { id: number; snippet: string; peer: string; created_at: string }[];
   channelMessages: { id: number; snippet: string; channel: string; sender: string; created_at: string }[];
   gallery: { id: number; filename: string; snippet: string }[];
@@ -27,6 +25,16 @@ export type SearchResults = {
 };
 
 const LIMIT = 10;
+
+// Normalise a username the way the handle namespace does, so two spellings
+// of the same account collapse to one result.
+function handleOf(name: string): string {
+  return String(name)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._]+/g, "")
+    .replace(/^[._]+|[._]+$/g, "");
+}
 
 function hasFts(table: string): boolean {
   try {
@@ -56,7 +64,7 @@ function likePattern(q: string): string {
   return `%${q.replace(/[%_]/g, "")}%`;
 }
 
-function searchPeople(q: string, viewer: SearchViewer): SearchResults["people"] {
+function searchPeople(q: string): SearchResults["people"] {
   const like = likePattern(q.toLowerCase());
   const users = db
     .prepare(
@@ -65,50 +73,12 @@ function searchPeople(q: string, viewer: SearchViewer): SearchResults["people"] 
         ORDER BY username LIMIT ?`
     )
     .all(like, like, LIMIT) as { username: string; display_name: string | null }[];
-  const creators = db
-    .prepare(
-      `SELECT username, display_name FROM post_creators
-        WHERE (username LIKE ? OR LOWER(display_name) LIKE ?)${viewer.adult ? "" : " AND is_adult = 0"}
-        ORDER BY username LIMIT ?`
-    )
-    .all(like, like, LIMIT) as { username: string; display_name: string | null }[];
   const byHandle = new Map<string, SearchResults["people"][number]>();
-  const add = (username: string, display_name: string | null, type: "user" | "creator") => {
-    const h = handleOf(username);
-    if (h && !byHandle.has(h)) byHandle.set(h, { username, display_name, type });
-  };
-  for (const u of users) add(u.username, u.display_name, "user");
-  for (const c of creators) add(c.username, c.display_name, "creator");
-  return Array.from(byHandle.values()).slice(0, LIMIT);
-}
-
-function searchPosts(match: string | null, q: string, viewer: SearchViewer): SearchResults["posts"] {
-  const adultFilter = viewer.adult ? "" : " AND p.is_adult = 0";
-  if (match && hasFts("posts_fts")) {
-    return db
-      .prepare(
-        `SELECT p.id, snippet(posts_fts, 0, '[', ']', '…', 12) AS snippet, p.created_at,
-                COALESCE(pc.username, up.username) AS author
-           FROM posts_fts
-           JOIN posts p ON p.id = posts_fts.rowid
-           LEFT JOIN post_creators pc ON pc.id = p.author_creator_id
-           LEFT JOIN user_profiles up ON up.user_id = p.author_user_id
-          WHERE posts_fts MATCH ? AND p.is_deleted = 0${adultFilter}
-          ORDER BY rank LIMIT ?`
-      )
-      .all(match, LIMIT) as SearchResults["posts"];
+  for (const u of users) {
+    const h = handleOf(u.username);
+    if (h && !byHandle.has(h)) byHandle.set(h, u);
   }
-  return db
-    .prepare(
-      `SELECT p.id, substr(p.caption, 1, 120) AS snippet, p.created_at,
-              COALESCE(pc.username, up.username) AS author
-         FROM posts p
-         LEFT JOIN post_creators pc ON pc.id = p.author_creator_id
-         LEFT JOIN user_profiles up ON up.user_id = p.author_user_id
-        WHERE p.caption LIKE ? AND p.is_deleted = 0${adultFilter}
-        ORDER BY p.created_at DESC LIMIT ?`
-    )
-    .all(likePattern(q), LIMIT) as SearchResults["posts"];
+  return Array.from(byHandle.values()).slice(0, LIMIT);
 }
 
 function searchMessages(match: string | null, q: string, viewer: SearchViewer): SearchResults["messages"] {
@@ -237,8 +207,7 @@ function searchBooks(q: string): SearchResults["books"] {
 export function globalSearch(q: string, viewer: SearchViewer): SearchResults {
   const match = ftsQuery(q);
   return {
-    people: searchPeople(q, viewer),
-    posts: searchPosts(match, q, viewer),
+    people: searchPeople(q),
     messages: searchMessages(match, q, viewer),
     channelMessages: searchChannelMessages(match, q, viewer),
     gallery: searchGallery(match, q, viewer),

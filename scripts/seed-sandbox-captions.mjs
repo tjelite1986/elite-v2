@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // Fill every library's free-text field with generated content: captions with
-// random hashtags for posts, gallery items and videos; a bio for each
-// user profile; an author name for each book.
+// random hashtags for gallery items and videos; an author name for each book.
 //
 // This exists for the SANDBOX instance (elitev2-test), where imported
 // placeholder photos otherwise sit there captionless and the feed, the search
@@ -14,10 +13,9 @@
 //   node scripts/seed-sandbox-captions.mjs --yes --only-empty
 //   node scripts/seed-sandbox-captions.mjs --yes --gallery   # one section only
 //
-// Sections: posts, gallery, videos, books, profiles (all by default).
+// Sections: gallery, videos, books (all by default).
 //
-// posts_fts and gallery_fts are kept in sync by triggers; post_hashtags and
-// gallery_tags are rewritten here.
+// gallery_fts is kept in sync by triggers; gallery_tags are rewritten here.
 
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -28,7 +26,7 @@ const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, "elitev2.db");
 const WRITE = process.argv.includes("--yes");
 const ONLY_EMPTY = process.argv.includes("--only-empty");
 // Default is every section; naming one or more limits the run to those.
-const NAMES = ["posts", "gallery", "videos", "books", "profiles"];
+const NAMES = ["gallery", "videos", "books"];
 const picked = NAMES.filter((n) => process.argv.includes(`--${n}`));
 const wanted = picked.length ? picked : NAMES;
 
@@ -90,20 +88,6 @@ function randomCaption() {
   return { caption: `${text} ${tags.map((t) => `#${t}`).join(" ")}`, tags };
 }
 
-const BIOS = [
-  "Shoots more than she posts",
-  "Two cameras, no plan",
-  "Collecting light on the way to work",
-  "Mostly film, occasionally patient",
-  "Here for the quiet frames",
-  "Rolls developed when the fridge is full",
-];
-
-function randomBio() {
-  const tags = randomTags().slice(0, 2);
-  return { caption: `${pick(BIOS)}. ${tags.map((t) => `#${t}`).join(" ")}`, tags };
-}
-
 const FIRST = ["Alex", "Mira", "Jonas", "Petra", "Sam", "Ida", "Nils", "Rosa"];
 const LAST = ["Lindqvist", "Hartmann", "Okafor", "Beaumont", "Vasquez", "Sund", "Iyer"];
 
@@ -120,13 +104,6 @@ db.pragma("busy_timeout = 5000");
 // tag table keyed by that row's id. A section with no tag table keeps its tags
 // inline, as #hashtags in the text itself.
 const SECTIONS = {
-  posts: {
-    select: `SELECT id FROM posts WHERE is_deleted = 0` +
-      (ONLY_EMPTY ? ` AND (caption IS NULL OR caption = '')` : ""),
-    setText: "UPDATE posts SET caption = ? WHERE id = ?",
-    clearTags: "DELETE FROM post_hashtags WHERE post_id = ?",
-    addTag: "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)",
-  },
   gallery: {
     select: `SELECT id FROM gallery_items WHERE is_deleted = 0` +
       (ONLY_EMPTY ? ` AND (description IS NULL OR description = '')` : ""),
@@ -149,16 +126,6 @@ const SECTIONS = {
     clearTags: null,
     addTag: null,
     text: randomAuthor,
-  },
-  profiles: {
-    // The bio the profile page renders lives in profile_extras (handle-scoped),
-    // NOT in the legacy user_profiles.bio column, which nothing reads.
-    select: `SELECT handle AS id FROM profile_extras` +
-      (ONLY_EMPTY ? ` WHERE (bio IS NULL OR bio = '')` : ""),
-    setText: "UPDATE profile_extras SET bio = ? WHERE handle = ?",
-    clearTags: null,
-    addTag: null,
-    text: randomBio,
   },
 };
 

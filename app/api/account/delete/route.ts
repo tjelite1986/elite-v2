@@ -64,26 +64,11 @@ export async function POST(request: Request) {
     db.prepare(
       "DELETE FROM messages WHERE sender_id = ? OR recipient_id = ?"
     ).run(user.id, user.id);
-    db.prepare("DELETE FROM posts WHERE author_user_id = ?").run(user.id);
-    db.prepare("DELETE FROM post_likes WHERE user_id = ?").run(user.id);
-    db.prepare("DELETE FROM post_comments WHERE user_id = ?").run(user.id);
-    db.prepare("DELETE FROM stories WHERE author_user_id = ?").run(user.id);
-    db.prepare("DELETE FROM story_views WHERE user_id = ?").run(user.id);
-    db.prepare(
-      "DELETE FROM follows WHERE follower_id = ? OR (target_type = 'user' AND target_id = ?)"
-    ).run(user.id, user.id);
     db.prepare(
       "DELETE FROM notifications WHERE user_id = ? OR actor_user_id = ?"
     ).run(user.id, user.id);
     db.prepare("DELETE FROM gallery_albums WHERE user_id = ?").run(user.id);
     db.prepare("DELETE FROM gallery_items WHERE user_id = ?").run(user.id);
-    // The shorts libraries are separate apps now and every row here is a
-    // tombstone, but a tombstone still carries this account's id — so the
-    // account delete still unlinks them. Raw SQL: the table is deliberately off
-    // the typed schema map, precisely so nothing NEW queries it.
-    db.prepare(
-      "UPDATE shorts SET is_deleted = 1, uploader_id = NULL WHERE uploader_id = ?"
-    ).run(user.id);
     db.prepare("DELETE FROM user_profiles WHERE user_id = ?").run(user.id);
     db.prepare("DELETE FROM users WHERE id = ?").run(user.id);
   });

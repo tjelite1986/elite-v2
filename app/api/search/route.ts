@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const q = (new URL(request.url).searchParams.get("q") || "").trim();
   if (q.length < 2) {
     return NextResponse.json({
-      people: [], posts: [], messages: [], channelMessages: [],
+      people: [], messages: [], channelMessages: [],
       gallery: [], videos: [], books: [],
     });
   }

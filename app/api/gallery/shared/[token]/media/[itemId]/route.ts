@@ -9,7 +9,7 @@ import {
   isSupportedVideo,
   videoMimeFor,
 } from "@/lib/gallery-storage";
-import { imageMimeFor } from "@/lib/posts-storage";
+import { imageMimeFor } from "@/lib/gallery-storage";
 
 export const dynamic = "force-dynamic";
 

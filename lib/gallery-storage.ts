@@ -200,6 +200,19 @@ export function assertRealImage(source: Buffer | string, filename: string): void
 
 // Best-effort content type from extension, used when the source didn't supply
 // one (e.g. the folder importer passes an empty mime).
+// Content type for a stored image, by extension. Never echoes an uploaded
+// type back — an upload may claim anything.
+const IMAGE_MIME: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+};
+
+export function imageMimeFor(filename: string): string {
+  return IMAGE_MIME[getExt(filename)] || "image/jpeg";
+}
+
 export function videoMimeFor(filename: string): string {
   return VIDEO_MIME[getExt(filename)] || "video/mp4";
 }

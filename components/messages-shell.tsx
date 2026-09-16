@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Bell,
-  Images,
   Menu,
   MessageCircle,
   MessagesSquare,
@@ -12,18 +11,16 @@ import {
 import { cn } from "@/lib/utils";
 import { useBackDismiss } from "@/lib/use-back-dismiss";
 import { useWs } from "@/components/ws-provider";
-import StoryRail from "@/components/story-rail";
 import MessengerClient from "@/components/messenger-client";
 import ChannelsClient from "@/components/channels-client";
 import {
-  StoriesTab,
   NotificationsTab,
   MenuTab,
   RequestsView,
 } from "@/components/messenger-tabs";
 
 // "requests" is a drill-in view under Menu, not a bar tab of its own.
-type MainTab = "chats" | "stories" | "notifications" | "menu" | "requests";
+type MainTab = "chats" | "notifications" | "menu" | "requests";
 
 type BarTab = Exclude<MainTab, "requests">;
 
@@ -36,13 +33,12 @@ type BarKey = BarTab | "channels";
 const TABS: { key: BarKey; label: string; icon: typeof MessageCircle }[] = [
   { key: "chats", label: "Chats", icon: MessageCircle },
   { key: "channels", label: "Channels", icon: MessagesSquare },
-  { key: "stories", label: "Stories", icon: Images },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "menu", label: "Menu", icon: Menu },
 ];
 
 // Messenger-style shell for /messages: a bottom tab bar switches between
-// Chats (Direct/Channels), Stories, Notifications and Menu. The shell owns the
+// Chats (Direct/Channels), Notifications and Menu. The shell owns the
 // full viewport height and tracks unread badges for the bar. ?tab= deep-links
 // into a specific bar tab (used by the global nav menu's Notifications row).
 export default function MessagesShell({
@@ -181,20 +177,13 @@ export default function MessagesShell({
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
               {chatTab === "dm" ? (
-                <>
-                  {/* Stories sit above the conversations, the way they do in a
-                      real messenger — the Stories tab stays the full view. */}
-                  <StoryRail myUsername={myUsername} />
-                  <div className="mx-4 mb-1 border-t border-white/10" />
-                  <MessengerClient meId={meId} onUnreadChange={setDmUnread} />
-                </>
+                <MessengerClient meId={meId} onUnreadChange={setDmUnread} />
               ) : (
                 <ChannelsClient meId={meId} />
               )}
             </div>
           </div>
         )}
-        {tab === "stories" && <StoriesTab myUsername={myUsername} />}
         {tab === "notifications" && (
           <NotificationsTab onCountChange={setNotifCount} />
         )}

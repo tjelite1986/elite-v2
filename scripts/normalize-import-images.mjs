@@ -27,7 +27,9 @@ const IMPORT_ROOT = process.env.IMPORT_ROOT || path.join(DATA_DIR, "_import");
 
 const DRY_RUN = process.argv.includes("--dry-run");
 
-const SECTIONS = ["gallery", "posts"];
+// Only the gallery drop folder is swept: the posts library became its own app
+// on 2026-09-16 and normalises its own imports.
+const SECTIONS = ["gallery"];
 
 const log = (m) => console.log(`[normalize-import] ${m}`);
 

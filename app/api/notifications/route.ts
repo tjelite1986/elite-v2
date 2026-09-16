@@ -18,8 +18,8 @@ interface Notification {
 // Notifications for the current user:
 //  - unread chat messages (grouped by sender; transient — they clear once read)
 //  - pending invite requests (admins only; actionable until handled)
-//  - posts-module activity (likes/comments/follows/mentions) INCLUDING already
-//    read history, so the list keeps an "Earlier" section after mark-all-read
+//  - announcements from /api/admin/announce INCLUDING already read history, so
+//    the list keeps an "Earlier" section after mark-all-read
 export async function GET() {
   const session = await getSession();
   if (!session) {
@@ -94,66 +94,41 @@ export async function GET() {
     }
   }
 
-  // Posts-module notifications (likes/comments/follows), read and unread — the
-  // newest 50 form the history.
-  const postNotifs = getAll<{
+  // Announcements, read and unread — the newest 50 form the history. The
+  // like/comment/follow/mention rows this once also carried belonged to the
+  // posts module, which became its own app on 2026-09-16 and notifies there.
+  const announcements = getAll<{
     id: number;
-    type: string;
-    postId: number | null;
     createdAt: string;
     readAt: string | null;
-    actor: string | null;
     message: string | null;
     href: string | null;
   }>(
     qb
       .selectFrom("notifications as n")
-      .leftJoin("user_profiles as up", "up.user_id", "n.actor_user_id")
       .select([
         "n.id",
-        "n.type",
-        "n.post_id as postId",
         "n.created_at as createdAt",
         "n.read_at as readAt",
-        "up.username as actor",
         "n.message",
         "n.href",
       ])
       .where("n.user_id", "=", userId)
+      .where("n.type", "=", "system")
       .orderBy("n.id", "desc")
       .limit(50)
   );
 
-  const POST_ACTION: Record<string, string> = {
-    like: "liked your post",
-    comment: "commented on your post",
-    follow: "started following you",
-    mention: "mentioned you",
-  };
-
-  for (const n of postNotifs) {
-    if (n.type === "system") {
-      // Announcements: free text authored via /api/admin/announce, shown as
-      // coming from the app itself.
-      notifications.push({
-        id: `post-${n.id}`,
-        user: "Elite",
-        handle: null,
-        action: n.message ?? "has news for you",
-        timestamp: n.createdAt,
-        href: n.href || "/messages",
-        read: n.readAt !== null,
-      });
-      continue;
-    }
-    const actor = n.actor ?? "someone";
+  for (const n of announcements) {
+    // Free text authored via /api/admin/announce, shown as coming from the app
+    // itself.
     notifications.push({
-      id: `post-${n.id}`,
-      user: actor,
-      handle: n.actor,
-      action: POST_ACTION[n.type] ?? "interacted with you",
+      id: `announce-${n.id}`,
+      user: "Elite",
+      handle: null,
+      action: n.message ?? "has news for you",
       timestamp: n.createdAt,
-      href: n.type === "follow" ? `/posts/u/${actor}` : `/posts/p/${n.postId ?? ""}`,
+      href: n.href || "/messages",
       read: n.readAt !== null,
     });
   }

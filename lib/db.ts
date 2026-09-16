@@ -107,21 +107,6 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_messages_pair
       ON messages(sender_id, recipient_id, created_at);
 
-    -- Import-time duplicate quarantine: instead of silently deleting a drop
-    -- file whose content already exists on the target creator, it is parked
-    -- under IMPORT_ROOT/_review/ for a side-by-side decision in Settings.
-    CREATE TABLE IF NOT EXISTS import_review (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      kind TEXT NOT NULL,                                  -- 'posts' (v1)
-      file_rel TEXT NOT NULL,                              -- path under IMPORT_ROOT
-      original_name TEXT NOT NULL,
-      collection TEXT,                                     -- creator drop folder
-      matched_post_id INTEGER,
-      match_type TEXT,                                     -- exact | similar
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
     -- Message-request decisions, one row per direction: owner accepted or
     -- declined DMs from peer. Incoming messages with no reply and no row here
     -- form the recipient's pending "Message requests" inbox.
@@ -200,9 +185,6 @@ function migrate(db: Database.Database) {
     -- growing ten empty ones. Dropping them on an existing install is a data
     -- decision, not a schema one, so it is not done here.
 
-    -- Instagram-style social photo feed ("posts"). Shares the one users table;
-    -- a post is authored either by a real user OR a mirrored creator, never both.
-
     -- Shared public profile layer (1:1 with users). Other modules can attribute
     -- by a real handle/avatar instead of splitting the email.
     CREATE TABLE IF NOT EXISTS user_profiles (
@@ -214,146 +196,6 @@ function migrate(db: Database.Database) {
       accent TEXT,
       bg_theme TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Mirrored creators imported from the on-disk instagram library. NOT user
-    -- accounts.
-    CREATE TABLE IF NOT EXISTS post_creators (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT NOT NULL UNIQUE,
-      display_name TEXT,
-      avatar_key TEXT,
-      bio TEXT,
-      source TEXT NOT NULL DEFAULT 'import',
-      is_adult INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS posts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      author_user_id INTEGER REFERENCES users(id),
-      author_creator_id INTEGER REFERENCES post_creators(id),
-      caption TEXT,
-      is_adult INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      is_deleted INTEGER NOT NULL DEFAULT 0,
-      CHECK ((author_user_id IS NULL) <> (author_creator_id IS NULL))
-    );
-    CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(is_deleted, created_at);
-    CREATE INDEX IF NOT EXISTS idx_posts_author_user ON posts(author_user_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_posts_author_creator ON posts(author_creator_id, created_at);
-
-    -- Carousel images for a post, ordered by position. media_version busts the
-    -- by-id media URL cache after a re-crop (the gallery ?v= pattern).
-    CREATE TABLE IF NOT EXISTS post_media (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      storage_key TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      width INTEGER,
-      height INTEGER,
-      position INTEGER NOT NULL DEFAULT 0,
-      media_version INTEGER NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id, position);
-
-    -- Duplicate-image grouping for the posts library.
-    -- Written by scripts/scan-posts-duplicates.mjs for admin review under the
-    -- posts Settings page; the scan deletes nothing. One row per image that
-    -- belongs to a group, tied together by group_key. The whole table is
-    -- rewritten on each scan. Duplicates are scoped per author (a creator's or a
-    -- user's own images) so the same photo posted by two different authors is not
-    -- flagged as deletable.
-    CREATE TABLE IF NOT EXISTS post_dupe_groups (
-      group_key TEXT NOT NULL,
-      media_id INTEGER NOT NULL REFERENCES post_media(id) ON DELETE CASCADE,
-      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      match_type TEXT NOT NULL,            -- 'exact' | 'perceptual'
-      quality_score REAL NOT NULL DEFAULT 0,
-      is_best INTEGER NOT NULL DEFAULT 0,  -- the suggested image to keep
-      distance INTEGER NOT NULL DEFAULT 0, -- dHash Hamming to the best (0 = exact)
-      similarity INTEGER NOT NULL DEFAULT 0, -- SSIM % to the best (100 = identical)
-      scanned_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (group_key, media_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_post_dupe_media ON post_dupe_groups(media_id);
-
-    -- Pairs of images an admin marked "not duplicates" so the perceptual matcher
-    -- stops grouping them on future scans (a<b by media id). Exact byte-identical
-    -- matches are never ignored — only the fuzzy perceptual ones.
-    CREATE TABLE IF NOT EXISTS post_dupe_ignored (
-      a_media_id INTEGER NOT NULL,
-      b_media_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (a_media_id, b_media_id)
-    );
-
-    -- Single-row progress beacon for the posts duplicate scan, so the admin UI
-    -- can poll while the detached scan runs.
-    CREATE TABLE IF NOT EXISTS post_dupe_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      status TEXT NOT NULL DEFAULT 'idle',  -- 'idle' | 'running' | 'done' | 'error'
-      started_at TEXT,
-      finished_at TEXT,
-      scanned INTEGER NOT NULL DEFAULT 0,
-      groups INTEGER NOT NULL DEFAULT 0,
-      message TEXT
-    );
-
-    -- Per-image fingerprint cache (sha256 + perceptual dHash) so repeat scans
-    -- skip hashing/decoding images whose file size is unchanged. Written by
-    -- scripts/scan-posts-duplicates.mjs.
-    CREATE TABLE IF NOT EXISTS post_media_fp (
-      media_id INTEGER PRIMARY KEY REFERENCES post_media(id) ON DELETE CASCADE,
-      size_bytes INTEGER NOT NULL,
-      sha TEXT,
-      sig TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS post_likes (
-      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (post_id, user_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS post_comments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      body TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments(post_id, created_at);
-
-    -- Polymorphic social graph: a user follows either another user or a creator.
-    CREATE TABLE IF NOT EXISTS follows (
-      follower_id INTEGER NOT NULL REFERENCES users(id),
-      target_type TEXT NOT NULL CHECK (target_type IN ('user','creator','shorts')),
-      target_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (follower_id, target_type, target_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_follows_target ON follows(target_type, target_id);
-
-    -- Ephemeral 24h stories (users only in v1).
-    CREATE TABLE IF NOT EXISTS stories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      author_user_id INTEGER NOT NULL REFERENCES users(id),
-      storage_key TEXT NOT NULL,
-      mime_type TEXT NOT NULL,
-      media_version INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      expires_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_stories_expires ON stories(expires_at);
-
-    CREATE TABLE IF NOT EXISTS story_views (
-      story_id INTEGER NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (story_id, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
@@ -369,62 +211,6 @@ function migrate(db: Database.Database) {
       read_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at, created_at);
-
-    CREATE TABLE IF NOT EXISTS post_hashtags (
-      post_id INTEGER NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-      tag TEXT NOT NULL,
-      PRIMARY KEY (post_id, tag)
-    );
-
-    -- Avatar chosen for a person, keyed by their shared handle so it works for
-    -- every identity type (user / photo creator / video-only creator). Takes
-    -- precedence over the legacy avatar_key columns. Set from a post image or a
-    -- a clip poster.
-    CREATE TABLE IF NOT EXISTS handle_avatars (
-      handle TEXT PRIMARY KEY,
-      avatar_key TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Non-destructive profile links: a member handle is displayed under a
-    -- primary "face" handle. Both keep their own rows/content and keep syncing
-    -- independently; the unified profile page + people directory aggregate them.
-    -- One level only (a member is never itself a primary).
-    CREATE TABLE IF NOT EXISTS profile_links (
-      member_handle TEXT PRIMARY KEY,
-      primary_handle TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_profile_links_primary
-      ON profile_links(primary_handle);
-
-    -- Cross-section profile extras keyed by handle: bio, a cover banner, a JSON
-    -- array of labeled links ([{label,url}]), and the Instagram cookie-sync
-    -- config/status for this person. Works for any identity type. The IG source
-    -- (instagram_handle) can differ from the local handle; synced media is
-    -- imported under the local handle so it attaches to THIS profile.
-    CREATE TABLE IF NOT EXISTS profile_extras (
-      handle TEXT PRIMARY KEY,
-      bio TEXT,
-      links_json TEXT,
-      fields_json TEXT,
-      location TEXT,
-      banner_key TEXT,
-      instagram_handle TEXT,
-      ig_auto_poll INTEGER NOT NULL DEFAULT 0,
-      ig_stories INTEGER NOT NULL DEFAULT 0,
-      ig_highlights INTEGER NOT NULL DEFAULT 0,
-      ig_last_synced_at TEXT,
-      ig_last_sync_error TEXT,
-      ig_syncing INTEGER NOT NULL DEFAULT 0,
-      tiktok_handle TEXT,
-      tt_auto_poll INTEGER NOT NULL DEFAULT 0,
-      tt_last_synced_at TEXT,
-      tt_last_sync_error TEXT,
-      tt_syncing INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_post_hashtags_tag ON post_hashtags(tag);
 
     -- Login throttle: per-identifier (lowercased email) failed-attempt counter
     -- with an escalating lockout ladder. A successful login clears the row.
@@ -550,7 +336,7 @@ function migrate(db: Database.Database) {
       ON video_progress(user_id, updated_at DESC);
 
     -- Performers in the 18+ video library. Their own table (not users, not
-    -- post_creators): these are people a film credits, with no account and no
+    -- accounts): these are people a film credits, with no account and no
     -- content of their own beyond the videos they appear in.
     CREATE TABLE IF NOT EXISTS video_performers (
       slug TEXT PRIMARY KEY,
@@ -719,7 +505,7 @@ function migrate(db: Database.Database) {
     );
     CREATE INDEX IF NOT EXISTS idx_gallery_tags_tag ON gallery_tags(tag);
 
-    -- Duplicate-image grouping for the gallery, mirroring post_dupe_groups.
+    -- Duplicate-image grouping for the gallery.
     -- Written by scripts/scan-gallery-duplicates.mjs for admin review; the scan
     -- deletes nothing. One row per gallery item that belongs to a group, tied
     -- together by group_key. The whole table is rewritten on each scan. The
@@ -770,14 +556,6 @@ function migrate(db: Database.Database) {
       sha TEXT,
       sig TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    -- Auto-earned achievement badges (definitions live in lib/badges.ts).
-    CREATE TABLE IF NOT EXISTS user_badges (
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      badge_id TEXT NOT NULL,
-      earned_at TEXT NOT NULL DEFAULT (datetime('now')),
-      PRIMARY KEY (user_id, badge_id)
     );
 
     -- Admin-granted per-user capabilities (keys defined in lib/permissions.ts).
@@ -900,16 +678,6 @@ function migrate(db: Database.Database) {
     }
   }
 
-  // Backfill match_type on import_review for databases created before the
-  // perceptual (dHash+SSIM) import check shipped.
-  {
-    const cols = (
-      db.prepare("PRAGMA table_info(import_review)").all() as { name: string }[]
-    ).map((c) => c.name);
-    if (!cols.includes("match_type"))
-      db.exec("ALTER TABLE import_review ADD COLUMN match_type TEXT");
-  }
-
   // One-time backfill when the message-requests feature ships: pre-existing
   // conversations must not retroactively turn into pending requests, so every
   // historical sender is marked accepted by their recipient. Guarded on the
@@ -934,44 +702,6 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE notifications ADD COLUMN message TEXT");
     if (!cols.includes("href"))
       db.exec("ALTER TABLE notifications ADD COLUMN href TEXT");
-  }
-
-  // Backfill the Instagram-sync columns on profile_extras for older databases.
-  {
-    const cols = (
-      db.prepare("PRAGMA table_info(profile_extras)").all() as { name: string }[]
-    ).map((c) => c.name);
-    if (!cols.includes("instagram_handle"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN instagram_handle TEXT");
-    if (!cols.includes("ig_auto_poll"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_auto_poll INTEGER NOT NULL DEFAULT 0");
-    if (!cols.includes("ig_stories"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_stories INTEGER NOT NULL DEFAULT 0");
-    if (!cols.includes("ig_highlights"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_highlights INTEGER NOT NULL DEFAULT 0");
-    if (!cols.includes("ig_last_synced_at"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_last_synced_at TEXT");
-    if (!cols.includes("ig_last_sync_error"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_last_sync_error TEXT");
-    if (!cols.includes("ig_syncing"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN ig_syncing INTEGER NOT NULL DEFAULT 0");
-    // TikTok-sync columns mirror the Instagram ones, but TikTok syncing works
-    // without a session cookie (public profile download).
-    if (!cols.includes("tiktok_handle"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN tiktok_handle TEXT");
-    if (!cols.includes("tt_auto_poll"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN tt_auto_poll INTEGER NOT NULL DEFAULT 0");
-    if (!cols.includes("tt_last_synced_at"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN tt_last_synced_at TEXT");
-    if (!cols.includes("tt_last_sync_error"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN tt_last_sync_error TEXT");
-    if (!cols.includes("tt_syncing"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN tt_syncing INTEGER NOT NULL DEFAULT 0");
-    if (!cols.includes("location"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN location TEXT");
-    // Custom profile fields: JSON array of {label, value, public}.
-    if (!cols.includes("fields_json"))
-      db.exec("ALTER TABLE profile_extras ADD COLUMN fields_json TEXT");
   }
 
   // Backfill last_seen for databases created before this column existed.
@@ -1050,34 +780,6 @@ function migrate(db: Database.Database) {
       db.exec("ALTER TABLE gallery_items ADD COLUMN blurhash TEXT");
   }
 
-  // Content hash on post_media so the importer can skip an image it already
-  // has for a creator (idempotent re-drops, no duplicates).
-  const postMediaCols = (
-    db.prepare("PRAGMA table_info(post_media)").all() as { name: string }[]
-  ).map((c) => c.name);
-  if (postMediaCols.length > 0 && !postMediaCols.includes("content_hash")) {
-    db.exec("ALTER TABLE post_media ADD COLUMN content_hash TEXT");
-  }
-  db.exec(
-    "CREATE INDEX IF NOT EXISTS idx_post_media_hash ON post_media(content_hash)"
-  );
-
-  // distance column on an already-created post_dupe_groups (perceptual Hamming
-  // to the kept image, surfaced as a similarity % in the review UI).
-  const postDupeCols = (
-    db.prepare("PRAGMA table_info(post_dupe_groups)").all() as { name: string }[]
-  ).map((c) => c.name);
-  if (postDupeCols.length > 0 && !postDupeCols.includes("distance")) {
-    db.exec(
-      "ALTER TABLE post_dupe_groups ADD COLUMN distance INTEGER NOT NULL DEFAULT 0"
-    );
-  }
-  if (postDupeCols.length > 0 && !postDupeCols.includes("similarity")) {
-    db.exec(
-      "ALTER TABLE post_dupe_groups ADD COLUMN similarity INTEGER NOT NULL DEFAULT 0"
-    );
-  }
-
   // similarity/distance columns on an already-created gallery_dupe_groups (SSIM %
   // and dHash Hamming to the kept image, surfaced in the review UI).
   const galleryDupeCols = (
@@ -1092,28 +794,6 @@ function migrate(db: Database.Database) {
     db.exec(
       "ALTER TABLE gallery_dupe_groups ADD COLUMN similarity INTEGER NOT NULL DEFAULT 0"
     );
-  }
-
-  // Allow following video-only creators: rebuild follows with an expanded CHECK
-  // if it still only permits user/creator (SQLite can't ALTER a CHECK in place).
-  const followsSql =
-    (db
-      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='follows'")
-      .get() as { sql: string } | undefined)?.sql ?? "";
-  if (followsSql && !followsSql.includes("'shorts'")) {
-    db.exec(`
-      CREATE TABLE follows_new (
-        follower_id INTEGER NOT NULL REFERENCES users(id),
-        target_type TEXT NOT NULL CHECK (target_type IN ('user','creator','shorts')),
-        target_id INTEGER NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        PRIMARY KEY (follower_id, target_type, target_id)
-      );
-      INSERT INTO follows_new SELECT * FROM follows;
-      DROP TABLE follows;
-      ALTER TABLE follows_new RENAME TO follows;
-      CREATE INDEX IF NOT EXISTS idx_follows_target ON follows(target_type, target_id);
-    `);
   }
 
   // Per-user preference: surface 18+ content outside the dedicated 18+
@@ -1151,8 +831,8 @@ function migrate(db: Database.Database) {
   if (userColumns.length > 0 && !userColumns.includes("adult_pin_hash"))
     db.exec("ALTER TABLE users ADD COLUMN adult_pin_hash TEXT");
 
-  // Give every existing user a public profile (username/avatar/bio) so the posts
-  // module and attribution work. Username = slugified email local-part, with a
+  // Give every existing user a public profile (username/avatar/bio) so
+  // attribution works. Username = slugified email local-part, with a
   // numeric suffix on collision; the user can change it later in settings.
   const usersNeedingProfile = db
     .prepare(
@@ -1182,29 +862,8 @@ function migrate(db: Database.Database) {
     }
   }
 
-  // Full-text search over post captions (FTS5). Guarded: if the SQLite build
-  // lacks FTS5 the posts search falls back to LIKE, so this must not throw.
-  try {
-    db.exec(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts
-        USING fts5(caption, content='posts', content_rowid='id');
-      CREATE TRIGGER IF NOT EXISTS posts_ai AFTER INSERT ON posts BEGIN
-        INSERT INTO posts_fts(rowid, caption) VALUES (new.id, new.caption);
-      END;
-      CREATE TRIGGER IF NOT EXISTS posts_ad AFTER DELETE ON posts BEGIN
-        INSERT INTO posts_fts(posts_fts, rowid, caption) VALUES('delete', old.id, old.caption);
-      END;
-      CREATE TRIGGER IF NOT EXISTS posts_au AFTER UPDATE ON posts BEGIN
-        INSERT INTO posts_fts(posts_fts, rowid, caption) VALUES('delete', old.id, old.caption);
-        INSERT INTO posts_fts(rowid, caption) VALUES (new.id, new.caption);
-      END;
-    `);
-  } catch {
-    /* FTS5 unavailable — search uses a LIKE fallback */
-  }
-
-  // Full-text indexes for the global search page — same guarded content-table
-  // pattern as posts_fts. Books and people are searched with LIKE instead:
+  // Full-text indexes for the global search page, each a guarded content-table
+  // index. Books and people are searched with LIKE instead:
   // books has a TEXT primary key (its rowid is not VACUUM-stable, which would
   // desync a content-table index) and both stay small.
   const ftsSpecs: { fts: string; src: string; cols: string[] }[] = [
@@ -1242,7 +901,7 @@ function migrate(db: Database.Database) {
   // malformed" on every write. NOTE: comparing counts does NOT detect this
   // (count(*) on an external-content FTS table reads the CONTENT table);
   // only the fts5 integrity-check command actually inspects the index.
-  for (const { fts } of [...ftsSpecs, { fts: "posts_fts" }]) {
+  for (const { fts } of ftsSpecs) {
     try {
       db.exec(`INSERT INTO ${fts}(${fts}, rank) VALUES('integrity-check', 0)`);
     } catch {
@@ -1381,7 +1040,6 @@ function seedContentOwners(db: Database.Database) {
   }
 }
 
-
 // `next build` collects page data in parallel worker processes that all
 // initialise the same brand-new database file. createDb() already serializes
 // its write side with BEGIN IMMEDIATE under a 30 s busy_timeout, and that is
@@ -1483,18 +1141,6 @@ export interface DmContactRow {
   created_at: string;
 }
 
-export interface ImportReviewRow {
-  id: number;
-  user_id: number;
-  kind: string;
-  file_rel: string;
-  original_name: string;
-  collection: string | null;
-  matched_post_id: number | null;
-  match_type: "exact" | "similar" | null;
-  created_at: string;
-}
-
 export interface GalleryItemRow {
   id: number;
   user_id: number;
@@ -1527,7 +1173,6 @@ export interface GalleryAlbumRow {
   created_at: string;
 }
 
-
 // --- Posts module (Instagram-style social photo feed) ---
 
 export interface UserProfileRow {
@@ -1539,56 +1184,6 @@ export interface UserProfileRow {
   show_adult_outside: number;
   show_appstore: number;
   created_at: string;
-}
-
-export interface PostCreatorRow {
-  id: number;
-  username: string;
-  display_name: string | null;
-  avatar_key: string | null;
-  bio: string | null;
-  source: string;
-  is_adult: number;
-  created_at: string;
-}
-
-export interface PostRow {
-  id: number;
-  author_user_id: number | null;
-  author_creator_id: number | null;
-  caption: string | null;
-  is_adult: number;
-  created_at: string;
-  is_deleted: number;
-}
-
-export interface PostMediaRow {
-  id: number;
-  post_id: number;
-  storage_key: string;
-  mime_type: string;
-  width: number | null;
-  height: number | null;
-  position: number;
-  media_version: number;
-}
-
-export interface PostCommentRow {
-  id: number;
-  post_id: number;
-  user_id: number;
-  body: string;
-  created_at: string;
-}
-
-export interface PostDupeStateRow {
-  id: number;
-  status: "idle" | "running" | "done" | "error";
-  started_at: string | null;
-  finished_at: string | null;
-  scanned: number;
-  groups: number;
-  message: string | null;
 }
 
 export interface GalleryDupeStateRow {
@@ -1603,24 +1198,6 @@ export interface GalleryDupeStateRow {
 
 // 'shorts' is still accepted by the follows CHECK constraint so rows written
 // before those libraries left stay valid; nothing creates one any more.
-export type FollowTargetType = "user" | "creator";
-
-export interface FollowRow {
-  follower_id: number;
-  target_type: FollowTargetType;
-  target_id: number;
-  created_at: string;
-}
-
-export interface StoryRow {
-  id: number;
-  author_user_id: number;
-  storage_key: string;
-  mime_type: string;
-  media_version: number;
-  created_at: string;
-  expires_at: string;
-}
 
 // --- Long-form video library (/videos) ---
 
@@ -1726,6 +1303,10 @@ export interface VideoLikeRow {
   created_at: string;
 }
 
+// "system" is the only type this app still writes: the like/comment/follow/
+// mention rows came from the posts module, which became its own app on
+// 2026-09-16. The older values stay in the union because rows carrying them are
+// still in the table.
 export type NotificationType =
   | "like"
   | "comment"
