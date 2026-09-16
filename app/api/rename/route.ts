@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
 import path from "node:path";
-import { db, PostMediaRow, GalleryItemRow } from "@/lib/db";
+import { db, GalleryItemRow } from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import { parseHashtags } from "@/lib/posts";
 import { canonicalStem } from "@/lib/import-naming";
-import { renamePostImageFiles } from "@/lib/posts-storage";
 import { renameGalleryFiles } from "@/lib/gallery-storage";
 import { setItemTags } from "@/lib/gallery-tags";
 
 export const dynamic = "force-dynamic";
 
-// Neither shorts channel lives here any more — main went to tikshortis on
-// 2026-08-31, 18+ to adshortis on 2026-09-15 — and each owns the renaming of
-// its own clips. Photos and the gallery are what is left to re-title.
-type Section = "posts" | "gallery";
-const SECTIONS: Section[] = ["posts", "gallery"];
+// None of the media libraries that left this app is renameable here any more —
+// main shorts went to tikshortis on 2026-08-31, 18+ shorts to adshortis on
+// 2026-09-15, the photo posts to elitogram on 2026-09-16 — and each owns the
+// renaming of its own files. The gallery is what is left to re-title.
+type Section = "gallery";
+const SECTIONS: Section[] = ["gallery"];
 
 // Normalize a free-form tag input (array of words or a "#a #b" / "a, b" string)
 // into the same canonical hashtag list the importer/caption parser produces.
@@ -52,26 +52,14 @@ export async function GET(request: Request) {
   const q = (searchParams.get("q") ?? "").trim();
   const like = `%${q}%`;
 
-  let rows: { id: number; title: string }[] = [];
-  if (section === "gallery") {
-    rows = db
-      .prepare(
-        `SELECT id, filename AS title FROM gallery_items
-         WHERE is_deleted = 0 ${isAdmin ? "" : "AND user_id = @userId"}
-         ${q ? "AND filename LIKE @like" : ""}
-         ORDER BY id DESC LIMIT 60`
-      )
-      .all({ userId, like }) as { id: number; title: string }[];
-  } else {
-    rows = db
-      .prepare(
-        `SELECT id, COALESCE(caption, '') AS title FROM posts
-         WHERE is_deleted = 0 ${isAdmin ? "" : "AND author_user_id = @userId"}
-         ${q ? "AND caption LIKE @like" : ""}
-         ORDER BY id DESC LIMIT 60`
-      )
-      .all({ userId, like }) as { id: number; title: string }[];
-  }
+  const rows = db
+    .prepare(
+      `SELECT id, filename AS title FROM gallery_items
+       WHERE is_deleted = 0 ${isAdmin ? "" : "AND user_id = @userId"}
+       ${q ? "AND filename LIKE @like" : ""}
+       ORDER BY id DESC LIMIT 60`
+    )
+    .all({ userId, like }) as { id: number; title: string }[];
   return NextResponse.json({ items: rows });
 }
 
@@ -113,40 +101,6 @@ export async function POST(request: Request) {
       ).run(newKey, path.basename(newKey), item.id);
       setItemTags(item.user_id, item.id, hashtags);
       return NextResponse.json({ ok: true, storage_key: newKey });
-    }
-
-    if (section === "posts") {
-      const post = db
-        .prepare("SELECT id, author_user_id FROM posts WHERE id = ? AND is_deleted = 0")
-        .get(id) as { id: number; author_user_id: number | null } | undefined;
-      if (!post) return NextResponse.json({ error: "Not found." }, { status: 404 });
-      if (post.author_user_id !== userId && !isAdmin) {
-        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-      }
-      const media = db
-        .prepare("SELECT * FROM post_media WHERE post_id = ? ORDER BY position")
-        .all(post.id) as PostMediaRow[];
-      const caption = buildCaption(title, hashtags);
-      db.transaction(() => {
-        db.prepare("UPDATE posts SET caption = ? WHERE id = ?").run(caption, post.id);
-        db.prepare("DELETE FROM post_hashtags WHERE post_id = ?").run(post.id);
-        const insertTag = db.prepare(
-          "INSERT OR IGNORE INTO post_hashtags (post_id, tag) VALUES (?, ?)"
-        );
-        for (const tag of hashtags) insertTag.run(post.id, tag);
-      })();
-      // Physical renames stay OUTSIDE the transaction and each row is updated
-      // right after its file moves: a mid-loop failure then leaves every image
-      // self-consistent (renamed + updated, or untouched) instead of rolling
-      // back the DB under already-renamed files.
-      const updateMedia = db.prepare(
-        "UPDATE post_media SET storage_key = ?, media_version = media_version + 1 WHERE id = ?"
-      );
-      for (const m of media) {
-        const newKey = renamePostImageFiles(m.storage_key, canonicalStem(meta, m.id));
-        updateMedia.run(newKey, m.id);
-      }
-      return NextResponse.json({ ok: true, caption });
     }
 
     return NextResponse.json({ error: "Invalid section." }, { status: 400 });

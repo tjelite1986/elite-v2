@@ -11,8 +11,10 @@ interface Profile {
   bio: string | null;
 }
 
-// Edit the viewer's shared public profile: avatar, username, display name, bio.
-export default function PostProfileEditor({ initial }: { initial: Profile }) {
+// Edit the viewer's own account: avatar, username, display name, bio. Lives in
+// Settings since 2026-09-16 — the profile PAGE it used to sit on was
+// /people/<username>, which left with the posts library.
+export default function AccountProfileEditor({ initial }: { initial: Profile }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [username, setUsername] = useState(initial.username);

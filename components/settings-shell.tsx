@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  CircleUser,
   Eye,
   EyeOff,
   KeyRound,
@@ -25,19 +26,13 @@ import {
 import { cn } from "@/lib/utils";
 import { PasswordStrengthMeter } from "@/components/ui/password-strength-meter";
 import PushToggle from "@/components/push-toggle";
+import AccountProfileEditor from "@/components/account-profile-editor";
 import SessionsManager from "@/components/sessions-manager";
 import AppearanceSettings from "@/components/appearance-settings";
 import AdultPinSettings from "@/components/adult-pin-settings";
-import UnifiedMergeProfiles from "@/components/unified-merge-profiles";
-import LinkProfiles from "@/components/link-profiles";
-import PostsImportButton from "@/components/posts-import-button";
 import UserImportButton from "@/components/user-import-button";
-import PostsDuplicates from "@/components/posts-duplicates";
-import PostsCleanup from "@/components/posts-cleanup";
 import GalleryDuplicates from "@/components/gallery-duplicates";
 import GalleryCleanup from "@/components/gallery-cleanup";
-import InstagramAutoConnect from "@/components/instagram-auto-connect";
-import TiktokAutoConnect from "@/components/tiktok-auto-connect";
 import RenameTools from "@/components/rename-tools";
 import AdminInvites from "@/components/admin-invites";
 import JobsManager from "@/components/jobs-manager";
@@ -49,7 +44,6 @@ interface SettingsShellProps {
   isAdmin: boolean;
   username: string | null;
   perms: {
-    posts: boolean;
     gallery: boolean;
     appstore: boolean;
   };
@@ -60,14 +54,19 @@ interface SettingsShellProps {
   bgTheme: string;
   accentPresets: string[];
   bgThemes: { key: string; label: string; css: string }[];
+  // The account's own name and bio, for the Profile section. The profile PAGE
+  // this used to be edited on was /people/<username>, which left with the posts
+  // library on 2026-09-16 — the account itself is still this app's.
+  profile: { username: string; display_name: string | null; bio: string | null };
 }
 
 // Sidebar categories: personal settings, one entry per library section the user
 // may manage, and admin-wide tools. Heavy per-section tooling lives INSIDE the
 // section's panel as small tool tabs instead of one endless page per tool.
 // Neither shorts section is here: both libraries are apps of their own.
-type SectionKey = "posts" | "gallery";
+type SectionKey = "gallery";
 type CategoryKey =
+  | "profile"
   | "account"
   | "appearance"
   | "notifications"
@@ -75,7 +74,6 @@ type CategoryKey =
   | "adult"
   | "apps"
   | SectionKey
-  | "profiles"
   | "rename"
   | "members"
   | "jobs"
@@ -149,10 +147,6 @@ const SECTION_META: Record<
   SectionKey,
   { label: string; desc: string }
 > = {
-  posts: {
-    label: "Photos",
-    desc: "Import, deduplicate and maintain the photo posts library.",
-  },
   gallery: {
     label: "Gallery",
     desc: "Import, deduplicate and maintain your private gallery.",
@@ -170,11 +164,13 @@ export default function SettingsShell({
   bgTheme,
   accentPresets,
   bgThemes,
+  profile,
 }: SettingsShellProps) {
-  const hasAnySection = perms.posts || perms.gallery;
+  const hasAnySection = perms.gallery;
 
   const nav = useMemo(() => {
     const personal: NavItem[] = [
+      { key: "profile", label: "Profile", icon: <CircleUser size={16} /> },
       { key: "account", label: "Account", icon: <KeyRound size={16} /> },
       { key: "appearance", label: "Appearance", icon: <Palette size={16} /> },
       { key: "notifications", label: "Notifications", icon: <Bell size={16} /> },
@@ -187,15 +183,10 @@ export default function SettingsShell({
       personal.push({ key: "apps", label: "App Store", icon: <Store size={16} /> });
 
     const library: NavItem[] = [];
-    if (perms.posts)
-      library.push({ key: "posts", label: "Photos", icon: <ImageIcon size={16} /> });
     if (perms.gallery)
       library.push({ key: "gallery", label: "Gallery", icon: <Images size={16} /> });
 
     const tools: NavItem[] = [];
-    if (isAdmin) {
-      tools.push({ key: "profiles", label: "Profiles", icon: <Users size={16} /> });
-    }
     if (hasAnySection) {
       tools.push({ key: "rename", label: "Rename", icon: <PenLine size={16} /> });
     }
@@ -221,18 +212,11 @@ export default function SettingsShell({
 
   // Which tool tabs a category offers (empty = plain panel).
   const toolsFor = (key: CategoryKey): ToolTab[] => {
-    if (key === "posts" || key === "gallery") {
+    if (key === "gallery") {
       return [
         { key: "import", label: "Import" },
         { key: "duplicates", label: "Duplicates" },
         { key: "cleaning", label: "Cleaning" },
-      ];
-    }
-    if (key === "profiles") {
-      return [
-        { key: "link", label: "Link" },
-        { key: "merge", label: "Merge" },
-        { key: "connect", label: "Auto-connect" },
       ];
     }
     return [];
@@ -251,15 +235,11 @@ export default function SettingsShell({
       const raw = window.location.hash.replace("#", "");
       if (!raw) return;
       const [cat, sub] = raw.split(":");
-      const firstSection = (["posts", "gallery"] as const).find(
-        (s) => perms[s]
-      );
+      const firstSection = (["gallery"] as const).find((s) => perms[s]);
       const legacy: Record<string, [CategoryKey, string] | undefined> = {
         import: firstSection ? [firstSection, "import"] : undefined,
         duplicates: firstSection ? [firstSection, "duplicates"] : undefined,
         cleaning: firstSection ? [firstSection, "cleaning"] : undefined,
-        sync: ["profiles", "connect"],
-        merge: ["profiles", "link"],
         danger: ["account", ""],
       };
       let target: CategoryKey | null = null;
@@ -331,9 +311,7 @@ export default function SettingsShell({
       </div>
     );
 
-  const activeSection = (["posts", "gallery"] as const).find(
-    (s) => s === active
-  );
+  const activeSection = (["gallery"] as const).find((s) => s === active);
 
   return (
     <main className="text-white px-4 pb-24 pt-6 md:px-8">
@@ -365,6 +343,16 @@ export default function SettingsShell({
 
           {/* Panel area */}
           <div className="min-w-0">
+            {active === "profile" && (
+              <section className="flex flex-col gap-4">
+                <h2 className="text-lg font-semibold">Profile</h2>
+                <p className="text-sm text-white/50">
+                  How you appear across this app and in Elitogram, which reads
+                  the name and the picture from here.
+                </p>
+                <AccountProfileEditor initial={profile} />
+              </section>
+            )}
             {active === "account" && (
               <div className="flex flex-col gap-6">
                 <PanelHeader
@@ -450,67 +438,6 @@ export default function SettingsShell({
               </div>
             )}
 
-            {active === "profiles" && isAdmin && (
-              <div>
-                <PanelHeader
-                  title="Profiles"
-                  desc="Combine duplicate people and connect creator folders to their social accounts."
-                />
-                <ToolTabs
-                  tools={toolsFor("profiles")}
-                  active={tool}
-                  onSelect={selectTool}
-                />
-                {tool === "link" && (
-                  <div className="flex flex-col gap-6">
-                    <p className="text-sm text-white/50">
-                      Linking keeps both profiles but shows them as one person.
-                      Reversible.
-                    </p>
-                    <LinkProfiles />
-                  </div>
-                )}
-                {tool === "merge" && (
-                  <div className="flex flex-col gap-6">
-                    <p className="text-sm text-white/50">
-                      Merging moves everything into one profile and deletes the
-                      source. Permanent — prefer linking when unsure.
-                    </p>
-                    <UnifiedMergeProfiles />
-                  </div>
-                )}
-                {tool === "connect" && (
-                  <div className="flex flex-col gap-6">
-                    <Card>
-                      <h2 className="text-lg font-medium">Instagram</h2>
-                      <p className="mt-1 text-sm text-white/50">
-                        Connect an Instagram account on a person&apos;s profile
-                        (Edit profile → Instagram) and use &ldquo;Sync from
-                        Instagram&rdquo; there. Or auto-connect every creator
-                        folder whose name is a real Instagram account (100%
-                        match):
-                      </p>
-                      <div className="mt-4">
-                        <InstagramAutoConnect />
-                      </div>
-                    </Card>
-                    <Card>
-                      <h2 className="text-lg font-medium">TikTok</h2>
-                      <p className="mt-1 text-sm text-white/50">
-                        Connect a TikTok handle on a person&apos;s profile (Edit
-                        profile → TikTok) and sync there — no cookie required
-                        for public profiles. Or auto-connect every creator
-                        folder whose name is a real TikTok account:
-                      </p>
-                      <div className="mt-4">
-                        <TiktokAutoConnect />
-                      </div>
-                    </Card>
-                  </div>
-                )}
-              </div>
-            )}
-
             {active === "rename" && (
               <div>
                 <PanelHeader
@@ -583,14 +510,8 @@ function LibraryToolPanel({
       <ImportTab section={section} isAdmin={isAdmin} username={username} />
     );
   }
-  if (tool === "duplicates") {
-    if (section === "posts") return <PostsDuplicates />;
-    return <GalleryDuplicates />;
-  }
-  if (tool === "cleaning") {
-    if (section === "posts") return <PostsCleanup />;
-    return <GalleryCleanup />;
-  }
+  if (tool === "duplicates") return <GalleryDuplicates />;
+  if (tool === "cleaning") return <GalleryCleanup />;
   return null;
 }
 
@@ -608,23 +529,6 @@ function ImportTab({
   const u = username ?? "…";
 
   const personal: Record<SectionKey, React.ReactNode> = {
-    posts: (
-      <Card>
-        <h2 className="text-base font-medium">Your drop folder</h2>
-        <p className="mb-2 mt-1 text-sm text-white/50">
-          Drop images here and each imports as your own post:
-        </p>
-        <code className="block rounded-lg bg-white/5 px-3 py-2 text-xs text-white/70">
-          _import/u_{u}/posts/
-        </code>
-        <p className="mt-2 text-sm text-white/50">
-          Name a file <code className="text-white/70">caption [h_tag].jpg</code>{" "}
-          (or drop a <code className="text-white/70">.md</code> sidecar) to set
-          caption and hashtags. A subfolder publishes its images PUBLICLY under
-          that creator profile.
-        </p>
-      </Card>
-    ),
     gallery: (
       <Card>
         <h2 className="text-base font-medium">Your drop folder</h2>
@@ -646,28 +550,6 @@ function ImportTab({
   return (
     <div className="flex flex-col gap-6">
       {personal[section]}
-
-      {isAdmin && section === "posts" && (
-        <Card>
-          <h2 className="text-base font-medium">Shared creator folder</h2>
-          <p className="mb-2 mt-1 text-sm text-white/50">
-            Drop files into the shared import folder, then sort them in:
-          </p>
-          <code className="mb-2 block rounded-lg bg-white/5 px-3 py-2 text-xs text-white/70">
-            posts/_import/
-          </code>
-          <p className="mb-3 text-sm text-white/50">
-            Name a file{" "}
-            <code className="text-white/70">title [h_tag][f_creator].jpg</code>{" "}
-            — <code className="text-white/70">[f_creator]</code> sets the
-            creator and <code className="text-white/70">[h_tag]</code> adds
-            hashtags. A subfolder named after the creator (or the legacy{" "}
-            <code className="text-white/70">creator_-_title</code>) still
-            works.
-          </p>
-          <PostsImportButton />
-        </Card>
-      )}
 
       {isAdmin ? (
         <UserImportButton />

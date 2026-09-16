@@ -88,6 +88,7 @@ export default function NavMenuContent({
   showMusic = true,
   tikshortisUrl,
   adshortisUrl,
+  elitogramUrl,
 }: {
   myUsername: string;
   myEmail: string;
@@ -107,6 +108,7 @@ export default function NavMenuContent({
   // means it is not deployed here and the row simply does not appear.
   tikshortisUrl?: string | null;
   adshortisUrl?: string | null;
+  elitogramUrl?: string | null;
 }) {
   // The sketch's header shows @handle + "View profile" without the email, but
   // both callers still pass it — keep the prop so the API stays stable.
@@ -139,7 +141,10 @@ export default function NavMenuContent({
     }
   };
 
-  const profileHref = `/people/${encodeURIComponent(myUsername)}`;
+  // The unified profile page WAS /people/<username>, and it left with the posts
+  // library on 2026-09-16. The account is still this app's, so the header
+  // points at the settings section that owns the name and the picture.
+  const profileHref = "/settings#profile";
 
   return (
     <>
@@ -159,12 +164,12 @@ export default function NavMenuContent({
               @{myUsername}
             </span>
             <span className="block truncate text-xs text-white/40">
-              View profile
+              Name, picture and account
             </span>
           </span>
         </Link>
         <Link
-          href={`${profileHref}/edit`}
+          href={profileHref}
           className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs font-medium transition hover:bg-white/10"
         >
           Edit profile
@@ -195,7 +200,6 @@ export default function NavMenuContent({
           icon={<MessageCircle size={18} />}
           label="Messages"
         />
-        <MenuRow href="/people" icon={<Users size={18} />} label="Profiles" />
         <MenuRow
           href="/messages?tab=notifications"
           icon={<Bell size={18} />}
@@ -209,10 +213,19 @@ export default function NavMenuContent({
       </div>
 
       <div className="mt-1 border-t border-white/10 pt-1">
-        <MenuRow href="/posts" icon={<Newspaper size={18} />} label="InstaElite" />
-        {/* Neither shorts library is in this app any more: main left on
-            2026-08-31, 18+ on 2026-09-15. Both rows are `hard` links, because
-            those addresses are not routes here. */}
+        {/* None of these libraries is in this app any more: main shorts left
+            on 2026-08-31, 18+ shorts on 2026-09-15, the posts library on
+            2026-09-16. Every row is a `hard` link, because those addresses are
+            not routes here. */}
+        {elitogramUrl && (
+          <MenuRow
+            href={elitogramUrl}
+            icon={<Newspaper size={18} />}
+            label="Elitogram"
+            sub="The posts library"
+            hard
+          />
+        )}
         {adshortisUrl && (
           <MenuRow
             href={adshortisUrl}

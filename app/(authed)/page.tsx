@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import {
   Images,
   HardDrive,
-  Users,
+  Newspaper,
   MessageCircle,
   Store,
 } from "lucide-react";
@@ -79,9 +79,20 @@ export default async function Home() {
     hard?: boolean;
   }[] = [
     { icon: <Images size={20} />, label: "Photos", href: "/gallery" },
-    { icon: <Users size={20} />, label: "People", href: "/people" },
     { icon: <MessageCircle size={20} />, label: "Messages", href: "/messages" },
   ];
+  // The posts library is its own site since 2026-09-16, and the people
+  // directory described it, so the tile leaves this origin the way the store's
+  // does. Absent means it is not deployed alongside this app and the tile
+  // simply does not appear.
+  if (process.env.ELITOGRAM_URL) {
+    links.push({
+      icon: <Newspaper size={20} />,
+      label: "Elitogram",
+      href: process.env.ELITOGRAM_URL,
+      hard: true,
+    });
+  }
   // Same two questions as the menu row — see showsAppstore(). Appended rather
   // than filtered out so the tile keeps its place at the end of the row.
   if (showsAppstore(session)) {

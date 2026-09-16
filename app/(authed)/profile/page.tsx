@@ -1,13 +1,9 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
-import { ensureUserProfile } from "@/lib/profiles";
 
-// The account's own profile is the unified /people/<username> page (the same
-// profile everyone else sees). This route stays only as a redirect so old links
-// and bookmarks to /profile still land there.
+// The account's own profile used to be the unified /people/<username> page,
+// which left with the posts library on 2026-09-16. The account itself is still
+// this app's — its name, picture and bio are edited in Settings — so old links
+// and bookmarks to /profile land there rather than bouncing off this origin.
 export default async function ProfilePage() {
-  const session = await getSession();
-  if (!session) redirect("/login");
-  const { username } = ensureUserProfile(Number(session.sub), session.email);
-  redirect(`/people/${username}`);
+  redirect("/settings#profile");
 }

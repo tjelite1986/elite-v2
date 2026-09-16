@@ -1,86 +1,60 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { PostMediaRow, PostRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
-import { getHandleAvatar, setHandleAvatar } from "@/lib/profiles";
-import { handleOf } from "@/lib/directory";
-import { avatarPathFor, imageMimeFor, mediaPathFor, storeAvatar } from "@/lib/posts-storage";
+import { setAvatarKey } from "@/lib/profiles";
+import { avatarMimeFor, avatarPathFor, storeAvatar } from "@/lib/avatars";
 
 export const dynamic = "force-dynamic";
 
-// Admins, or the user whose own handle this is, may set this profile's avatar.
-async function authorize(handle: string) {
+// The account avatar, by username.
+//
+// This used to serve any handle in the shared people namespace — accounts and
+// the creators the posts library was filed under. That library is its own app
+// since 2026-09-16 and took the creator avatars with it, so what is left here
+// is what this app owns: the picture belonging to an account. The path is
+// unchanged on purpose — it is the `avatarUrl` the verify endpoint hands to
+// Elitogram, and it is baked into every avatar already rendered in a client.
+
+// The account holder, or an admin, may set the picture.
+async function authorize(username: string) {
   const session = await getSession();
   if (!session) return { error: "Unauthorized", status: 401 as const };
   if (session.role === "admin") return { session };
   const me = getOne<{ username: string }>(
-    qb.selectFrom("user_profiles").select("username").where("user_id", "=", Number(session.sub))
+    qb
+      .selectFrom("user_profiles")
+      .select("username")
+      .where("user_id", "=", Number(session.sub))
   );
-  if (me && handleOf(me.username) === handle) return { session };
+  if (me && me.username.toLowerCase() === username) return { session };
   return { error: "Forbidden", status: 403 as const };
 }
 
-// Set this profile's avatar. Handle-scoped so it works for the viewer's own
-// profile or, for admins, any profile — and the picture always lands on the
-// profile being viewed, never re-derived from the media's owner. Three sources:
-//   - multipart `file`: a (cropped) uploaded image
-//   - JSON `{ mediaId }`: an existing post photo
-export async function POST(request: Request, props: { params: Promise<{ username: string }> }) {
+function accountFor(username: string) {
+  return getOne<{ user_id: number; avatar_key: string | null }>(
+    qb
+      .selectFrom("user_profiles")
+      .select(["user_id", "avatar_key"])
+      .where("username", "=", username)
+  );
+}
+
+// Replace this account's picture with an uploaded (cropped) image.
+export async function POST(
+  request: Request,
+  props: { params: Promise<{ username: string }> }
+) {
   const params = await props.params;
-  const handle = handleOf(params.username);
-  const auth = await authorize(handle);
-  if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
-
-  const contentType = request.headers.get("content-type") || "";
-
-  // JSON: reuse an existing post photo (mediaId).
-  if (contentType.includes("application/json")) {
-    const body = await request.json().catch(() => ({}));
-    // A non-admin may only reuse media they OWN (their own posts) — the avatar
-    // is served publicly, so picking arbitrary media would exfiltrate private
-    // content the caller can't otherwise view. Admins are exempt.
-    const isAdmin = auth.session.role === "admin";
-    const userId = Number(auth.session.sub);
-    try {
-      let sourcePath: string;
-      let nameHint: string;
-      if (body?.mediaId != null) {
-        const media = getOne<PostMediaRow>(
-          qb.selectFrom("post_media").selectAll().where("id", "=", Number(body.mediaId))
-        );
-        if (!media) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        const post = getOne<PostRow>(
-          qb
-            .selectFrom("posts")
-            .selectAll()
-            .where("id", "=", media.post_id)
-            .where("is_deleted", "=", 0)
-        );
-        if (!post) return NextResponse.json({ error: "Not found" }, { status: 404 });
-        if (!isAdmin && post.author_user_id !== userId) {
-          return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-        }
-        sourcePath = mediaPathFor(media.storage_key);
-        nameHint = media.storage_key;
-      } else {
-        return NextResponse.json({ error: "mediaId is required." }, { status: 400 });
-      }
-      if (!fs.existsSync(sourcePath)) {
-        return NextResponse.json({ error: "Source image missing." }, { status: 404 });
-      }
-      const key = await storeAvatar(nameHint, "image/jpeg", fs.readFileSync(sourcePath));
-      setHandleAvatar(handle, key);
-      return NextResponse.json({ ok: true });
-    } catch (err) {
-      return NextResponse.json(
-        { error: err instanceof Error ? err.message : "Could not set avatar." },
-        { status: 400 }
-      );
-    }
+  const username = params.username.toLowerCase();
+  const auth = await authorize(username);
+  if ("error" in auth) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  // Multipart: upload a (cropped) image file.
+  const account = accountFor(username);
+  if (!account) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) {
@@ -89,7 +63,7 @@ export async function POST(request: Request, props: { params: Promise<{ username
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const key = await storeAvatar(file.name, file.type, buffer);
-    setHandleAvatar(handle, key);
+    setAvatarKey(account.user_id, key);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
@@ -99,35 +73,25 @@ export async function POST(request: Request, props: { params: Promise<{ username
   }
 }
 
-// Serve a user's or creator's avatar by username. 404 when none is set so the
-// client falls back to an initials placeholder.
-export async function GET(request: Request, props: { params: Promise<{ username: string }> }) {
+// Serve the picture. 404 when none is set, so the client falls back to the
+// initials placeholder rather than showing a broken image.
+export async function GET(
+  request: Request,
+  props: { params: Promise<{ username: string }> }
+) {
   const params = await props.params;
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 
-  const username = params.username.toLowerCase();
-  // Handle-scoped avatar wins; fall back to the legacy per-table columns.
-  const avatarKey =
-    getHandleAvatar(handleOf(username)) ??
-    (
-      getOne<{ avatar_key: string | null }>(
-        qb.selectFrom("user_profiles").select("avatar_key").where("username", "=", username)
-      ) ??
-      getOne<{ avatar_key: string | null }>(
-        qb.selectFrom("post_creators").select("avatar_key").where("username", "=", username)
-      )
-    )?.avatar_key;
-
+  const avatarKey = accountFor(params.username.toLowerCase())?.avatar_key;
   if (!avatarKey) return new NextResponse("Not found", { status: 404 });
   const filePath = avatarPathFor(avatarKey);
   if (!fs.existsSync(filePath)) return new NextResponse("Not found", { status: 404 });
 
-  // The avatar URL is keyed by username (stable), but the underlying file changes
-  // when the picture is changed. Tag the response with the avatar key so the
-  // browser always revalidates and picks up a new picture immediately, while
-  // unchanged avatars come back as a cheap 304. (A long max-age would otherwise
-  // keep serving the old picture for 24h everywhere it's rendered.)
+  // The URL is keyed by username (stable) but the file changes when the picture
+  // does, so the response is tagged with the key: the browser revalidates every
+  // time and an unchanged picture comes back as a cheap 304. A long max-age
+  // would keep serving the old one everywhere it is rendered.
   const etag = `"${avatarKey}"`;
   if (request.headers.get("if-none-match") === etag) {
     return new NextResponse(null, {
@@ -138,7 +102,7 @@ export async function GET(request: Request, props: { params: Promise<{ username:
 
   return new NextResponse(fs.readFileSync(filePath), {
     headers: {
-      "Content-Type": imageMimeFor(avatarKey),
+      "Content-Type": avatarMimeFor(avatarKey),
       "X-Content-Type-Options": "nosniff",
       "Content-Disposition": "inline",
       ETag: etag,

@@ -28,6 +28,7 @@ export default function BottomNav({
   showMusic = true,
   tikshortisUrl,
   adshortisUrl,
+  elitogramUrl,
   children,
 }: {
   username: string;
@@ -40,6 +41,7 @@ export default function BottomNav({
   showMusic?: boolean;
   tikshortisUrl?: string | null;
   adshortisUrl?: string | null;
+  elitogramUrl?: string | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -78,9 +80,9 @@ export default function BottomNav({
   // viewport — no global bar and no extra padding there.
   const onMessages =
     pathname === "/messages" || pathname.startsWith("/messages/");
-  // The posts Videos feed is an exact-viewport feed; bottom padding would just
-  // add a dead scroll gap under it.
-  const fullBleed = pathname === "/posts/videos";
+  // Kept for an exact-viewport feed that needs no bottom padding. The posts
+  // Videos feed was the last one; it left with the library on 2026-09-16.
+  const fullBleed = false;
 
   const items = getBottomNavItems(pathname, { username });
   const activeHref = activeNavHref(pathname, items);
@@ -161,6 +163,7 @@ export default function BottomNav({
             showMusic={showMusic}
             tikshortisUrl={tikshortisUrl}
             adshortisUrl={adshortisUrl}
+            elitogramUrl={elitogramUrl}
             extras={extras}
           />
         </>

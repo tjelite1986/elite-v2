@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { ensureUserProfile, setAvatarKey, setHandleAvatar } from "@/lib/profiles";
-import { handleOf } from "@/lib/directory";
-import { storeAvatar } from "@/lib/posts-storage";
+import { ensureUserProfile, setAvatarKey } from "@/lib/profiles";
+import { storeAvatar } from "@/lib/avatars";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +10,7 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = Number(session.sub);
-  const profile = ensureUserProfile(userId, session.email);
+  ensureUserProfile(userId, session.email);
 
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
@@ -23,7 +22,6 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const key = await storeAvatar(file.name, file.type, buffer);
     setAvatarKey(userId, key);
-    setHandleAvatar(handleOf(profile.username), key);
     return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(

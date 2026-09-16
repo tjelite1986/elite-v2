@@ -13,7 +13,7 @@ export const PROFILE_ROOT =
 
 // Top-level staging area, deliberately SEPARATE from PROFILE_ROOT so the drop
 // tree (where files are placed for ingest) never mixes with served storage:
-//   <IMPORT_ROOT>/u_<user>/{gallery,posts,shorts,shorts18,books}
+//   <IMPORT_ROOT>/u_<user>/{gallery,books}
 export const IMPORT_ROOT =
   process.env.IMPORT_ROOT || path.join(DATA_DIR, "_import");
 
@@ -24,13 +24,12 @@ export const BOOKS_ROOT =
   process.env.BOOKS_ROOT || path.join(DATA_DIR, "books");
 
 // Per-user permanent sections under PROFILE_ROOT/u_<user>/. Books is intentionally
-// absent (shared library); `cookies` holds per-user service cookies (e.g. the
-// Instagram session for the per-user sync). Neither shorts section is created
-// any more: both libraries left this app (main 2026-08-31, 18+ 2026-09-15) and
-// the 18+ uploads that lived here were merged into that app's own tree.
+// absent (shared library); `cookies` holds per-user service cookies. Neither
+// shorts section is created any more, and neither is posts: all three libraries
+// left this app (main shorts 2026-08-31, 18+ shorts 2026-09-15, posts
+// 2026-09-16) and the uploads that lived here went with them.
 export const PROFILE_SECTIONS = [
   "gallery",
-  "posts",
   "cookies",
 ] as const;
 
@@ -49,12 +48,11 @@ export function storageRootAvailable(dir: string): boolean {
 
 // Per-user drop sections under IMPORT_ROOT/u_<user>/. Books IS present here — the
 // dropped file is staged per user but ingested into the shared BOOKS_ROOT.
-// Both shorts sections are gone: those libraries are separate apps now, and a
-// folder nothing imports from is worse than no folder. Existing ones are left on
-// disk untouched.
+// Neither shorts section is here, and neither is posts: those libraries are
+// separate apps now, and a folder nothing imports from is worse than no folder.
+// Existing ones are left on disk untouched.
 export const IMPORT_SECTIONS = [
   "gallery",
-  "posts",
   "books",
 ] as const;
 

@@ -56,6 +56,7 @@ export default async function AuthedLayout({
       // the image at build time instead of reading it at run time.
       tikshortisUrl={process.env.TIKSHORTIS_URL || null}
       adshortisUrl={process.env.ADSHORTIS_URL || null}
+      elitogramUrl={process.env.ELITOGRAM_URL || null}
     >
       {children}
     </BottomNav>

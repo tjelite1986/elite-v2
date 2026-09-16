@@ -1388,11 +1388,11 @@ async function runUserFolderImportInner(opts?: {
     if (!fs.existsSync(base)) continue;
     res.users++;
 
-    // Neither shorts section is imported any more — both libraries are separate
-    // apps now. A file dropped in an old folder is left alone rather than
-    // imported into a channel this app no longer serves; the folders themselves
-    // are left on disk, since deleting someone's drop is not this job's call.
-    await importPostsSection(user.userId, user.username, path.join(base, "posts"), res);
+    // Neither shorts section is imported any more, and neither is posts — all
+    // three libraries are separate apps now. A file dropped in an old folder is
+    // left alone rather than imported into a section this app no longer serves;
+    // the folders themselves are left on disk, since deleting someone's drop is
+    // not this job's call. The posts importer itself goes with the dead code.
     await importGallerySection(user.userId, path.join(base, "gallery"), res);
     await importBooksSection(user.userId, path.join(base, "books"), res);
   }

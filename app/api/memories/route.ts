@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { sql } from "kysely";
 import { qb, getAll } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
-import { has18Access } from "@/lib/adult-gate";
 
 export const dynamic = "force-dynamic";
 
-// "On this day" across the hub: feed posts, the viewer's own gallery photos
-// and their own DMs from today's month+day in earlier years. Same date
-// convention as /api/gallery/memories (stored timestamps compared as-is).
+// "On this day" across the hub: the viewer's own gallery photos and their own
+// DMs from today's month+day in earlier years. Same date convention as
+// /api/gallery/memories (stored timestamps compared as-is). The feed posts that
+// used to lead this list left with the library on 2026-09-16 — a thumbnail
+// served from a mount this app no longer has is a broken image, not a memory.
 const SAME_DAY = (col: string) =>
   sql<boolean>`strftime('%m-%d', ${sql.ref(col)}) = strftime('%m-%d', 'now', 'localtime')
     AND strftime('%Y', ${sql.ref(col)}) < strftime('%Y', 'now', 'localtime')`;
@@ -17,37 +18,6 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const me = Number(session.sub);
-  const adult = await has18Access();
-
-  let postsQuery = qb
-    .selectFrom("posts as p")
-    .leftJoin("post_creators as pc", "pc.id", "p.author_creator_id")
-    .leftJoin("user_profiles as up", "up.user_id", "p.author_user_id")
-    .select((eb) => [
-      "p.id",
-      "p.caption",
-      "p.created_at",
-      sql<string | null>`COALESCE(pc.username, up.username)`.as("author"),
-      eb
-        .selectFrom("post_media as pm")
-        .select("pm.id")
-        .whereRef("pm.post_id", "=", "p.id")
-        .orderBy("pm.position")
-        .limit(1)
-        .as("media_id"),
-    ])
-    .where("p.is_deleted", "=", 0)
-    .where(SAME_DAY("p.created_at"))
-    .orderBy("p.created_at", "desc")
-    .limit(100);
-  if (!adult) postsQuery = postsQuery.where("p.is_adult", "=", 0);
-  const posts = getAll<{
-    id: number;
-    caption: string | null;
-    created_at: string;
-    author: string | null;
-    media_id: number | null;
-  }>(postsQuery);
 
   const gallery = getAll<{
     id: number;
@@ -90,5 +60,5 @@ export async function GET() {
       .limit(50)
   );
 
-  return NextResponse.json({ posts, gallery, messages });
+  return NextResponse.json({ gallery, messages });
 }

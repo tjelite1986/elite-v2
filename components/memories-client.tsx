@@ -2,15 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarHeart, MessageCircle, Newspaper, Image as ImageIcon } from "lucide-react";
+import { CalendarHeart, MessageCircle, Image as ImageIcon } from "lucide-react";
 
-interface MemoryPost {
-  id: number;
-  caption: string | null;
-  created_at: string;
-  author: string | null;
-  media_id: number | null;
-}
 interface MemoryPhoto {
   id: number;
   filename: string;
@@ -33,7 +26,6 @@ function yearsAgoLabel(year: string): string {
 }
 
 export default function MemoriesClient() {
-  const [posts, setPosts] = useState<MemoryPost[]>([]);
   const [gallery, setGallery] = useState<MemoryPhoto[]>([]);
   const [messages, setMessages] = useState<MemoryMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,7 +36,6 @@ export default function MemoriesClient() {
         const res = await fetch("/api/memories");
         if (res.ok) {
           const d = await res.json();
-          setPosts(d.posts || []);
           setGallery(d.gallery || []);
           setMessages(d.messages || []);
         }
@@ -56,16 +47,15 @@ export default function MemoriesClient() {
 
   // Group everything by year, newest year first.
   const years = useMemo(() => {
-    const map = new Map<string, { posts: MemoryPost[]; gallery: MemoryPhoto[]; messages: MemoryMessage[] }>();
+    const map = new Map<string, { gallery: MemoryPhoto[]; messages: MemoryMessage[] }>();
     const bucket = (y: string) => {
-      if (!map.has(y)) map.set(y, { posts: [], gallery: [], messages: [] });
+      if (!map.has(y)) map.set(y, { gallery: [], messages: [] });
       return map.get(y)!;
     };
-    for (const p of posts) bucket(yearOf(p.created_at)).posts.push(p);
     for (const g of gallery) bucket(yearOf(g.taken_at)).gallery.push(g);
     for (const m of messages) bucket(yearOf(m.created_at)).messages.push(m);
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [posts, gallery, messages]);
+  }, [gallery, messages]);
 
   const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long" });
 
@@ -113,38 +103,6 @@ export default function MemoriesClient() {
                         />
                       </Link>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              {data.posts.length > 0 && (
-                <div className="mb-4">
-                  <h3 className="mb-2 flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-white/40">
-                    <Newspaper size={13} /> Posts
-                  </h3>
-                  <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
-                    {data.posts
-                      .filter((p) => p.media_id)
-                      .map((p) => (
-                        <Link
-                          key={p.id}
-                          href={p.author ? `/people/${encodeURIComponent(p.author)}?tab=photos` : "/posts"}
-                          className="relative aspect-square overflow-hidden rounded-lg bg-white/5"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={`/api/posts/media/${p.media_id}?size=thumb`}
-                            alt={p.caption ?? ""}
-                            loading="lazy"
-                            className="h-full w-full object-cover"
-                          />
-                          {p.author && (
-                            <span className="absolute inset-x-0 bottom-0 truncate bg-gradient-to-t from-black/70 to-transparent px-1.5 pb-1 pt-3 text-[10px] text-white/90">
-                              @{p.author}
-                            </span>
-                          )}
-                        </Link>
-                      ))}
                   </div>
                 </div>
               )}

@@ -48,6 +48,11 @@ export default async function SettingsPage() {
       bgTheme={appearance.bgTheme}
       accentPresets={ACCENT_PRESETS}
       bgThemes={bgThemes}
+      profile={{
+        username: profile.username,
+        display_name: profile.display_name,
+        bio: profile.bio,
+      }}
     />
   );
 }

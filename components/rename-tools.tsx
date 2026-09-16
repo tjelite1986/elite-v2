@@ -6,10 +6,9 @@ import { cn } from "@/lib/utils";
 
 // No shorts of either kind: the main library moved to tikshortis and the 18+
 // one to adshortis, and each app renames its own clips.
-type Section = "posts" | "gallery";
+type Section = "gallery";
 
 const SECTION_LABELS: Record<Section, string> = {
-  posts: "Photos (Posts)",
   gallery: "Gallery",
 };
 
@@ -27,12 +26,10 @@ export default function RenameTools({
   perms,
 }: {
   isAdmin: boolean;
-  perms: { posts: boolean; gallery: boolean };
+  perms: { gallery: boolean };
 }) {
-  const sections = (["posts", "gallery"] as Section[]).filter(
-    (s) => perms[s]
-  );
-  const [section, setSection] = useState<Section>(sections[0] ?? "posts");
+  const sections = (["gallery"] as Section[]).filter((s) => perms[s]);
+  const [section, setSection] = useState<Section>(sections[0] ?? "gallery");
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
