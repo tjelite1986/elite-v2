@@ -144,6 +144,11 @@ export async function GET(req: NextRequest) {
   if (!ALLOWED_PROTOCOLS.has(target.protocol)) {
     return NextResponse.json({ error: "Unsupported protocol" }, { status: 400 });
   }
+  // Standard web ports only: image hosts never need others, and an arbitrary
+  // port turns the proxy into a scanner for services on public addresses.
+  if (target.port !== "" && target.port !== "80" && target.port !== "443") {
+    return NextResponse.json({ error: "Unsupported port" }, { status: 400 });
+  }
 
   // Resolve and reject if ANY resolved address is private/reserved.
   let resolved: { address: string; family: number }[];
@@ -163,8 +168,10 @@ export async function GET(req: NextRequest) {
       );
     }
   }
-  // Pin to the first validated address so the socket can't be rebound.
-  const pinned = resolved[0];
+  // Pin to a validated address so the socket can't be rebound. Prefer IPv4:
+  // the container network has no IPv6 route, so an AAAA-first answer would
+  // fail with ENETUNREACH although the host is reachable over IPv4.
+  const pinned = resolved.find((r) => r.family === 4) ?? resolved[0];
 
   let result: { status: number; contentType: string; body: Buffer };
   try {
