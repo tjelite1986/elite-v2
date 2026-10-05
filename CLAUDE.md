@@ -71,7 +71,7 @@ Things that broke before or decisions not to undo. Each rule has its reason.
 - **`rename` across mounts throws EXDEV.** Keep staging folders on the same mount as their target, or copy, mutate the copy, rename, and unlink the original last.
 - **Route handlers keep running after the client disconnects.** Clients give up at about 300 s (undici) or at the proxy, so a retry overlaps the first run and creates duplicates. Long work must start and return (POST starts, GET reports, the UI polls). Keep the in-flight lock in `lib/user-import.ts` (`alreadyRunning`).
 - **Use promisified `execFile` (niced) for scan and transcode work, not `execFileSync`.** Sync calls block the event loop, which also runs the WebSocket server. Scan and transcode must not overlap.
-- **`Readable.toWeb(fs.createReadStream())` throws an uncaught `ERR_INVALID_STATE` when the client aborts** (video seeks, scrolling away). Existing stream routes still use it. For new file routes, pump by hand with `enqueue` in try/catch and destroy the stream on failure.
+- **Never return `Readable.toWeb(...)` from a route: it throws an uncaught `ERR_INVALID_STATE` when the client aborts** (video seeks, scrolling away, cancelled zip downloads). Use `toWebStream(stream, request.signal)` / `fileStream()` from `lib/node-stream.ts`.
 - **dHash and SSIM are colour-blind.** Keep the colour-mode check (`sameColourMode` and `MONO_SAT` in `scripts/lib/image-dupe.mjs`) at confirm time, or black-and-white edits get parked as duplicates.
 - **Rows with `manual = 1` (performers and links) are owned by humans.** Automatic passes must not delete or overwrite them. Slugs are derived once (`freeSlug`) and never re-derived on rename.
 

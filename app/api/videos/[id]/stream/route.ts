@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { Readable } from "node:stream";
+import { toWebStream } from "@/lib/node-stream";
 import { getSession } from "@/lib/auth";
 import { canAccessVideoChannel, getVideo } from "@/lib/videos";
 import {
@@ -81,7 +81,7 @@ export async function GET(
     }
     const stream = fs.createReadStream(filePath, { start, end });
     return new NextResponse(
-      Readable.toWeb(stream) as unknown as ReadableStream,
+      toWebStream(stream, request.signal),
       {
         status: 206,
         headers: {
@@ -94,7 +94,7 @@ export async function GET(
   }
 
   const stream = fs.createReadStream(filePath);
-  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+  return new NextResponse(toWebStream(stream, request.signal), {
     status: 200,
     headers: { ...headers, "Content-Length": String(size) },
   });

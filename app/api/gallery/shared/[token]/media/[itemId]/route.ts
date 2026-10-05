@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { Readable } from "node:stream";
+import { toWebStream } from "@/lib/node-stream";
 import { sharedItemFile } from "@/lib/album-share";
 import {
   originalPathFor,
@@ -38,7 +38,7 @@ export async function GET(
         : thumbPathFor(file.owner_id, file.storage_key);
     if (!fs.existsSync(path)) return new NextResponse("Not found", { status: 404 });
     return new NextResponse(
-      Readable.toWeb(fs.createReadStream(path)) as unknown as ReadableStream,
+      toWebStream(fs.createReadStream(path), request.signal),
       {
         headers: {
           "Content-Type": "image/jpeg",
@@ -60,7 +60,7 @@ export async function GET(
     : imageMimeFor(file.storage_key);
   const safe = /^(image|video)\//.test(detected);
   return new NextResponse(
-    Readable.toWeb(fs.createReadStream(path)) as unknown as ReadableStream,
+    toWebStream(fs.createReadStream(path), request.signal),
     {
       headers: {
         "Content-Type": safe ? detected : "application/octet-stream",

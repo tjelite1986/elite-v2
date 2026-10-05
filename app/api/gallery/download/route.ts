@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { Readable } from "node:stream";
+import { toWebStream } from "@/lib/node-stream";
 import { ZipArchive } from "archiver";
 import { GalleryItemRow } from "@/lib/db";
 import { qb, getAll } from "@/lib/kysely";
@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   }
   archive.finalize();
 
-  return new NextResponse(Readable.toWeb(archive) as unknown as ReadableStream, {
+  return new NextResponse(toWebStream(archive, request.signal), {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="elite-photos-${Date.now()}.zip"`,

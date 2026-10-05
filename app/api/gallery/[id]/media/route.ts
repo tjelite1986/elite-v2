@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { Readable } from "node:stream";
+import { toWebStream } from "@/lib/node-stream";
 import { GalleryItemRow } from "@/lib/db";
 import { qb, getOne } from "@/lib/kysely";
 import { getSession } from "@/lib/auth";
@@ -61,7 +61,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
       return new NextResponse("Not found", { status: 404 });
     }
     const stream = fs.createReadStream(filePath);
-    return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+    return new NextResponse(toWebStream(stream, request.signal), {
       headers: {
         "Content-Type": "image/jpeg",
         "Content-Length": String(fs.statSync(filePath).size),
@@ -99,7 +99,7 @@ export async function GET(request: Request, props: { params: Promise<{ id: strin
     "Content-Disposition": `attachment; filename="${item.filename.replace(/"/g, "")}"`,
   };
   const stream = fs.createReadStream(filePath);
-  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, { headers });
+  return new NextResponse(toWebStream(stream, request.signal), { headers });
 }
 
 // Stream a file with Range support (206 partial content). Used for video so the
@@ -143,7 +143,7 @@ function streamFile(
       });
     }
     const stream = fs.createReadStream(filePath, { start, end });
-    return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+    return new NextResponse(toWebStream(stream, request.signal), {
       status: 206,
       headers: {
         ...headers,
@@ -154,7 +154,7 @@ function streamFile(
   }
 
   const stream = fs.createReadStream(filePath);
-  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+  return new NextResponse(toWebStream(stream, request.signal), {
     status: 200,
     headers: { ...headers, "Content-Length": String(size) },
   });

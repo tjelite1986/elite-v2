@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { Readable } from "node:stream";
+import { toWebStream } from "@/lib/node-stream";
 import { getSession } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { db } from "@/lib/db";
@@ -36,7 +36,7 @@ export async function GET(_request: Request, props: { params: Promise<{ slug: st
   }
 
   const stream = fs.createReadStream(filePath);
-  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+  return new NextResponse(toWebStream(stream, _request.signal), {
     headers: {
       "Content-Type": "image/jpeg",
       "Content-Length": String(fs.statSync(filePath).size),

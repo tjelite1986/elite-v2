@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import { Readable } from "node:stream";
+import { toWebStream } from "@/lib/node-stream";
 import { getSession } from "@/lib/auth";
 import { getBook } from "@/lib/books";
 import { bookFilePath, isUnderBooksRoot } from "@/lib/books-storage";
@@ -52,7 +52,7 @@ export async function GET(request: Request, props: { params: Promise<{ slug: str
       });
     }
     const stream = fs.createReadStream(filePath, { start, end });
-    return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+    return new NextResponse(toWebStream(stream, request.signal), {
       status: 206,
       headers: {
         ...baseHeaders,
@@ -63,7 +63,7 @@ export async function GET(request: Request, props: { params: Promise<{ slug: str
   }
 
   const stream = fs.createReadStream(filePath);
-  return new NextResponse(Readable.toWeb(stream) as unknown as ReadableStream, {
+  return new NextResponse(toWebStream(stream, request.signal), {
     headers: { ...baseHeaders, "Content-Length": String(size) },
   });
 }
